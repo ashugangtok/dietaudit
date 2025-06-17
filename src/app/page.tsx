@@ -91,7 +91,7 @@ export default function Home() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="bg-muted p-1 rounded-md">
             <TabsTrigger value="uploadExcel" className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Upload Excel</TabsTrigger>
-            <TabsTrigger value="extractedData" disabled={!isFileUploaded} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Extracted Data</TabsTrigger>
+            <TabsTrigger value="extractedData" disabled={!isFileUploaded && !isProcessingFile} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Extracted Data</TabsTrigger>
           </TabsList>
 
           <TabsContent value="uploadExcel" className="mt-6">
@@ -120,11 +120,17 @@ export default function Home() {
           <TabsContent value="extractedData" className="mt-6">
             {isProcessingFile && (
               <Card>
-                <CardContent className="p-6">
+                <CardHeader>
+                  <CardTitle>Processing File...</CardTitle>
+                  <CardDescription>Extracting data, please wait.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-6 space-y-4">
                     <div className="flex items-center space-x-2">
                         <Skeleton className="h-8 w-8 rounded-full" />
                         <Skeleton className="h-6 w-48" />
                     </div>
+                    <Skeleton className="h-10 w-full" /> 
+                    <Skeleton className="h-20 w-full" />
                     <Skeleton className="h-4 w-full mt-4" />
                     <Skeleton className="h-4 w-3/4 mt-2" />
                 </CardContent>
@@ -168,3 +174,4 @@ export default function Home() {
     </main>
   );
 }
+

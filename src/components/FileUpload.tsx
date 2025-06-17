@@ -61,7 +61,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
     }
 
     setIsCurrentlyProcessing(true);
-    onProcessing(true);
+    onProcessing(true); // Signal to parent that processing has started
     const reader = new FileReader();
 
     reader.onload = (e) => {
@@ -75,27 +75,25 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         const jsonData = XLSX.utils.sheet_to_json<DietDataRow>(worksheet, {
           header: 1, 
           defval: "", 
-          blankrows: false, // Ensure blank rows are not included as data
+          blankrows: false, 
         });
 
-        if (jsonData.length === 0) { // No rows at all
+        if (jsonData.length === 0) {
           throw new Error("Excel file is completely empty or contains no readable sheets.");
         }
         
         let headers = (jsonData[0] as any[]).map(String); 
-        // Filter out completely empty header cells
         headers = headers.filter(header => header.trim() !== "");
 
-        if (headers.length === 0 && jsonData.length <=1 ) { // Only one row, and it's empty after filtering headers
+        if (headers.length === 0 && jsonData.length <=1 ) {
              throw new Error("Excel file has no valid headers or data.");
         }
-
 
         const uniqueHeaders = headers.map((header, index) => {
           let count = 0;
           let newHeader = header;
           let originalHeader = header;
-          const tempHeaders = [...headers]; // Work on a copy for checking duplicates
+          const tempHeaders = [...headers]; 
           while (tempHeaders.filter((h,i) => i < index && h === originalHeader).length > 0 || (tempHeaders.filter(h => h === newHeader).length > 1 && tempHeaders.indexOf(newHeader) !== index) ) {
             count++;
             newHeader = `${originalHeader}_${count}`;
@@ -103,7 +101,6 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
           return newHeader;
         });
         
-        // Find the first row that is not entirely empty to be considered as header.
         let headerRowIndex = 0;
         let actualHeaders: string[] = [];
         for (let i = 0; i < jsonData.length; i++) {
@@ -112,7 +109,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
                 headerRowIndex = i;
                 actualHeaders = potentialHeaderRow.map((header, idx) => {
                     let count = 0;
-                    let newHeader = header.trim() || `column_${idx+1}`; // Use column_N if header is empty
+                    let newHeader = header.trim() || `column_${idx+1}`; 
                     const tempHeaders = [...potentialHeaderRow];
                     while(tempHeaders.filter((h,k) => k < idx && h === header.trim()).length > 0 || (tempHeaders.filter(h => h === newHeader).length > 1 && tempHeaders.indexOf(newHeader) !== idx) ) {
                         count++;
@@ -131,10 +128,10 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         const parsedData: DietDataRow[] = jsonData.slice(headerRowIndex + 1).map((rowArray: any) => {
           const rowObject: DietDataRow = {};
           actualHeaders.forEach((header, index) => {
-            rowObject[header] = rowArray[index] !== undefined ? rowArray[index] : ""; // Ensure undefined becomes empty string
+            rowObject[header] = rowArray[index] !== undefined ? rowArray[index] : ""; 
           });
           return rowObject;
-        }).filter(row => Object.values(row).some(val => val !== undefined && String(val).trim() !== "")); // Filter out completely empty data rows
+        }).filter(row => Object.values(row).some(val => val !== undefined && String(val).trim() !== "")); 
 
 
         if (parsedData.length === 0 && actualHeaders.length > 0) {
@@ -162,7 +159,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         onDataParsed([], []); 
       } finally {
         setIsCurrentlyProcessing(false);
-        onProcessing(false);
+        onProcessing(false); // Signal to parent that processing has finished
       }
     };
 
@@ -173,7 +170,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         description: "Could not read the selected file.",
       });
       setIsCurrentlyProcessing(false);
-      onProcessing(false);
+      onProcessing(false); // Signal to parent that processing has finished (due to error)
     };
 
     reader.readAsBinaryString(selectedFile);
@@ -191,7 +188,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
           type="file" 
           accept=".xlsx, .xls" 
           onChange={handleFileChange}
-          className="hidden" // Keep it hidden
+          className="hidden" 
           aria-describedby="file-upload-help"
         />
         <span className="text-sm text-muted-foreground truncate" style={{maxWidth: '200px'}}>{fileName}</span>
