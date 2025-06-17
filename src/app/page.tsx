@@ -34,7 +34,7 @@ export default function Home() {
   const handleDataParsed = useCallback(async (data: DietDataRow[], headers: string[]) => {
     setRawData(data);
     setAllHeaders(headers);
-    setIsProcessingFile(false); // Ensure processing is set to false
+    setIsProcessingFile(false); 
     setIsFileUploaded(true);
     setActiveTab("extractedData");
 
@@ -133,17 +133,7 @@ export default function Home() {
             )}
             {!isProcessingFile && isFileUploaded && rawData.length > 0 && (
               <div className="space-y-6">
-                <DataTableControls
-                  allHeaders={allHeaders}
-                  groupings={groupings}
-                  setGroupings={setGroupings}
-                  summaries={summaries}
-                  setSummaries={setSummaries}
-                  filters={filters}
-                  setFilters={setFilters}
-                  processedData={processedData}
-                  currentColumns={currentTableColumns}
-                />
+                {/* DataTableControls component removed from here */}
                 <DataTable data={processedData} columns={currentTableColumns} grandTotalRow={grandTotalRow} />
               </div>
             )}
