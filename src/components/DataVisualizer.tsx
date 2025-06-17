@@ -34,29 +34,40 @@ const DataVisualizer: React.FC = () => {
   const handleDataParsed = useCallback(async (data: DietDataRow[], headers: string[]) => {
     setRawData(data);
     setAllHeaders(headers);
-    setFilters([]); // Reset filters
     setAiSuggestions(null); // Reset AI suggestions
 
-    // Set default groupings and summaries for the desired pivot view
+    // Set default groupings based on the pivot table image
     const defaultGroupings: GroupingOption[] = ['common_name', 'diet_no', 'group_name', 'type_name', 'ingredient_name']
       .filter(h => headers.includes(h))
       .map(col => ({ column: col }));
     setGroupings(defaultGroupings);
 
-    const defaultSummaries: SummarizationOption[] = (headers.includes('ingredient_qty') && headers.includes('base_uom_name'))
+    // Set default summary based on the pivot table image (Sum of ingredient_qty)
+    const defaultSummaries: SummarizationOption[] = (headers.includes('ingredient_qty'))
       ? [{ column: 'ingredient_qty', type: 'sum' }]
       : [];
     setSummaries(defaultSummaries);
+
+    // Set default filters based on the pivot table image
+    const defaultFilters: FilterOption[] = [];
+    if (headers.includes('section_name')) {
+      defaultFilters.push({ column: 'section_name', value: '', type: 'contains' });
+    }
+    if (headers.includes('meal_time')) {
+      defaultFilters.push({ column: 'meal_time', value: '', type: 'contains' });
+    }
+    setFilters(defaultFilters);
     
     if (defaultGroupings.length > 0 && defaultSummaries.length > 0) {
         toast({
-            title: "Default View Applied",
-            description: "Table configured for pivot view with ingredient quantities. Customize further as needed.",
+            title: "Default Pivot View Applied",
+            description: "Table configured to match the specified pivot layout. Customize further as needed.",
         });
     } else if (data.length > 0) {
         toast({
             title: "Data Loaded",
-            description: "Could not apply default pivot view. Necessary columns (e.g., ingredient_qty, base_uom_name, or grouping columns) might be missing. Configure manually.",
+            description: "Could not apply full default pivot view. Some necessary columns might be missing. Configure manually.",
+            variant: "default"
         });
     }
 
@@ -143,7 +154,7 @@ const DataVisualizer: React.FC = () => {
             <Card>
               <CardHeader>
                 <CardTitle>Data Configuration</CardTitle>
-                <CardDescription>Adjust groupings, summaries, filters. Default pivot view applied if applicable.</CardDescription>
+                <CardDescription>Adjust groupings, summaries, filters. Default pivot view applied based on image specification.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {isAISuggesting && ( // Kept for potential future use with AI suggestions
@@ -156,18 +167,6 @@ const DataVisualizer: React.FC = () => {
                     </AlertDescription>
                   </Alert>
                 )}
-                {/* Displaying AI suggestions can be re-enabled if needed */}
-                {/* {aiSuggestions && !isAISuggesting && (
-                  <Alert variant="default" className="bg-primary/10 border-primary/30">
-                    <Lightbulb className="h-4 w-4 text-primary" />
-                    <AlertTitle className="text-primary">AI Suggestions</AlertTitle>
-                    <AlertDescription className="text-foreground/80">
-                      Initial configuration set by AI. Customize below as needed.
-                      {aiSuggestions.groupingSuggestions?.length > 0 && <p className="mt-1 text-sm">Suggested grouping: {aiSuggestions.groupingSuggestions.join(', ')}</p>}
-                      {aiSuggestions.summarizationSuggestions?.length > 0 && <p className="text-sm">Suggested summaries for: {aiSuggestions.summarizationSuggestions.join(', ')}</p>}
-                    </AlertDescription>
-                  </Alert>
-                )} */}
                 <DataTableControls
                     allHeaders={allHeaders}
                     groupings={groupings}
@@ -208,4 +207,3 @@ const DataVisualizer: React.FC = () => {
 };
 
 export default DataVisualizer;
-
