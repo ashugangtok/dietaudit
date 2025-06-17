@@ -47,25 +47,34 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
     <ScrollArea className="whitespace-nowrap rounded-md border" style={{ maxHeight: '600px', overflow: 'auto' }}>
       <Table className="min-w-full">
         <TableCaption>Dietary Data Overview</TableCaption>
-        <TableHeader className="sticky top-0 bg-background z-10">
+        <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
           <TableRow>
             {displayColumns.map((column) => (
-              <TableHead key={column} className="font-semibold">{column.replace(/_/g, ' ')}</TableHead>
+              <TableHead key={column} className="font-semibold whitespace-nowrap">{column.replace(/_/g, ' ')}</TableHead>
             ))}
           </TableRow>
         </TableHeader>
         <TableBody>
           {data.map((row, rowIndex) => (
-            <TableRow key={rowIndex} className={row.note === PIVOT_SUBTOTAL_MARKER ? "bg-secondary/70 font-semibold" : ""}>
+            <TableRow 
+                key={rowIndex} 
+                className={row.note === PIVOT_SUBTOTAL_MARKER ? "bg-secondary/70 font-semibold" : ""}
+                data-testid={`data-row-${rowIndex}`}
+            >
               {displayColumns.map((column) => {
                 let cellContent;
-                if (row[column] === PIVOT_BLANK_MARKER) {
+                const cellValue = row[column];
+
+                if (cellValue === PIVOT_BLANK_MARKER) {
                   cellContent = '';
+                } else if (typeof cellValue === 'number') {
+                  // Format numbers to 2 decimal places if they are not integers
+                  cellContent = Number.isInteger(cellValue) ? String(cellValue) : cellValue.toFixed(2);
                 } else {
-                  cellContent = (row[column] === undefined || row[column] === null ? '-' : String(row[column]));
+                  cellContent = (cellValue === undefined || cellValue === null ? '' : String(cellValue));
                 }
                 return (
-                  <TableCell key={column}>
+                  <TableCell key={column} className="whitespace-nowrap">
                     {cellContent}
                   </TableCell>
                 );
@@ -74,25 +83,24 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
           ))}
         </TableBody>
         {grandTotalRow && (
-          <TableFooter className="sticky bottom-0 bg-secondary font-bold z-10">
-            <TableRow>
+          <TableFooter className="sticky bottom-0 bg-secondary font-bold z-10 shadow-sm">
+            <TableRow data-testid="grand-total-row">
               {displayColumns.map((column, colIndex) => {
                 let cellValue = grandTotalRow[column];
-                // For the first column of the grand total, if it's based on a descriptive key derived from data, display that.
-                // Otherwise, if the primary note field itself isn't a direct column, show "Grand Total".
-                if (colIndex === 0) {
-                   const firstKeyForGrandTotal = Object.keys(grandTotalRow).find(k => k !=='note' && !columns.includes(k) && grandTotalRow[k] === "Grand Total");
-                   if (firstKeyForGrandTotal && column === firstKeyForGrandTotal) {
-                     cellValue = "Grand Total";
-                   } else if (columns.includes(column) && grandTotalRow[column] !== undefined) {
-                     cellValue = grandTotalRow[column];
-                   } else if (grandTotalRow.note === "Grand Total") {
-                     cellValue = "Grand Total";
-                   }
+                
+                if (colIndex === 0 && (grandTotalRow[column] === undefined || grandTotalRow[column] === PIVOT_BLANK_MARKER || grandTotalRow[column] === null)) {
+                  cellValue = "Grand Total"; 
+                } else if (colIndex !==0 && (grandTotalRow[column] === undefined || grandTotalRow[column] === null)) {
+                  cellValue = ""; // Empty for other undefined/null grand total cells
+                } else if (typeof grandTotalRow[column] === 'number') {
+                  const numVal = grandTotalRow[column] as number;
+                  cellValue = Number.isInteger(numVal) ? String(numVal) : numVal.toFixed(2);
                 }
+
+
                  return (
-                    <TableCell key={column}>
-                      {cellValue === undefined || cellValue === null ? '-' : String(cellValue)}
+                    <TableCell key={column} className="whitespace-nowrap">
+                      {String(cellValue)}
                     </TableCell>
                   );
               })}
@@ -101,6 +109,7 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
         )}
       </Table>
       <ScrollBar orientation="horizontal" />
+      <ScrollBar orientation="vertical" />
     </ScrollArea>
   );
 };

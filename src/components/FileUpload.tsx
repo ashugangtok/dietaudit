@@ -18,13 +18,15 @@ interface FileUploadProps {
 
 const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [fileName, setFileName] = useState<string>("No file chosen");
   const { toast } = useToast();
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       const file = event.target.files[0];
-      if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || file.type === 'application/vnd.ms-excel') {
+      if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || file.type === 'application/vnd.ms-excel' || file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
         setSelectedFile(file);
+        setFileName(file.name);
       } else {
         toast({
           variant: "destructive",
@@ -32,8 +34,12 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
           description: "Please upload an Excel file (.xlsx or .xls).",
         });
         setSelectedFile(null);
+        setFileName("No file chosen");
         event.target.value = ''; // Reset file input
       }
+    } else {
+      setSelectedFile(null);
+      setFileName("No file chosen");
     }
   };
 
@@ -59,36 +65,59 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json<DietDataRow>(worksheet, {
-          header: 1, // To get headers as first array
-          defval: "", // Default value for empty cells
+          header: 1, 
+          defval: "", 
         });
 
-        if (jsonData.length < 2) { // At least one header row and one data row
-          throw new Error("Excel file is empty or contains only headers.");
+        if (jsonData.length < 1) { // Check if there's any data at all, even just a header row
+          throw new Error("Excel file is empty.");
         }
         
-        const headers = (jsonData[0] as any[]).map(String); // Ensure all headers are strings
+        const headers = (jsonData[0] as any[]).map(String); 
+        // Ensure headers are unique, append index if not
+        const uniqueHeaders = headers.map((header, index) => {
+          let count = 0;
+          let newHeader = header;
+          while (headers.indexOf(newHeader) !== index) {
+            count++;
+            newHeader = `${header}_${count}`;
+          }
+          return newHeader;
+        });
+
         const parsedData: DietDataRow[] = jsonData.slice(1).map((rowArray: any) => {
           const rowObject: DietDataRow = {};
-          headers.forEach((header, index) => {
+          uniqueHeaders.forEach((header, index) => {
             rowObject[header] = rowArray[index];
           });
           return rowObject;
         });
         
-        onDataParsed(parsedData, headers);
-        toast({
-          title: "File Parsed Successfully",
-          description: `${parsedData.length} rows of data loaded.`,
-        });
+        if (parsedData.length === 0 && uniqueHeaders.length > 0) {
+            toast({
+                variant: "default",
+                title: "File Contains Only Headers",
+                description: "The Excel file seems to contain only headers and no data rows.",
+            });
+            onDataParsed([], uniqueHeaders); // Pass headers even if no data
+        } else if (parsedData.length === 0 && uniqueHeaders.length === 0) {
+             throw new Error("Excel file is empty or has no recognizable headers.");
+        } else {
+            onDataParsed(parsedData, uniqueHeaders);
+            toast({
+              title: "File Parsed Successfully",
+              description: `${parsedData.length} rows of data loaded.`,
+            });
+        }
+
       } catch (error) {
         console.error("Error parsing Excel file:", error);
         toast({
           variant: "destructive",
           title: "Error Parsing File",
-          description: error instanceof Error ? error.message : "An unknown error occurred.",
+          description: error instanceof Error ? error.message : "An unknown error occurred during parsing.",
         });
-        onDataParsed([], []); // Clear any existing data
+        onDataParsed([], []); 
       } finally {
         onProcessing(false);
       }
@@ -107,23 +136,29 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
   };
 
   return (
-    <div className="space-y-4 p-6 bg-card rounded-lg shadow">
-      <h2 className="text-xl font-semibold text-card-foreground">Upload Dietary Data</h2>
-      <div className="grid w-full max-w-sm items-center gap-2">
-        <Label htmlFor="excel-file" className="sr-only">Upload Excel File</Label>
-        <Input 
-          id="excel-file" 
-          type="file" 
-          accept=".xlsx, .xls" 
-          onChange={handleFileChange}
-          aria-describedby="file-upload-help"
-        />
-        <p id="file-upload-help" className="text-sm text-muted-foreground">
-          Supported formats: .xlsx, .xls.
-        </p>
+    <div className="space-y-4">
+      <div className="flex items-center space-x-2">
+        <Label htmlFor="excel-file" className="sr-only">Choose File</Label>
+        <Button asChild variant="outline" className="cursor-pointer">
+            <div>
+                <UploadCloud className="mr-2 h-4 w-4" /> Choose File
+                <Input 
+                  id="excel-file" 
+                  type="file" 
+                  accept=".xlsx, .xls" 
+                  onChange={handleFileChange}
+                  className="sr-only" 
+                  aria-describedby="file-upload-help"
+                />
+            </div>
+        </Button>
+        <span className="text-sm text-muted-foreground truncate" style={{maxWidth: '200px'}}>{fileName}</span>
       </div>
-      <Button onClick={handleFileUpload} disabled={!selectedFile} aria-label="Upload and process file">
-        <UploadCloud className="mr-2 h-4 w-4" /> Upload & Process
+       <p id="file-upload-help" className="text-sm text-muted-foreground">
+          Please upload an Excel file (.xlsx) with the diet plan.
+        </p>
+      <Button onClick={handleFileUpload} disabled={!selectedFile || isProcessingFile} className="w-full sm:w-auto">
+        <UploadCloud className="mr-2 h-4 w-4" /> Upload and Process
       </Button>
     </div>
   );
