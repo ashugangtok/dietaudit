@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import type React from 'react';
 import FileUpload from '@/components/FileUpload';
 import DataTableControls from '@/components/DataTableControls';
@@ -10,6 +11,7 @@ import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption, AI
 import { suggestTableConfiguration, type SuggestTableConfigurationInput } from '@/ai/flows/suggest-table-configuration';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Lightbulb } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
@@ -41,7 +43,6 @@ const DataVisualizer: React.FC = () => {
     if (data.length > 0 && headers.length > 0) {
       setIsAISuggesting(true);
       try {
-        // Prepare a sample of data for AI (e.g., first 10 rows)
         const dataSample = data.slice(0, 10).map(row => 
           headers.map(header => String(row[header] ?? '')).join(', ')
         ).join('\n');
@@ -53,7 +54,6 @@ const DataVisualizer: React.FC = () => {
         const suggestions = await suggestTableConfiguration(input);
         setAiSuggestions(suggestions);
         
-        // Apply initial suggestions
         if (suggestions.groupingSuggestions?.length) {
           setGroupings(suggestions.groupingSuggestions.filter(sg => headers.includes(sg)).map(col => ({ column: col })));
         }
@@ -61,9 +61,9 @@ const DataVisualizer: React.FC = () => {
            const numericHeaders = headers.filter(h => data.some(row => typeof row[h] === 'number'));
            setSummaries(
             suggestions.summarizationSuggestions
-              .filter(ss => numericHeaders.includes(ss)) // Ensure suggested summary column exists and is numeric-like
-              .map(col => ({ column: col, type: 'sum' })) // Default to sum
-              .slice(0, 2) // Limit initial summaries
+              .filter(ss => numericHeaders.includes(ss)) 
+              .map(col => ({ column: col, type: 'sum' })) 
+              .slice(0, 2) 
           );
         }
          toast({
@@ -88,8 +88,8 @@ const DataVisualizer: React.FC = () => {
     <div className="container mx-auto p-4 space-y-8">
       <Card>
         <CardHeader>
-          <CardTitle>Upload and Configuration</CardTitle>
-          <CardDescription>Upload your Excel file and configure the data table view.</CardDescription>
+          <CardTitle>Upload Data</CardTitle>
+          <CardDescription>Upload your Excel file to begin analysis.</CardDescription>
         </CardHeader>
         <CardContent>
           <FileUpload onDataParsed={handleDataParsed} onProcessing={setIsProcessingFile} />
@@ -110,34 +110,39 @@ const DataVisualizer: React.FC = () => {
       )}
 
       {!isProcessingFile && rawData.length > 0 && (
-        <>
-          {isAISuggesting && (
-             <Alert>
-              <Lightbulb className="h-4 w-4" />
-              <AlertTitle>AI at Work!</AlertTitle>
-              <AlertDescription>
-                Generating smart suggestions for your table configuration...
-                <Skeleton className="h-4 w-full mt-2" />
-              </AlertDescription>
-            </Alert>
-          )}
-          {aiSuggestions && !isAISuggesting && (
-            <Alert variant="default" className="bg-primary/10 border-primary/30">
-              <Lightbulb className="h-4 w-4 text-primary" />
-              <AlertTitle className="text-primary">AI Suggestions</AlertTitle>
-              <AlertDescription className="text-foreground/80">
-                Initial configuration set by AI. Customize grouping, summaries, and filters below as needed.
-                {aiSuggestions.groupingSuggestions?.length > 0 && <p className="mt-1 text-sm">Suggested grouping: {aiSuggestions.groupingSuggestions.join(', ')}</p>}
-                {aiSuggestions.summarizationSuggestions?.length > 0 && <p className="text-sm">Suggested summaries for: {aiSuggestions.summarizationSuggestions.join(', ')}</p>}
-              </AlertDescription>
-            </Alert>
-          )}
-          <Card>
-             <CardHeader>
-                <CardTitle>Data Controls</CardTitle>
-                <CardDescription>Adjust how your data is grouped, summarized, and filtered.</CardDescription>
-            </CardHeader>
-            <CardContent>
+        <Tabs defaultValue="configure" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="configure">Configure View</TabsTrigger>
+            <TabsTrigger value="data">Extracted Data</TabsTrigger>
+          </TabsList>
+          <TabsContent value="configure">
+            <Card>
+              <CardHeader>
+                <CardTitle>Data Configuration</CardTitle>
+                <CardDescription>Adjust groupings, summaries, filters. AI suggestions will also appear here.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {isAISuggesting && (
+                  <Alert>
+                    <Lightbulb className="h-4 w-4" />
+                    <AlertTitle>AI at Work!</AlertTitle>
+                    <AlertDescription>
+                      Generating smart suggestions for your table configuration...
+                      <Skeleton className="h-4 w-full mt-2" />
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {aiSuggestions && !isAISuggesting && (
+                  <Alert variant="default" className="bg-primary/10 border-primary/30">
+                    <Lightbulb className="h-4 w-4 text-primary" />
+                    <AlertTitle className="text-primary">AI Suggestions</AlertTitle>
+                    <AlertDescription className="text-foreground/80">
+                      Initial configuration set by AI. Customize below as needed.
+                      {aiSuggestions.groupingSuggestions?.length > 0 && <p className="mt-1 text-sm">Suggested grouping: {aiSuggestions.groupingSuggestions.join(', ')}</p>}
+                      {aiSuggestions.summarizationSuggestions?.length > 0 && <p className="text-sm">Suggested summaries for: {aiSuggestions.summarizationSuggestions.join(', ')}</p>}
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <DataTableControls
                     allHeaders={allHeaders}
                     groupings={groupings}
@@ -149,20 +154,23 @@ const DataVisualizer: React.FC = () => {
                     processedData={processedData}
                     currentColumns={currentTableColumns}
                 />
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader>
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="data">
+            <Card>
+              <CardHeader>
                 <CardTitle>Processed Data Table</CardTitle>
                 <CardDescription>View your analyzed dietary data.</CardDescription>
-            </CardHeader>
-            <CardContent>
+              </CardHeader>
+              <CardContent>
                 <DataTable data={processedData} columns={currentTableColumns} grandTotalRow={grandTotalRow} />
-            </CardContent>
-          </Card>
-        </>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       )}
+      
       {!isProcessingFile && rawData.length === 0 && (
         <Card>
             <CardContent className="p-6 text-center text-muted-foreground">
