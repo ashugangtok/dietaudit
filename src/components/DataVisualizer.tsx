@@ -36,34 +36,43 @@ const DataVisualizer: React.FC = () => {
     setAllHeaders(headers);
     setAiSuggestions(null); 
 
-    const defaultGroupings: GroupingOption[] = ['common_name', 'diet_no', 'group_name', 'type_name', 'ingredient_name']
+    // Default Pivot Table Configuration
+    const defaultPivotGroupings: GroupingOption[] = [
+      'group_name', 
+      'common_name', 
+      'meal_start_time', 
+      'diet_name', 
+      'type_name', 
+      'ingredient_name',
+      'base_uom_name' // Added as per pivot row definition
+    ]
       .filter(h => headers.includes(h))
       .map(col => ({ column: col }));
-    setGroupings(defaultGroupings);
+    setGroupings(defaultPivotGroupings);
 
-    const defaultSummaries: SummarizationOption[] = (headers.includes('ingredient_qty'))
+    const defaultPivotSummaries: SummarizationOption[] = (headers.includes('ingredient_qty'))
       ? [{ column: 'ingredient_qty', type: 'sum' }]
       : [];
-    setSummaries(defaultSummaries);
+    setSummaries(defaultPivotSummaries);
 
-    const defaultFilters: FilterOption[] = [];
+    const defaultPivotFilters: FilterOption[] = [];
     if (headers.includes('section_name')) {
-      defaultFilters.push({ column: 'section_name', value: '', type: 'contains' });
+      defaultPivotFilters.push({ column: 'section_name', value: '', type: 'contains' });
     }
     if (headers.includes('meal_time')) {
-      defaultFilters.push({ column: 'meal_time', value: '', type: 'contains' });
+      defaultPivotFilters.push({ column: 'meal_time', value: '', type: 'contains' });
     }
-    setFilters(defaultFilters);
+    setFilters(defaultPivotFilters);
     
-    if (defaultGroupings.length > 0 || defaultSummaries.length > 0) { // Adjusted condition
+    if (defaultPivotGroupings.length > 0 || defaultPivotSummaries.length > 0) {
         toast({
-            title: "Default View Applied",
-            description: "Table configured with default groupings and summaries. Customize further as needed.",
+            title: "Default Pivot View Applied",
+            description: "Table configured with pivot groupings, summary, and filters. Customize further as needed.",
         });
     } else if (data.length > 0) {
         toast({
             title: "Data Loaded",
-            description: "Could not apply full default view. Some necessary columns might be missing. Configure manually.",
+            description: "Could not apply full default pivot view. Some necessary columns might be missing. Configure manually.",
             variant: "default"
         });
     }
@@ -104,7 +113,7 @@ const DataVisualizer: React.FC = () => {
             <Card>
               <CardHeader>
                 <CardTitle>Data Configuration</CardTitle>
-                <CardDescription>Adjust groupings, summaries, and filters. Default view applied based on common pivot configurations.</CardDescription>
+                <CardDescription>Adjust groupings, summaries, and filters. Default pivot view applied based on common configurations.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {isAISuggesting && ( 
@@ -157,3 +166,4 @@ const DataVisualizer: React.FC = () => {
 };
 
 export default DataVisualizer;
+
