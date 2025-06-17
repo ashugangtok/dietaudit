@@ -1,3 +1,4 @@
+
 "use client";
 
 import type React from 'react';
@@ -66,7 +67,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
           throw new Error("Excel file is empty or contains only headers.");
         }
         
-        const headers = jsonData[0] as string[];
+        const headers = (jsonData[0] as any[]).map(String); // Ensure all headers are strings
         const parsedData: DietDataRow[] = jsonData.slice(1).map((rowArray: any) => {
           const rowObject: DietDataRow = {};
           headers.forEach((header, index) => {
