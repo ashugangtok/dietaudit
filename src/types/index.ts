@@ -40,8 +40,8 @@ export interface SummarizationOption {
 
 export interface FilterOption {
   column: string;
-  value: string | number | string[] | number[]; // Can be single value, array for multi-select, or range
-  type: 'equals' | 'contains' | 'in' | 'range_number' | 'range_date';
+  value: string | number | string[] | number[] | 'all' | 'before6am' | '6to12' | '12to6' | 'after6pm'; // Can be single value, array for multi-select, or range
+  type: 'equals' | 'contains' | 'in' | 'range_number' | 'range_date' | 'timeOfDay';
 }
 
 export interface AISuggestions {
@@ -79,4 +79,4 @@ export const EXPECTED_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
 ];
 export const PIVOT_COLUMN_FIELD: keyof DietDataRow = 'base_uom_name';
 export const PIVOT_VALUE_FIELD: keyof DietDataRow = 'ingredient_qty';
-export const PIVOT_DEFAULT_FILTERS: (keyof DietDataRow)[] = ['section_name', 'meal_time'];
+export const PIVOT_DEFAULT_FILTERS: (keyof DietDataRow)[] = []; // Removed section_name, meal_time as InteractiveFilters handles them

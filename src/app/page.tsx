@@ -2,17 +2,18 @@
 "use client";
 
 import type React from 'react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback }
+from 'react';
 import { Leaf } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { useTableProcessor } from '@/hooks/useTableProcessor';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption } from '@/types';
-import { EXPECTED_PIVOT_ROW_GROUPINGS, PIVOT_COLUMN_FIELD, PIVOT_VALUE_FIELD, PIVOT_DEFAULT_FILTERS } from '@/types';
+import { EXPECTED_PIVOT_ROW_GROUPINGS, PIVOT_COLUMN_FIELD, PIVOT_VALUE_FIELD } from '@/types';
 import FileUpload from '@/components/FileUpload';
-import DataTableControls from '@/components/DataTableControls';
 import DataTable from '@/components/DataTable';
+import InteractiveFilters from '@/components/InteractiveFilters';
 import { Skeleton } from '@/components/ui/skeleton';
 
 
@@ -50,14 +51,12 @@ export default function Home() {
         const defaultPivotSummaries: SummarizationOption[] = [{ column: PIVOT_VALUE_FIELD, type: 'sum' }];
         setSummaries(defaultPivotSummaries);
         
-        const defaultFiltersToAdd: FilterOption[] = PIVOT_DEFAULT_FILTERS
-            .filter(filterCol => headers.includes(filterCol as string))
-            .map(filterCol => ({ column: filterCol as string, value: '', type: 'contains' }));
-        setFilters(defaultFiltersToAdd);
+        // Removed default filters for section_name and meal_time as InteractiveFilters will handle them
+        setFilters([]); 
 
         toast({
             title: "Diet Analysis by Unit of Measure View Applied",
-            description: "Table configured to show ingredient quantities by unit of measure. Customize further as needed.",
+            description: "Table configured to show ingredient quantities by unit of measure. Customize further as needed using filters.",
         });
     } else {
         const fallbackGroupingCandidates: (keyof DietDataRow)[] = ['group_name', 'common_name', 'ingredient_name'];
@@ -77,7 +76,7 @@ export default function Home() {
         if (data.length > 0 && !canApplySpecialPivot) {
             toast({
                 title: "Data Loaded",
-                description: "Default view applied. Some columns for the 'Diet Analysis by Unit of Measure' view might be missing. Configure manually.",
+                description: "Default view applied. Some columns for the 'Diet Analysis by Unit of Measure' view might be missing. Configure manually or use filters.",
                 variant: "default"
             });
         }
@@ -133,7 +132,12 @@ export default function Home() {
             )}
             {!isProcessingFile && isFileUploaded && rawData.length > 0 && (
               <div className="space-y-6">
-                {/* DataTableControls component removed from here */}
+                <InteractiveFilters 
+                    rawData={rawData} 
+                    allHeaders={allHeaders}
+                    filters={filters}
+                    setFilters={setFilters}
+                />
                 <DataTable data={processedData} columns={currentTableColumns} grandTotalRow={grandTotalRow} />
               </div>
             )}
