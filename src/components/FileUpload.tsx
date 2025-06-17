@@ -18,6 +18,7 @@ interface FileUploadProps {
 const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string>("No file chosen");
+  const [isCurrentlyProcessing, setIsCurrentlyProcessing] = useState(false);
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -59,6 +60,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
       return;
     }
 
+    setIsCurrentlyProcessing(true);
     onProcessing(true);
     const reader = new FileReader();
 
@@ -159,6 +161,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         });
         onDataParsed([], []); 
       } finally {
+        setIsCurrentlyProcessing(false);
         onProcessing(false);
       }
     };
@@ -169,6 +172,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         title: "File Read Error",
         description: "Could not read the selected file.",
       });
+      setIsCurrentlyProcessing(false);
       onProcessing(false);
     };
 
@@ -195,7 +199,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
        <p id="file-upload-help" className="text-sm text-muted-foreground">
           Please upload an Excel file (.xlsx) with the diet plan.
         </p>
-      <Button onClick={handleFileUpload} disabled={!selectedFile || isProcessingFile} className="w-full sm:w-auto">
+      <Button onClick={handleFileUpload} disabled={!selectedFile || isCurrentlyProcessing} className="w-full sm:w-auto">
         <UploadCloud className="mr-2 h-4 w-4" /> Upload and Process
       </Button>
     </div>
@@ -203,3 +207,4 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
 };
 
 export default FileUpload;
+
