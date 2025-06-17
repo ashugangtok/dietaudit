@@ -2,11 +2,10 @@
 "use client";
 
 import type React from 'react';
-import { useState, useCallback, useEffect } from 'react';
-import { Leaf, UploadCloud } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { Leaf } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useTableProcessor } from '@/hooks/useTableProcessor';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption } from '@/types';
@@ -35,6 +34,7 @@ export default function Home() {
   const handleDataParsed = useCallback(async (data: DietDataRow[], headers: string[]) => {
     setRawData(data);
     setAllHeaders(headers);
+    setIsProcessingFile(false); // Ensure processing is set to false
     setIsFileUploaded(true);
     setActiveTab("extractedData");
 
@@ -64,7 +64,7 @@ export default function Home() {
         const availableFallbackGroupings = fallbackGroupingCandidates.filter(h => headers.includes(h as string));
         
         const fallbackGroupings: GroupingOption[] = availableFallbackGroupings.length > 0 
-            ? availableFallbackGroupings.slice(0,2).map(col => ({ column: col as string })) // Limit to 2 for fallback
+            ? availableFallbackGroupings.slice(0,2).map(col => ({ column: col as string })) 
             : headers.length > 0 ? [{ column: headers[0] }] : [];
         setGroupings(fallbackGroupings);
 
@@ -93,13 +93,6 @@ export default function Home() {
           <TabsList className="bg-muted p-1 rounded-md">
             <TabsTrigger value="uploadExcel" className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Upload Excel</TabsTrigger>
             <TabsTrigger value="extractedData" disabled={!isFileUploaded} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Extracted Data</TabsTrigger>
-            {/* Placeholder tabs from screenshot - not functional yet */}
-            <TabsTrigger value="rawMaterials" disabled={true} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Raw Materials Required</TabsTrigger>
-            <TabsTrigger value="ingredientTotals" disabled={true} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Ingredient Totals</TabsTrigger>
-            <TabsTrigger value="recipes" disabled={true} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Recipes</TabsTrigger>
-            <TabsTrigger value="comboIngredients" disabled={true} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Combo Ingredients</TabsTrigger>
-            <TabsTrigger value="choiceIngredients" disabled={true} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Choice Ingredients</TabsTrigger>
-            <TabsTrigger value="summary" disabled={true} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Summary</TabsTrigger>
           </TabsList>
 
           <TabsContent value="uploadExcel" className="mt-6">
@@ -116,6 +109,7 @@ export default function Home() {
               <Card className="w-full max-w-2xl shadow-lg">
                 <CardHeader>
                   <CardTitle>Upload Diet Plan</CardTitle>
+                  <CardDescription>Select an Excel file to begin analysis.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <FileUpload onDataParsed={handleDataParsed} onProcessing={setIsProcessingFile} />
@@ -157,6 +151,14 @@ export default function Home() {
                  <Card>
                     <CardContent className="p-6 text-center text-muted-foreground">
                         <p>No data found in the uploaded file, or filters resulted in no data.</p>
+                        <p>Please try uploading a different file or adjusting your filters.</p>
+                    </CardContent>
+                </Card>
+            )}
+             {!isProcessingFile && !isFileUploaded && (
+                 <Card>
+                    <CardContent className="p-6 text-center text-muted-foreground">
+                        <p>Please upload an Excel file to view data.</p>
                     </CardContent>
                 </Card>
             )}

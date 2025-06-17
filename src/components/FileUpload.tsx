@@ -2,11 +2,10 @@
 "use client";
 
 import type React from 'react';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import type { DietDataRow } from '@/types';
 import { UploadCloud } from 'lucide-react';
@@ -20,6 +19,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string>("No file chosen");
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
@@ -35,12 +35,18 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         });
         setSelectedFile(null);
         setFileName("No file chosen");
-        event.target.value = ''; // Reset file input
+        if(fileInputRef.current) {
+            fileInputRef.current.value = ''; // Reset file input
+        }
       }
     } else {
       setSelectedFile(null);
       setFileName("No file chosen");
     }
+  };
+
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
   };
 
   const handleFileUpload = async () => {
@@ -67,43 +73,77 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         const jsonData = XLSX.utils.sheet_to_json<DietDataRow>(worksheet, {
           header: 1, 
           defval: "", 
+          blankrows: false, // Ensure blank rows are not included as data
         });
 
-        if (jsonData.length < 1) { // Check if there's any data at all, even just a header row
-          throw new Error("Excel file is empty.");
+        if (jsonData.length === 0) { // No rows at all
+          throw new Error("Excel file is completely empty or contains no readable sheets.");
         }
         
-        const headers = (jsonData[0] as any[]).map(String); 
-        // Ensure headers are unique, append index if not
+        let headers = (jsonData[0] as any[]).map(String); 
+        // Filter out completely empty header cells
+        headers = headers.filter(header => header.trim() !== "");
+
+        if (headers.length === 0 && jsonData.length <=1 ) { // Only one row, and it's empty after filtering headers
+             throw new Error("Excel file has no valid headers or data.");
+        }
+
+
         const uniqueHeaders = headers.map((header, index) => {
           let count = 0;
           let newHeader = header;
-          while (headers.indexOf(newHeader) !== index) {
+          let originalHeader = header;
+          const tempHeaders = [...headers]; // Work on a copy for checking duplicates
+          while (tempHeaders.filter((h,i) => i < index && h === originalHeader).length > 0 || (tempHeaders.filter(h => h === newHeader).length > 1 && tempHeaders.indexOf(newHeader) !== index) ) {
             count++;
-            newHeader = `${header}_${count}`;
+            newHeader = `${originalHeader}_${count}`;
           }
           return newHeader;
         });
+        
+        // Find the first row that is not entirely empty to be considered as header.
+        let headerRowIndex = 0;
+        let actualHeaders: string[] = [];
+        for (let i = 0; i < jsonData.length; i++) {
+            const potentialHeaderRow = (jsonData[i] as any[]).map(String);
+            if (potentialHeaderRow.some(cell => cell.trim() !== "")) {
+                headerRowIndex = i;
+                actualHeaders = potentialHeaderRow.map((header, idx) => {
+                    let count = 0;
+                    let newHeader = header.trim() || `column_${idx+1}`; // Use column_N if header is empty
+                    const tempHeaders = [...potentialHeaderRow];
+                    while(tempHeaders.filter((h,k) => k < idx && h === header.trim()).length > 0 || (tempHeaders.filter(h => h === newHeader).length > 1 && tempHeaders.indexOf(newHeader) !== idx) ) {
+                        count++;
+                        newHeader = `${header.trim() || `column_${idx+1}`}_${count}`;
+                    }
+                    return newHeader;
+                });
+                break;
+            }
+        }
+        
+        if (actualHeaders.length === 0) {
+             throw new Error("Excel file does not contain any valid header row.");
+        }
 
-        const parsedData: DietDataRow[] = jsonData.slice(1).map((rowArray: any) => {
+        const parsedData: DietDataRow[] = jsonData.slice(headerRowIndex + 1).map((rowArray: any) => {
           const rowObject: DietDataRow = {};
-          uniqueHeaders.forEach((header, index) => {
-            rowObject[header] = rowArray[index];
+          actualHeaders.forEach((header, index) => {
+            rowObject[header] = rowArray[index] !== undefined ? rowArray[index] : ""; // Ensure undefined becomes empty string
           });
           return rowObject;
-        });
-        
-        if (parsedData.length === 0 && uniqueHeaders.length > 0) {
+        }).filter(row => Object.values(row).some(val => val !== undefined && String(val).trim() !== "")); // Filter out completely empty data rows
+
+
+        if (parsedData.length === 0 && actualHeaders.length > 0) {
             toast({
                 variant: "default",
                 title: "File Contains Only Headers",
                 description: "The Excel file seems to contain only headers and no data rows.",
             });
-            onDataParsed([], uniqueHeaders); // Pass headers even if no data
-        } else if (parsedData.length === 0 && uniqueHeaders.length === 0) {
-             throw new Error("Excel file is empty or has no recognizable headers.");
+            onDataParsed([], actualHeaders); 
         } else {
-            onDataParsed(parsedData, uniqueHeaders);
+            onDataParsed(parsedData, actualHeaders);
             toast({
               title: "File Parsed Successfully",
               description: `${parsedData.length} rows of data loaded.`,
@@ -138,20 +178,18 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
   return (
     <div className="space-y-4">
       <div className="flex items-center space-x-2">
-        <Label htmlFor="excel-file" className="sr-only">Choose File</Label>
-        <Button asChild variant="outline" className="cursor-pointer">
-            <div>
-                <UploadCloud className="mr-2 h-4 w-4" /> Choose File
-                <Input 
-                  id="excel-file" 
-                  type="file" 
-                  accept=".xlsx, .xls" 
-                  onChange={handleFileChange}
-                  className="sr-only" 
-                  aria-describedby="file-upload-help"
-                />
-            </div>
+        <Button onClick={triggerFileInput} variant="outline" className="cursor-pointer">
+          <UploadCloud className="mr-2 h-4 w-4" /> Choose File
         </Button>
+        <Input 
+          ref={fileInputRef}
+          id="excel-file" 
+          type="file" 
+          accept=".xlsx, .xls" 
+          onChange={handleFileChange}
+          className="hidden" // Keep it hidden
+          aria-describedby="file-upload-help"
+        />
         <span className="text-sm text-muted-foreground truncate" style={{maxWidth: '200px'}}>{fileName}</span>
       </div>
        <p id="file-upload-help" className="text-sm text-muted-foreground">
