@@ -1,3 +1,4 @@
+
 "use client";
 
 import type React from 'react';
@@ -13,6 +14,7 @@ import {
 } from '@/components/ui/table';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import type { DietDataRow } from '@/types';
+import { PIVOT_BLANK_MARKER } from '@/types';
 
 interface DataTableProps {
   data: DietDataRow[];
@@ -39,7 +41,7 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
     );
   }
   
-  const displayColumns = columns.filter(col => col !== 'note'); // Exclude 'note' from header
+  const displayColumns = columns.filter(col => col !== 'note');
 
   return (
     <ScrollArea className="whitespace-nowrap rounded-md border" style={{ maxHeight: '600px', overflow: 'auto' }}>
@@ -54,12 +56,22 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
         </TableHeader>
         <TableBody>
           {data.map((row, rowIndex) => (
-            <TableRow key={rowIndex} className={row.note ? "bg-secondary font-semibold" : ""}>
-              {displayColumns.map((column) => (
-                <TableCell key={column}>
-                  {row.note && column === displayColumns[0] ? row.note : (row[column] === undefined || row[column] === null ? '-' : String(row[column]))}
-                </TableCell>
-              ))}
+            <TableRow key={rowIndex} className={row.note ? "bg-secondary/70 font-semibold" : ""}>
+              {displayColumns.map((column) => {
+                let cellContent;
+                if (row.note && column === displayColumns[0]) {
+                  cellContent = row.note;
+                } else if (row[column] === PIVOT_BLANK_MARKER) {
+                  cellContent = '';
+                } else {
+                  cellContent = (row[column] === undefined || row[column] === null ? '-' : String(row[column]));
+                }
+                return (
+                  <TableCell key={column}>
+                    {cellContent}
+                  </TableCell>
+                );
+              })}
             </TableRow>
           ))}
         </TableBody>
@@ -68,7 +80,7 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
             <TableRow>
               {displayColumns.map((column, colIndex) => (
                 <TableCell key={column}>
-                  {colIndex === 0 ? "Grand Total" : (grandTotalRow[column] === undefined || grandTotalRow[column] === null ? '-' : String(grandTotalRow[column]))}
+                  {colIndex === 0 && grandTotalRow.note ? grandTotalRow.note : (grandTotalRow[column] === undefined || grandTotalRow[column] === null ? '-' : String(grandTotalRow[column]))}
                 </TableCell>
               ))}
             </TableRow>

@@ -25,6 +25,7 @@ export interface DietDataRow {
   cut_size_name?: string;
   ingredient_qty?: number;
   base_uom_name?: string;
+  note?: string; // For subtotals or special notes
 }
 
 export interface GroupingOption {
@@ -59,3 +60,5 @@ export const EXPECTED_HEADERS: (keyof DietDataRow)[] = [
 
 export const NUMERIC_COLUMNS: (keyof DietDataRow)[] = ["total_animal", "ingredient_qty"];
 export const DATE_COLUMNS: (keyof DietDataRow)[] = ["date"]; // Assuming 'date' is the primary date column
+
+export const PIVOT_BLANK_MARKER = '__PIVOT_BLANK__';
