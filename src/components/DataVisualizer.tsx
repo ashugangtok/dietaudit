@@ -34,21 +34,18 @@ const DataVisualizer: React.FC = () => {
   const handleDataParsed = useCallback(async (data: DietDataRow[], headers: string[]) => {
     setRawData(data);
     setAllHeaders(headers);
-    setAiSuggestions(null); // Reset AI suggestions
+    setAiSuggestions(null); 
 
-    // Set default groupings based on the pivot table image
     const defaultGroupings: GroupingOption[] = ['common_name', 'diet_no', 'group_name', 'type_name', 'ingredient_name']
       .filter(h => headers.includes(h))
       .map(col => ({ column: col }));
     setGroupings(defaultGroupings);
 
-    // Set default summary based on the pivot table image (Sum of ingredient_qty)
     const defaultSummaries: SummarizationOption[] = (headers.includes('ingredient_qty'))
       ? [{ column: 'ingredient_qty', type: 'sum' }]
       : [];
     setSummaries(defaultSummaries);
 
-    // Set default filters based on the pivot table image
     const defaultFilters: FilterOption[] = [];
     if (headers.includes('section_name')) {
       defaultFilters.push({ column: 'section_name', value: '', type: 'contains' });
@@ -58,65 +55,18 @@ const DataVisualizer: React.FC = () => {
     }
     setFilters(defaultFilters);
     
-    if (defaultGroupings.length > 0 && defaultSummaries.length > 0) {
+    if (defaultGroupings.length > 0 || defaultSummaries.length > 0) { // Adjusted condition
         toast({
-            title: "Default Pivot View Applied",
-            description: "Table configured to match the specified pivot layout. Customize further as needed.",
+            title: "Default View Applied",
+            description: "Table configured with default groupings and summaries. Customize further as needed.",
         });
     } else if (data.length > 0) {
         toast({
             title: "Data Loaded",
-            description: "Could not apply full default pivot view. Some necessary columns might be missing. Configure manually.",
+            description: "Could not apply full default view. Some necessary columns might be missing. Configure manually.",
             variant: "default"
         });
     }
-
-
-    // Original AI suggestion logic - can be re-integrated or used as a fallback
-    // if (data.length > 0 && headers.length > 0) {
-    //   setIsAISuggesting(true);
-    //   try {
-    //     const dataSample = data.slice(0, 10).map(row => 
-    //       headers.map(header => String(row[header] ?? '')).join(', ')
-    //     ).join('\n');
-
-    //     const input: SuggestTableConfigurationInput = {
-    //       excelData: dataSample,
-    //       columnHeaders: headers,
-    //     };
-    //     const suggestions = await suggestTableConfiguration(input);
-    //     setAiSuggestions(suggestions);
-        
-    //     // Apply AI suggestions if not using the hardcoded default pivot
-    //     // For now, the hardcoded default takes precedence
-    //     // if (suggestions.groupingSuggestions?.length) {
-    //     //   setGroupings(suggestions.groupingSuggestions.filter(sg => headers.includes(sg)).map(col => ({ column: col })));
-    //     // }
-    //     // if (suggestions.summarizationSuggestions?.length) {
-    //     //    const numericHeaders = headers.filter(h => data.some(row => typeof row[h] === 'number'));
-    //     //    setSummaries(
-    //     //     suggestions.summarizationSuggestions
-    //     //       .filter(ss => numericHeaders.includes(ss)) 
-    //     //       .map(col => ({ column: col, type: 'sum' })) 
-    //     //       .slice(0, 2) 
-    //     //   );
-    //     // }
-    //     //  toast({
-    //     //   title: "AI Suggestions Applied",
-    //     //   description: "Initial table configuration set by AI. You can customize it further.",
-    //     // });
-
-    //   } catch (error) {
-    //     console.error("Error getting AI suggestions:", error);
-    //     toast({
-    //       variant: "destructive",
-    //       title: "AI Suggestion Error",
-    //       description: "Could not get AI-powered suggestions for table configuration.",
-    //     });
-    //   } finally {
-    //     setIsAISuggesting(false);
-    //   }
-    // }
   }, [toast]);
 
   return (
@@ -154,10 +104,10 @@ const DataVisualizer: React.FC = () => {
             <Card>
               <CardHeader>
                 <CardTitle>Data Configuration</CardTitle>
-                <CardDescription>Adjust groupings, summaries, filters. Default pivot view applied based on image specification.</CardDescription>
+                <CardDescription>Adjust groupings, summaries, and filters. Default view applied based on common pivot configurations.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {isAISuggesting && ( // Kept for potential future use with AI suggestions
+                {isAISuggesting && ( 
                   <Alert>
                     <Lightbulb className="h-4 w-4" />
                     <AlertTitle>AI at Work!</AlertTitle>
