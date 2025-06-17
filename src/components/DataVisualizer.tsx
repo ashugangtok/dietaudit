@@ -8,7 +8,7 @@ import DataTableControls from '@/components/DataTableControls';
 import DataTable from '@/components/DataTable';
 import { useTableProcessor } from '@/hooks/useTableProcessor';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption, AISuggestions } from '@/types';
-import { EXPECTED_PIVOT_ROW_GROUPINGS, PIVOT_COLUMN_FIELD, PIVOT_VALUE_FIELD } from '@/types';
+import { EXPECTED_PIVOT_ROW_GROUPINGS, PIVOT_COLUMN_FIELD, PIVOT_VALUE_FIELD, PIVOT_DEFAULT_FILTERS } from '@/types';
 // import { suggestTableConfiguration, type SuggestTableConfigurationInput } from '@/ai/flows/suggest-table-configuration'; // AI suggestions can be re-enabled later if needed
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -37,11 +37,10 @@ const DataVisualizer: React.FC = () => {
     setAllHeaders(headers);
     setAiSuggestions(null); 
 
-    // Default Pivot Table Configuration for "Ingredient Usage by Meal Time"
     const canApplySpecialPivot = 
         EXPECTED_PIVOT_ROW_GROUPINGS.every(col => headers.includes(col as string)) &&
-        headers.includes(PIVOT_VALUE_FIELD) &&
-        headers.includes(PIVOT_COLUMN_FIELD);
+        headers.includes(PIVOT_COLUMN_FIELD) &&
+        headers.includes(PIVOT_VALUE_FIELD);
 
     if (canApplySpecialPivot) {
         const defaultPivotGroupings: GroupingOption[] = EXPECTED_PIVOT_ROW_GROUPINGS.map(col => ({ column: col as string }));
@@ -50,31 +49,42 @@ const DataVisualizer: React.FC = () => {
         const defaultPivotSummaries: SummarizationOption[] = [{ column: PIVOT_VALUE_FIELD, type: 'sum' }];
         setSummaries(defaultPivotSummaries);
         
-        setFilters([]); // Clear any previous filters
+        const defaultFiltersToAdd: FilterOption[] = PIVOT_DEFAULT_FILTERS
+            .filter(filterCol => headers.includes(filterCol as string))
+            .map(filterCol => ({ column: filterCol as string, value: '', type: 'contains' }));
+        setFilters(defaultFiltersToAdd);
 
         toast({
-            title: "Ingredient Usage by Meal Time View Applied",
-            description: "Table configured to show ingredient quantities across meal times. Customize further as needed.",
+            title: "Diet Analysis by Unit of Measure View Applied",
+            description: "Table configured to show ingredient quantities by unit of measure. Customize further as needed.",
         });
     } else {
         // Fallback to simpler default if specific pivot columns aren't present
-        const fallbackGroupings: GroupingOption[] = ['group_name', 'common_name', 'ingredient_name']
-            .filter(h => headers.includes(h))
-            .map(col => ({ column: col }));
+        // Attempt to find some reasonable default groupings if the full special pivot isn't possible.
+        const fallbackGroupingCandidates: (keyof DietDataRow)[] = ['group_name', 'common_name', 'ingredient_name'];
+        const availableFallbackGroupings = fallbackGroupingCandidates.filter(h => headers.includes(h as string));
+        
+        const fallbackGroupings: GroupingOption[] = availableFallbackGroupings.length > 0 
+            ? availableFallbackGroupings.map(col => ({ column: col as string }))
+            : headers.length > 0 ? [{ column: headers[0] }] : []; // Default to first header if no candidates found
         setGroupings(fallbackGroupings);
 
         const fallbackSummaries: SummarizationOption[] = (headers.includes('ingredient_qty'))
             ? [{ column: 'ingredient_qty', type: 'sum' }]
             : [];
         setSummaries(fallbackSummaries);
-        setFilters([]);
+        setFilters([]); // Clear any previous filters for fallback
         
-        if (data.length > 0) {
+        if (data.length > 0 && !canApplySpecialPivot) { // Only toast if not applying special pivot
             toast({
                 title: "Data Loaded",
-                description: "Default pivot view applied. Some columns for the 'Ingredient Usage by Meal Time' view might be missing. Configure manually.",
+                description: "Default view applied. Some columns for the 'Diet Analysis by Unit of Measure' view might be missing. Configure manually.",
                 variant: "default"
             });
+        } else if (data.length > 0 && canApplySpecialPivot) {
+            // Already toasted for special pivot
+        } else if (data.length === 0) {
+            // No data, FileUpload component handles its own toast for empty files.
         }
     }
   }, [toast]);

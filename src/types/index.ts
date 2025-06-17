@@ -65,12 +65,18 @@ export const DATE_COLUMNS: (keyof DietDataRow)[] = ["date"]; // Assuming 'date' 
 export const PIVOT_BLANK_MARKER = '__PIVOT_BLANK__';
 export const PIVOT_SUBTOTAL_MARKER = '__PIVOT_SUBTOTAL__';
 
-// Constants for the specific "Ingredient Usage by Meal Time" pivot view
+// Constants for the specific "Diet Analysis by Unit of Measure" pivot view
+// Based on image: Rows: group_name, common_name, meal_start_time, diet_name, type_name, ingredient_name
+// Columns: base_uom_name
+// Values: Sum of ingredient_qty
 export const EXPECTED_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
+  'group_name',
+  'common_name',
+  'meal_start_time',
+  'diet_name',
+  'type_name',
   'ingredient_name',
-  'preparation_type_name',
-  'cut_size_name',
-  'base_uom_name',
 ];
-export const PIVOT_COLUMN_FIELD: keyof DietDataRow = 'meal_start_time';
+export const PIVOT_COLUMN_FIELD: keyof DietDataRow = 'base_uom_name';
 export const PIVOT_VALUE_FIELD: keyof DietDataRow = 'ingredient_qty';
+export const PIVOT_DEFAULT_FILTERS: (keyof DietDataRow)[] = ['section_name', 'meal_time'];
