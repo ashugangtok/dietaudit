@@ -1,3 +1,4 @@
+
 export interface DietDataRow {
   [key: string]: string | number | undefined;
   common_name?: string;
@@ -25,7 +26,7 @@ export interface DietDataRow {
   cut_size_name?: string;
   ingredient_qty?: number;
   base_uom_name?: string;
-  note?: string; // For subtotals or special notes
+  note?: string; // For subtotals, special notes, or markers
 }
 
 export interface GroupingOption {
@@ -62,3 +63,5 @@ export const NUMERIC_COLUMNS: (keyof DietDataRow)[] = ["total_animal", "ingredie
 export const DATE_COLUMNS: (keyof DietDataRow)[] = ["date"]; // Assuming 'date' is the primary date column
 
 export const PIVOT_BLANK_MARKER = '__PIVOT_BLANK__';
+export const PIVOT_SUBTOTAL_MARKER = '__PIVOT_SUBTOTAL__';
+

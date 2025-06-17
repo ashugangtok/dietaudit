@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/table';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import type { DietDataRow } from '@/types';
-import { PIVOT_BLANK_MARKER } from '@/types';
+import { PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER } from '@/types';
 
 interface DataTableProps {
   data: DietDataRow[];
@@ -56,12 +56,10 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
         </TableHeader>
         <TableBody>
           {data.map((row, rowIndex) => (
-            <TableRow key={rowIndex} className={row.note ? "bg-secondary/70 font-semibold" : ""}>
+            <TableRow key={rowIndex} className={row.note === PIVOT_SUBTOTAL_MARKER ? "bg-secondary/70 font-semibold" : ""}>
               {displayColumns.map((column) => {
                 let cellContent;
-                if (row.note && column === displayColumns[0]) {
-                  cellContent = row.note;
-                } else if (row[column] === PIVOT_BLANK_MARKER) {
+                if (row[column] === PIVOT_BLANK_MARKER) {
                   cellContent = '';
                 } else {
                   cellContent = (row[column] === undefined || row[column] === null ? '-' : String(row[column]));
@@ -78,11 +76,26 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
         {grandTotalRow && (
           <TableFooter className="sticky bottom-0 bg-secondary font-bold z-10">
             <TableRow>
-              {displayColumns.map((column, colIndex) => (
-                <TableCell key={column}>
-                  {colIndex === 0 && grandTotalRow.note ? grandTotalRow.note : (grandTotalRow[column] === undefined || grandTotalRow[column] === null ? '-' : String(grandTotalRow[column]))}
-                </TableCell>
-              ))}
+              {displayColumns.map((column, colIndex) => {
+                let cellValue = grandTotalRow[column];
+                // For the first column of the grand total, if it's based on a descriptive key derived from data, display that.
+                // Otherwise, if the primary note field itself isn't a direct column, show "Grand Total".
+                if (colIndex === 0) {
+                   const firstKeyForGrandTotal = Object.keys(grandTotalRow).find(k => k !=='note' && !columns.includes(k) && grandTotalRow[k] === "Grand Total");
+                   if (firstKeyForGrandTotal && column === firstKeyForGrandTotal) {
+                     cellValue = "Grand Total";
+                   } else if (columns.includes(column) && grandTotalRow[column] !== undefined) {
+                     cellValue = grandTotalRow[column];
+                   } else if (grandTotalRow.note === "Grand Total") {
+                     cellValue = "Grand Total";
+                   }
+                }
+                 return (
+                    <TableCell key={column}>
+                      {cellValue === undefined || cellValue === null ? '-' : String(cellValue)}
+                    </TableCell>
+                  );
+              })}
             </TableRow>
           </TableFooter>
         )}
