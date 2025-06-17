@@ -8,6 +8,7 @@ import DataTableControls from '@/components/DataTableControls';
 import DataTable from '@/components/DataTable';
 import { useTableProcessor } from '@/hooks/useTableProcessor';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption, AISuggestions } from '@/types';
+import { EXPECTED_PIVOT_ROW_GROUPINGS, PIVOT_COLUMN_FIELD, PIVOT_VALUE_FIELD } from '@/types';
 // import { suggestTableConfiguration, type SuggestTableConfigurationInput } from '@/ai/flows/suggest-table-configuration'; // AI suggestions can be re-enabled later if needed
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -29,52 +30,52 @@ const DataVisualizer: React.FC = () => {
   const [isAISuggesting, setIsAISuggesting] = useState(false); // Kept for future use
   const { toast } = useToast();
 
-  const { processedData, columns: currentTableColumns, grandTotalRow } = useTableProcessor({ rawData, groupings, summaries, filters });
+  const { processedData, columns: currentTableColumns, grandTotalRow } = useTableProcessor({ rawData, groupings, summaries, filters, allHeaders });
 
   const handleDataParsed = useCallback(async (data: DietDataRow[], headers: string[]) => {
     setRawData(data);
     setAllHeaders(headers);
     setAiSuggestions(null); 
 
-    // Default Pivot Table Configuration
-    const defaultPivotGroupings: GroupingOption[] = [
-      'group_name', 
-      'common_name', 
-      'meal_start_time', 
-      'diet_name', 
-      'type_name', 
-      'ingredient_name',
-      'base_uom_name' // Added as per pivot row definition
-    ]
-      .filter(h => headers.includes(h))
-      .map(col => ({ column: col }));
-    setGroupings(defaultPivotGroupings);
+    // Default Pivot Table Configuration for "Ingredient Usage by Meal Time"
+    const canApplySpecialPivot = 
+        EXPECTED_PIVOT_ROW_GROUPINGS.every(col => headers.includes(col as string)) &&
+        headers.includes(PIVOT_VALUE_FIELD) &&
+        headers.includes(PIVOT_COLUMN_FIELD);
 
-    const defaultPivotSummaries: SummarizationOption[] = (headers.includes('ingredient_qty'))
-      ? [{ column: 'ingredient_qty', type: 'sum' }]
-      : [];
-    setSummaries(defaultPivotSummaries);
+    if (canApplySpecialPivot) {
+        const defaultPivotGroupings: GroupingOption[] = EXPECTED_PIVOT_ROW_GROUPINGS.map(col => ({ column: col as string }));
+        setGroupings(defaultPivotGroupings);
 
-    const defaultPivotFilters: FilterOption[] = [];
-    if (headers.includes('section_name')) {
-      defaultPivotFilters.push({ column: 'section_name', value: '', type: 'contains' });
-    }
-    if (headers.includes('meal_time')) {
-      defaultPivotFilters.push({ column: 'meal_time', value: '', type: 'contains' });
-    }
-    setFilters(defaultPivotFilters);
-    
-    if (defaultPivotGroupings.length > 0 || defaultPivotSummaries.length > 0) {
+        const defaultPivotSummaries: SummarizationOption[] = [{ column: PIVOT_VALUE_FIELD, type: 'sum' }];
+        setSummaries(defaultPivotSummaries);
+        
+        setFilters([]); // Clear any previous filters
+
         toast({
-            title: "Default Pivot View Applied",
-            description: "Table configured with pivot groupings, summary, and filters. Customize further as needed.",
+            title: "Ingredient Usage by Meal Time View Applied",
+            description: "Table configured to show ingredient quantities across meal times. Customize further as needed.",
         });
-    } else if (data.length > 0) {
-        toast({
-            title: "Data Loaded",
-            description: "Could not apply full default pivot view. Some necessary columns might be missing. Configure manually.",
-            variant: "default"
-        });
+    } else {
+        // Fallback to simpler default if specific pivot columns aren't present
+        const fallbackGroupings: GroupingOption[] = ['group_name', 'common_name', 'ingredient_name']
+            .filter(h => headers.includes(h))
+            .map(col => ({ column: col }));
+        setGroupings(fallbackGroupings);
+
+        const fallbackSummaries: SummarizationOption[] = (headers.includes('ingredient_qty'))
+            ? [{ column: 'ingredient_qty', type: 'sum' }]
+            : [];
+        setSummaries(fallbackSummaries);
+        setFilters([]);
+        
+        if (data.length > 0) {
+            toast({
+                title: "Data Loaded",
+                description: "Default pivot view applied. Some columns for the 'Ingredient Usage by Meal Time' view might be missing. Configure manually.",
+                variant: "default"
+            });
+        }
     }
   }, [toast]);
 
@@ -166,4 +167,3 @@ const DataVisualizer: React.FC = () => {
 };
 
 export default DataVisualizer;
-
