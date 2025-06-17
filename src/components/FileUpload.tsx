@@ -3,12 +3,14 @@
 
 import type React from 'react';
 import { useState, useRef } from 'react';
-import * as XLSX from 'xlsx';
+// XLSX will be used by the server-side flow now
+// import * as XLSX from 'xlsx'; 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import type { DietDataRow } from '@/types';
 import { UploadCloud } from 'lucide-react';
+import { parseExcelFlow } from '@/ai/flows/parse-excel-flow'; // Import the new flow
 
 interface FileUploadProps {
   onDataParsed: (data: DietDataRow[], headers: string[]) => void;
@@ -18,7 +20,7 @@ interface FileUploadProps {
 const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string>("No file chosen");
-  const [isCurrentlyProcessing, setIsCurrentlyProcessing] = useState(false);
+  const [isCurrentlyProcessing, setIsCurrentlyProcessing] = useState(false); // Manages button disabled state
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -62,99 +64,52 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
 
     setIsCurrentlyProcessing(true);
     onProcessing(true); // Signal to parent that processing has started
+    
     const reader = new FileReader();
 
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
-        const data = e.target?.result;
-        if (!data) throw new Error("File data is empty.");
+        const dataUrl = e.target?.result as string;
+        if (!dataUrl) throw new Error("File data is empty or could not be read as Data URL.");
         
-        const workbook = XLSX.read(data, { type: 'binary' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json<DietDataRow>(worksheet, {
-          header: 1, 
-          defval: "", 
-          blankrows: false, 
-        });
+        // Extract base64 part from Data URL
+        // Format: "data:<mime_type>;base64,<encoded_data>"
+        const base64Content = dataUrl.split(',')[1];
+        if (!base64Content) throw new Error("Could not extract base64 content from Data URL.");
 
-        if (jsonData.length === 0) {
-          throw new Error("Excel file is completely empty or contains no readable sheets.");
-        }
-        
-        let headers = (jsonData[0] as any[]).map(String); 
-        headers = headers.filter(header => header.trim() !== "");
+        // Call the server-side flow
+        const result = await parseExcelFlow({ excelFileBase64: base64Content, fileName: selectedFile.name });
 
-        if (headers.length === 0 && jsonData.length <=1 ) {
-             throw new Error("Excel file has no valid headers or data.");
+        if (result.error) {
+          throw new Error(result.error);
         }
 
-        const uniqueHeaders = headers.map((header, index) => {
-          let count = 0;
-          let newHeader = header;
-          let originalHeader = header;
-          const tempHeaders = [...headers]; 
-          while (tempHeaders.filter((h,i) => i < index && h === originalHeader).length > 0 || (tempHeaders.filter(h => h === newHeader).length > 1 && tempHeaders.indexOf(newHeader) !== index) ) {
-            count++;
-            newHeader = `${originalHeader}_${count}`;
-          }
-          return newHeader;
-        });
-        
-        let headerRowIndex = 0;
-        let actualHeaders: string[] = [];
-        for (let i = 0; i < jsonData.length; i++) {
-            const potentialHeaderRow = (jsonData[i] as any[]).map(String);
-            if (potentialHeaderRow.some(cell => cell.trim() !== "")) {
-                headerRowIndex = i;
-                actualHeaders = potentialHeaderRow.map((header, idx) => {
-                    let count = 0;
-                    let newHeader = header.trim() || `column_${idx+1}`; 
-                    const tempHeaders = [...potentialHeaderRow];
-                    while(tempHeaders.filter((h,k) => k < idx && h === header.trim()).length > 0 || (tempHeaders.filter(h => h === newHeader).length > 1 && tempHeaders.indexOf(newHeader) !== idx) ) {
-                        count++;
-                        newHeader = `${header.trim() || `column_${idx+1}`}_${count}`;
-                    }
-                    return newHeader;
-                });
-                break;
-            }
-        }
-        
-        if (actualHeaders.length === 0) {
-             throw new Error("Excel file does not contain any valid header row.");
-        }
-
-        const parsedData: DietDataRow[] = jsonData.slice(headerRowIndex + 1).map((rowArray: any) => {
-          const rowObject: DietDataRow = {};
-          actualHeaders.forEach((header, index) => {
-            rowObject[header] = rowArray[index] !== undefined ? rowArray[index] : ""; 
-          });
-          return rowObject;
-        }).filter(row => Object.values(row).some(val => val !== undefined && String(val).trim() !== "")); 
-
-
-        if (parsedData.length === 0 && actualHeaders.length > 0) {
+        if (result.parsedData.length === 0 && result.headers.length > 0) {
             toast({
                 variant: "default",
                 title: "File Contains Only Headers",
                 description: "The Excel file seems to contain only headers and no data rows.",
             });
-            onDataParsed([], actualHeaders); 
+        } else if (result.parsedData.length === 0 && result.headers.length === 0 ) {
+             toast({
+                variant: "destructive",
+                title: "No Data Extracted",
+                description: "Could not extract any data or headers from the file. It might be empty or corrupted.",
+            });
         } else {
-            onDataParsed(parsedData, actualHeaders);
             toast({
-              title: "File Parsed Successfully",
-              description: `${parsedData.length} rows of data loaded.`,
+              title: "File Processed Successfully",
+              description: `${result.parsedData.length} rows of data loaded.`,
             });
         }
+        onDataParsed(result.parsedData, result.headers);
 
       } catch (error) {
-        console.error("Error parsing Excel file:", error);
+        console.error("Error processing Excel file via flow:", error);
         toast({
           variant: "destructive",
-          title: "Error Parsing File",
-          description: error instanceof Error ? error.message : "An unknown error occurred during parsing.",
+          title: "Error Processing File",
+          description: error instanceof Error ? error.message : "An unknown error occurred during server-side processing.",
         });
         onDataParsed([], []); 
       } finally {
@@ -167,13 +122,13 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
       toast({
         variant: "destructive",
         title: "File Read Error",
-        description: "Could not read the selected file.",
+        description: "Could not read the selected file locally before sending to server.",
       });
       setIsCurrentlyProcessing(false);
-      onProcessing(false); // Signal to parent that processing has finished (due to error)
+      onProcessing(false); 
     };
 
-    reader.readAsBinaryString(selectedFile);
+    reader.readAsDataURL(selectedFile); // Read as Data URL to get base64
   };
 
   return (
@@ -204,4 +159,3 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
 };
 
 export default FileUpload;
-
