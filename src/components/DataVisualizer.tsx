@@ -8,7 +8,7 @@ import DataTableControls from '@/components/DataTableControls';
 import DataTable from '@/components/DataTable';
 import { useTableProcessor } from '@/hooks/useTableProcessor';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption, AISuggestions } from '@/types';
-import { suggestTableConfiguration, type SuggestTableConfigurationInput } from '@/ai/flows/suggest-table-configuration';
+// import { suggestTableConfiguration, type SuggestTableConfigurationInput } from '@/ai/flows/suggest-table-configuration'; // AI suggestions can be re-enabled later if needed
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -24,9 +24,9 @@ const DataVisualizer: React.FC = () => {
   const [summaries, setSummaries] = useState<SummarizationOption[]>([]);
   const [filters, setFilters] = useState<FilterOption[]>([]);
   
-  const [aiSuggestions, setAiSuggestions] = useState<AISuggestions | null>(null);
+  const [aiSuggestions, setAiSuggestions] = useState<AISuggestions | null>(null); // Kept for future use, but not primary for initial view
   const [isProcessingFile, setIsProcessingFile] = useState(false);
-  const [isAISuggesting, setIsAISuggesting] = useState(false);
+  const [isAISuggesting, setIsAISuggesting] = useState(false); // Kept for future use
   const { toast } = useToast();
 
   const { processedData, columns: currentTableColumns, grandTotalRow } = useTableProcessor({ rawData, groupings, summaries, filters });
@@ -34,54 +34,78 @@ const DataVisualizer: React.FC = () => {
   const handleDataParsed = useCallback(async (data: DietDataRow[], headers: string[]) => {
     setRawData(data);
     setAllHeaders(headers);
-    // Reset configurations
-    setGroupings([]);
-    setSummaries([]);
-    setFilters([]);
-    setAiSuggestions(null);
+    setFilters([]); // Reset filters
+    setAiSuggestions(null); // Reset AI suggestions
 
-    if (data.length > 0 && headers.length > 0) {
-      setIsAISuggesting(true);
-      try {
-        const dataSample = data.slice(0, 10).map(row => 
-          headers.map(header => String(row[header] ?? '')).join(', ')
-        ).join('\n');
+    // Set default groupings and summaries for the desired pivot view
+    const defaultGroupings: GroupingOption[] = ['common_name', 'diet_no', 'group_name', 'type_name', 'ingredient_name']
+      .filter(h => headers.includes(h))
+      .map(col => ({ column: col }));
+    setGroupings(defaultGroupings);
 
-        const input: SuggestTableConfigurationInput = {
-          excelData: dataSample,
-          columnHeaders: headers,
-        };
-        const suggestions = await suggestTableConfiguration(input);
-        setAiSuggestions(suggestions);
-        
-        if (suggestions.groupingSuggestions?.length) {
-          setGroupings(suggestions.groupingSuggestions.filter(sg => headers.includes(sg)).map(col => ({ column: col })));
-        }
-        if (suggestions.summarizationSuggestions?.length) {
-           const numericHeaders = headers.filter(h => data.some(row => typeof row[h] === 'number'));
-           setSummaries(
-            suggestions.summarizationSuggestions
-              .filter(ss => numericHeaders.includes(ss)) 
-              .map(col => ({ column: col, type: 'sum' })) 
-              .slice(0, 2) 
-          );
-        }
-         toast({
-          title: "AI Suggestions Applied",
-          description: "Initial table configuration set by AI. You can customize it further.",
-        });
-
-      } catch (error) {
-        console.error("Error getting AI suggestions:", error);
+    const defaultSummaries: SummarizationOption[] = (headers.includes('ingredient_qty') && headers.includes('base_uom_name'))
+      ? [{ column: 'ingredient_qty', type: 'sum' }]
+      : [];
+    setSummaries(defaultSummaries);
+    
+    if (defaultGroupings.length > 0 && defaultSummaries.length > 0) {
         toast({
-          variant: "destructive",
-          title: "AI Suggestion Error",
-          description: "Could not get AI-powered suggestions for table configuration.",
+            title: "Default View Applied",
+            description: "Table configured for pivot view with ingredient quantities. Customize further as needed.",
         });
-      } finally {
-        setIsAISuggesting(false);
-      }
+    } else if (data.length > 0) {
+        toast({
+            title: "Data Loaded",
+            description: "Could not apply default pivot view. Necessary columns (e.g., ingredient_qty, base_uom_name, or grouping columns) might be missing. Configure manually.",
+        });
     }
+
+
+    // Original AI suggestion logic - can be re-integrated or used as a fallback
+    // if (data.length > 0 && headers.length > 0) {
+    //   setIsAISuggesting(true);
+    //   try {
+    //     const dataSample = data.slice(0, 10).map(row => 
+    //       headers.map(header => String(row[header] ?? '')).join(', ')
+    //     ).join('\n');
+
+    //     const input: SuggestTableConfigurationInput = {
+    //       excelData: dataSample,
+    //       columnHeaders: headers,
+    //     };
+    //     const suggestions = await suggestTableConfiguration(input);
+    //     setAiSuggestions(suggestions);
+        
+    //     // Apply AI suggestions if not using the hardcoded default pivot
+    //     // For now, the hardcoded default takes precedence
+    //     // if (suggestions.groupingSuggestions?.length) {
+    //     //   setGroupings(suggestions.groupingSuggestions.filter(sg => headers.includes(sg)).map(col => ({ column: col })));
+    //     // }
+    //     // if (suggestions.summarizationSuggestions?.length) {
+    //     //    const numericHeaders = headers.filter(h => data.some(row => typeof row[h] === 'number'));
+    //     //    setSummaries(
+    //     //     suggestions.summarizationSuggestions
+    //     //       .filter(ss => numericHeaders.includes(ss)) 
+    //     //       .map(col => ({ column: col, type: 'sum' })) 
+    //     //       .slice(0, 2) 
+    //     //   );
+    //     // }
+    //     //  toast({
+    //     //   title: "AI Suggestions Applied",
+    //     //   description: "Initial table configuration set by AI. You can customize it further.",
+    //     // });
+
+    //   } catch (error) {
+    //     console.error("Error getting AI suggestions:", error);
+    //     toast({
+    //       variant: "destructive",
+    //       title: "AI Suggestion Error",
+    //       description: "Could not get AI-powered suggestions for table configuration.",
+    //     });
+    //   } finally {
+    //     setIsAISuggesting(false);
+    //   }
+    // }
   }, [toast]);
 
   return (
@@ -119,10 +143,10 @@ const DataVisualizer: React.FC = () => {
             <Card>
               <CardHeader>
                 <CardTitle>Data Configuration</CardTitle>
-                <CardDescription>Adjust groupings, summaries, filters. AI suggestions will also appear here.</CardDescription>
+                <CardDescription>Adjust groupings, summaries, filters. Default pivot view applied if applicable.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {isAISuggesting && (
+                {isAISuggesting && ( // Kept for potential future use with AI suggestions
                   <Alert>
                     <Lightbulb className="h-4 w-4" />
                     <AlertTitle>AI at Work!</AlertTitle>
@@ -132,7 +156,8 @@ const DataVisualizer: React.FC = () => {
                     </AlertDescription>
                   </Alert>
                 )}
-                {aiSuggestions && !isAISuggesting && (
+                {/* Displaying AI suggestions can be re-enabled if needed */}
+                {/* {aiSuggestions && !isAISuggesting && (
                   <Alert variant="default" className="bg-primary/10 border-primary/30">
                     <Lightbulb className="h-4 w-4 text-primary" />
                     <AlertTitle className="text-primary">AI Suggestions</AlertTitle>
@@ -142,7 +167,7 @@ const DataVisualizer: React.FC = () => {
                       {aiSuggestions.summarizationSuggestions?.length > 0 && <p className="text-sm">Suggested summaries for: {aiSuggestions.summarizationSuggestions.join(', ')}</p>}
                     </AlertDescription>
                   </Alert>
-                )}
+                )} */}
                 <DataTableControls
                     allHeaders={allHeaders}
                     groupings={groupings}
@@ -183,3 +208,4 @@ const DataVisualizer: React.FC = () => {
 };
 
 export default DataVisualizer;
+
