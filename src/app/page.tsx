@@ -3,9 +3,9 @@
 
 import type React from 'react';
 import { useState, useCallback, useMemo } from 'react';
-import { Leaf, FileSpreadsheet, AlertCircle } from 'lucide-react';
+import { Leaf, FileSpreadsheet, AlertCircle, ListChecks } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { useTableProcessor } from '@/hooks/useTableProcessor';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption } from '@/types';
@@ -23,21 +23,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 
-interface ExportSectionData {
-  sectionName: string;
-  ingredientsData: DietDataRow[];
-}
-
-const INGREDIENT_TABLE_COLUMNS_EXPORT = ['ingredient_name', 'preparation_type_name', 'cut_size_name', 'base_uom_name', 'ingredient_qty', 'meal_start_time', 'type_name'];
-
-
 export default function Home() {
   const [activeTab, setActiveTab] = useState<string>("uploadExcel");
   const [rawData, setRawData] = useState<DietDataRow[]>([]);
   const [allHeaders, setAllHeaders] = useState<string[]>([]);
 
-  const [groupings, setGroupings] = useState<GroupingOption[]>([]);
-  const [summaries, setSummaries] = useState<SummarizationOption[]>([]);
+  const [groupings, setGroupings] = useState<GroupingOption[]>(DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => ({ column: col as string })));
+  const [summaries, setSummaries] = useState<SummarizationOption[]>(DEFAULT_IMAGE_PIVOT_SUMMARIES);
   const [filters, setFilters] = useState<FilterOption[]>([]);
   const [hasAppliedFilters, setHasAppliedFilters] = useState(false);
 
@@ -116,26 +108,18 @@ export default function Home() {
     setHasAppliedFilters(true);
   }, []);
 
-  const exportPageData = useMemo((): ExportSectionData[] => {
+  const uniqueSectionNamesForExport = useMemo((): string[] => {
     if (!hasAppliedFilters || !filteredData || filteredData.length === 0) {
       return [];
     }
-
-    const sections: Record<string, DietDataRow[]> = {};
-
+    const sectionNames = new Set<string>();
     for (const row of filteredData) {
-      const sectionName = String(row.section_name || 'Uncategorized Section').trim();
-      
-      if (!sections[sectionName]) {
-        sections[sectionName] = [];
+      const sectionName = String(row.section_name || '').trim();
+      if (sectionName) {
+        sectionNames.add(sectionName);
       }
-      sections[sectionName].push(row);
     }
-
-    return Object.entries(sections).map(([sectionName, ingredientsData]) => ({
-      sectionName,
-      ingredientsData,
-    })).sort((a,b) => a.sectionName.localeCompare(b.sectionName));
+    return Array.from(sectionNames).sort();
   }, [filteredData, hasAppliedFilters]);
 
 
@@ -253,40 +237,46 @@ export default function Home() {
                     </CardContent>
                   </Card>
                 )}
-                {hasAppliedFilters && exportPageData.length > 0 && (
-                  <ScrollArea className="flex-1 min-h-0 pr-4">
-                    <div className="space-y-6">
-                      {exportPageData.map((section) => (
-                        <Card key={section.sectionName} className="shadow-md">
-                          <CardHeader className="bg-muted/50 p-4">
-                            <CardTitle className="text-xl">Section: {section.sectionName}</CardTitle>
-                          </CardHeader>
-                          <CardContent className="p-0">
-                            {section.ingredientsData.length > 0 ? (
-                              <div className="px-4 py-4 max-h-[600px] overflow-y-auto">
-                                <DataTable 
-                                  data={section.ingredientsData} 
-                                  columns={INGREDIENT_TABLE_COLUMNS_EXPORT.filter(col => allHeaders.includes(col))} 
-                                  isLoading={false}
-                                />
-                              </div>
-                            ) : (
-                              <p className="px-4 py-4 text-sm text-muted-foreground">No ingredient data for this section.</p>
-                            )}
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                )}
-                {hasAppliedFilters && rawData.length > 0 && exportPageData.length === 0 && (
-                     <Card className="flex-1">
-                        <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
-                            <AlertCircle className="h-12 w-12 text-destructive/50 mb-4" />
-                            <p className="font-semibold">No Data Matches Filters</p>
-                            <p>No data matches the current filters for the Export Sections view.</p>
+                {hasAppliedFilters && rawData.length > 0 && (
+                  <div className="flex flex-col flex-1 min-h-0 space-y-4">
+                    {uniqueSectionNamesForExport.length > 0 && (
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-lg flex items-center">
+                            <ListChecks className="mr-2 h-5 w-5 text-primary" />
+                            Active Sections in this View
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          <ScrollArea className="h-24">
+                            <ul className="list-disc pl-5 text-sm text-muted-foreground">
+                              {uniqueSectionNamesForExport.map(name => <li key={name}>{name}</li>)}
+                            </ul>
+                          </ScrollArea>
                         </CardContent>
-                    </Card>
+                      </Card>
+                    )}
+                     {uniqueSectionNamesForExport.length === 0 && (
+                       <Card>
+                         <CardContent className="p-4 text-center text-muted-foreground">
+                           No specific sections identified in the current filtered data.
+                         </CardContent>
+                       </Card>
+                     )}
+                    {processedData.length > 0 ? (
+                      <div className="flex-1 min-h-0">
+                        <DataTable data={processedData} columns={currentTableColumns} grandTotalRow={grandTotalRow} />
+                      </div>
+                    ) : (
+                      <Card className="flex-1">
+                          <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
+                              <AlertCircle className="h-12 w-12 text-destructive/50 mb-4" />
+                              <p className="font-semibold">No Data Matches Filters for Table</p>
+                              <p>The current filter selection resulted in no data for the main table.</p>
+                          </CardContent>
+                      </Card>
+                    )}
+                  </div>
                 )}
                 {rawData.length === 0 && isFileUploaded && (
                     <Card className="flex-1">
