@@ -3,7 +3,7 @@
 
 import type React from 'react';
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { Leaf, FileSpreadsheet, AlertCircle, ListChecks, TableIcon } from 'lucide-react';
+import { Leaf, FileSpreadsheet, AlertCircle, ListChecks, TableIcon, Download } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,6 @@ import {
     SPECIAL_PIVOT_UOM_ROW_GROUPINGS,
     SPECIAL_PIVOT_UOM_COLUMN_FIELD,
     SPECIAL_PIVOT_UOM_VALUE_FIELD,
-    PIVOT_BLANK_MARKER
 } from '@/types';
 import FileUpload from '@/components/FileUpload';
 import DataTable from '@/components/DataTable';
@@ -24,6 +23,7 @@ import InteractiveFilters from '@/components/InteractiveFilters';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import DietWiseLogo from '@/components/DietWiseLogo';
+import { exportToPdf } from '@/lib/pdfUtils';
 
 
 export default function Home() {
@@ -38,29 +38,27 @@ export default function Home() {
 
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [isFileUploaded, setIsFileUploaded] = useState(false);
+  const [originalFileName, setOriginalFileName] = useState<string>("report");
   const { toast } = useToast();
 
   const { processedData, columns: currentTableColumns, grandTotalRow, filteredData } = useTableProcessor({ rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters });
 
   useEffect(() => {
-    // This effect ensures that when a new file is uploaded, and filters are reset,
-    // we also reset hasAppliedFilters to false, so the user is prompted to apply filters again.
     if (!isFileUploaded) {
         setHasAppliedFilters(false);
-        // Optionally, reset other states if needed when no file is present
-        // setGroupings(DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => ({ column: col as string })));
-        // setSummaries(DEFAULT_IMAGE_PIVOT_SUMMARIES);
     }
   }, [isFileUploaded]);
 
-  const handleDataParsed = useCallback(async (data: DietDataRow[], headers: string[]) => {
+  const handleDataParsed = useCallback(async (data: DietDataRow[], headers: string[], uploadedFileName: string) => {
     setRawData(data);
     setAllHeaders(headers);
     setIsProcessingFile(false);
     setIsFileUploaded(true);
     setActiveTab("extractedData");
     setFilters([]);
-    setHasAppliedFilters(false); // Reset this on new data load
+    setHasAppliedFilters(false); 
+    setOriginalFileName(uploadedFileName.replace(/\.(xlsx|xls)$/i, ''));
+
 
     const requiredDefaultPivotCols = [
         ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => col as string),
@@ -130,6 +128,24 @@ export default function Home() {
     setHasAppliedFilters(true);
   }, []);
 
+  const handleDownloadAllPdf = () => {
+    if (processedData.length > 0 && currentTableColumns.length > 0) {
+      exportToPdf(processedData, currentTableColumns, `Full Diet Report - ${originalFileName}`, `${originalFileName}_full_report`, grandTotalRow);
+      toast({ title: "PDF Download Started", description: "Your full report PDF is being generated." });
+    } else {
+      toast({ variant: "destructive", title: "No Data", description: "No data available to export." });
+    }
+  };
+
+  const handleDownloadSectionPdf = (sectionName: string, sectionTableData: ProcessedTableData) => {
+     if (sectionTableData.processedData.length > 0 && sectionTableData.columns.length > 0) {
+      exportToPdf(sectionTableData.processedData, sectionTableData.columns, `Section Report: ${sectionName} - ${originalFileName}`, `${originalFileName}_section_${sectionName.replace(/\s+/g, '_')}`, sectionTableData.grandTotalRow);
+      toast({ title: "PDF Download Started", description: `PDF for section ${sectionName} is being generated.` });
+    } else {
+      toast({ variant: "destructive", title: "No Data", description: `No data available to export for section ${sectionName}.` });
+    }
+  };
+
 
   const year = new Date().getFullYear();
 
@@ -167,7 +183,10 @@ export default function Home() {
                   <CardDescription>Select an Excel file to begin analysis.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <FileUpload onDataParsed={handleDataParsed} onProcessing={setIsProcessingFile} />
+                  <FileUpload 
+                    onDataParsed={(data, headers, fileName) => handleDataParsed(data, headers, fileName)} 
+                    onProcessing={setIsProcessingFile} 
+                  />
                 </CardContent>
               </Card>
             </div>
@@ -191,6 +210,13 @@ export default function Home() {
                     appliedFilters={filters}
                     onApplyFilters={handleApplyFiltersCallback}
                 />
+                 {hasAppliedFilters && rawData.length > 0 && processedData.length > 0 && (
+                  <div className="flex justify-end mb-2">
+                    <Button onClick={handleDownloadAllPdf} size="sm">
+                      <Download className="mr-2 h-4 w-4" /> Download All as PDF
+                    </Button>
+                  </div>
+                )}
                 {!hasAppliedFilters && rawData.length > 0 && (
                   <Card className="flex-1">
                     <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
@@ -255,49 +281,66 @@ export default function Home() {
                 {hasAppliedFilters && rawData.length > 0 && (
                   <ScrollArea className="flex-1">
                     <div className="space-y-6">
-                      {filteredData.length > 0 && [...new Set(filteredData.map(row => String(row.section_name || '').trim()).filter(name => name))].sort().map((sectionName) => {
-                        const rawDataForThisSection = rawData.filter(row => String(row.section_name || '').trim() === sectionName);
-                        
-                        const sectionTableData: ProcessedTableData = calculateProcessedTableData(
-                            rawDataForThisSection, 
-                            groupings, 
-                            summaries, 
-                            filters,   
-                            allHeaders,
-                            true 
-                        );
+                      {filteredData.length > 0 && 
+                        [...new Set(filteredData.map(row => String(row.section_name || PIVOT_BLANK_MARKER).trim()).filter(name => name && name !== PIVOT_BLANK_MARKER))].sort().map((sectionName) => {
+                          const rawDataForThisSection = rawData.filter(row => String(row.section_name || '').trim() === sectionName);
+                          
+                          const sectionTableData: ProcessedTableData = calculateProcessedTableData(
+                              rawDataForThisSection, 
+                              groupings, // Use main groupings
+                              summaries, // Use main summaries
+                              filters,   // Apply main filters to the section's subset of rawData
+                              allHeaders,
+                              true 
+                          );
 
-                        if (sectionTableData.processedData.length === 0) {
-                            return (
-                                <Card key={sectionName}>
-                                    <CardHeader>
-                                        <CardTitle className="text-xl font-semibold">Section: {sectionName}</CardTitle>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <p className="text-muted-foreground">No data matches the current filters for this section.</p>
-                                    </CardContent>
-                                </Card>
-                            );
-                        }
-                        return (
-                          <Card key={sectionName} className="overflow-hidden">
-                            <CardHeader>
-                              <CardTitle className="text-xl font-semibold">Section: {sectionName}</CardTitle>
-                            </CardHeader>
-                            <CardContent className="min-h-0 pt-0">
-                               <div style={{ height: 'auto', maxHeight: '600px', overflowY: 'auto' }}> 
-                                <DataTable
-                                    data={sectionTableData.processedData}
-                                    columns={sectionTableData.columns}
-                                    grandTotalRow={sectionTableData.grandTotalRow}
-                                />
-                               </div>
-                            </CardContent>
-                          </Card>
-                        );
+                          if (sectionTableData.processedData.length === 0) {
+                              return (
+                                  <Card key={sectionName}>
+                                      <CardHeader className="flex flex-row items-center justify-between">
+                                          <CardTitle className="text-xl font-semibold">Section: {sectionName}</CardTitle>
+                                           <Button 
+                                            onClick={() => handleDownloadSectionPdf(sectionName, sectionTableData)} 
+                                            size="sm" 
+                                            variant="outline"
+                                            disabled={true}
+                                          >
+                                            <Download className="mr-2 h-4 w-4" /> PDF
+                                          </Button>
+                                      </CardHeader>
+                                      <CardContent>
+                                          <p className="text-muted-foreground">No data matches the current filters for this section.</p>
+                                      </CardContent>
+                                  </Card>
+                              );
+                          }
+                          return (
+                            <Card key={sectionName} className="overflow-hidden">
+                              <CardHeader className="flex flex-row items-center justify-between">
+                                <CardTitle className="text-xl font-semibold">Section: {sectionName}</CardTitle>
+                                <Button 
+                                  onClick={() => handleDownloadSectionPdf(sectionName, sectionTableData)} 
+                                  size="sm" 
+                                  variant="outline"
+                                  disabled={sectionTableData.processedData.length === 0}
+                                >
+                                  <Download className="mr-2 h-4 w-4" /> PDF
+                                </Button>
+                              </CardHeader>
+                              <CardContent className="min-h-0 pt-0">
+                                 <div style={{ height: 'auto', maxHeight: '600px', overflowY: 'auto' }}> 
+                                  <DataTable
+                                      data={sectionTableData.processedData}
+                                      columns={sectionTableData.columns}
+                                      grandTotalRow={sectionTableData.grandTotalRow}
+                                  />
+                                 </div>
+                              </CardContent>
+                            </Card>
+                          );
                       })}
                       
-                       {hasAppliedFilters && filteredData.length > 0 && ![...new Set(filteredData.map(row => String(row.section_name || '').trim()).filter(name => name))].length && (
+                       {hasAppliedFilters && filteredData.length > 0 && ![...new Set(filteredData.map(row => String(row.section_name || PIVOT_BLANK_MARKER).trim()).filter(name => name && name !== PIVOT_BLANK_MARKER))].length && (
                          <Card>
                             <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
                                 <AlertCircle className="h-12 w-12 text-primary/50 mb-4" />

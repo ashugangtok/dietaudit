@@ -35,12 +35,12 @@ export interface GroupingOption {
 
 export interface SummarizationOption {
   column: string;
-  type: 'sum' | 'average' | 'count' | 'first' | 'max'; // Added 'first' and 'max'
+  type: 'sum' | 'average' | 'count' | 'first' | 'max'; 
 }
 
 export interface FilterOption {
   column: string;
-  value: string | number | string[] | number[] | 'all' | 'before6am' | '6to12' | '12to6' | 'after6pm'; // Can be single value, array for multi-select, or range
+  value: string | number | string[] | number[] | 'all' | 'before6am' | '6to12' | '12to6' | 'after6pm'; 
   type: 'equals' | 'contains' | 'in' | 'range_number' | 'range_date' | 'timeOfDay';
 }
 
@@ -60,12 +60,12 @@ export const EXPECTED_HEADERS: (keyof DietDataRow)[] = [
 ];
 
 export const NUMERIC_COLUMNS: (keyof DietDataRow)[] = ["total_animal", "ingredient_qty"];
-export const DATE_COLUMNS: (keyof DietDataRow)[] = ["date"]; // Assuming 'date' is the primary date column
+export const DATE_COLUMNS: (keyof DietDataRow)[] = ["date"]; 
 
 export const PIVOT_BLANK_MARKER = '__PIVOT_BLANK__';
 export const PIVOT_SUBTOTAL_MARKER = '__PIVOT_SUBTOTAL__';
 
-// Specific "Diet Analysis by Unit of Measure" pivot view (old default)
+
 export const SPECIAL_PIVOT_UOM_ROW_GROUPINGS: (keyof DietDataRow)[] = [
   'group_name',
   'common_name',
@@ -78,7 +78,6 @@ export const SPECIAL_PIVOT_UOM_COLUMN_FIELD: keyof DietDataRow = 'base_uom_name'
 export const SPECIAL_PIVOT_UOM_VALUE_FIELD: keyof DietDataRow = 'ingredient_qty';
 
 
-// Default pivot configuration based on the user-provided image/request
 export const DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
   'group_name',
   'meal_start_time',
@@ -90,9 +89,9 @@ export const DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
 
 export const DEFAULT_IMAGE_PIVOT_SUMMARIES: SummarizationOption[] = [
   { column: 'ingredient_qty', type: 'sum' },
-  { column: 'total_animal', type: 'sum' }, // Changed to 'sum' to reflect common pivot behavior for counts
+  { column: 'total_animal', type: 'sum' }, 
 ];
 
-// Column to be available in InteractiveFilters as per image
+
 export const DEFAULT_IMAGE_PIVOT_FILTER_COLUMNS: (keyof DietDataRow)[] = ['class_name'];
 export const PIVOT_DEFAULT_FILTERS: (keyof DietDataRow)[] = [];

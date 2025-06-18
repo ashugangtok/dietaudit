@@ -12,13 +12,13 @@ import { UploadCloud, Loader2 } from 'lucide-react';
 import { parseExcelFlow } from '@/ai/flows/parse-excel-flow';
 
 interface FileUploadProps {
-  onDataParsed: (data: DietDataRow[], headers: string[]) => void;
+  onDataParsed: (data: DietDataRow[], headers: string[], fileName: string) => void;
   onProcessing: (isProcessing: boolean) => void;
 }
 
 const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [fileName, setFileName] = useState<string>("No file chosen");
+  const [fileNameDisplay, setFileNameDisplay] = useState<string>("No file chosen");
   const [isCurrentlyProcessing, setIsCurrentlyProcessing] = useState(false);
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -29,7 +29,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
       
       if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || file.type === 'application/vnd.ms-excel' || file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
         setSelectedFile(file);
-        setFileName(file.name);
+        setFileNameDisplay(file.name);
       } else {
         toast({
           variant: "destructive",
@@ -37,14 +37,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
           description: "Please upload an Excel file (.xlsx or .xls).",
         });
         setSelectedFile(null);
-        setFileName("No file chosen");
+        setFileNameDisplay("No file chosen");
         if(fileInputRef.current) {
             fileInputRef.current.value = '';
         }
       }
     } else {
       setSelectedFile(null);
-      setFileName("No file chosen");
+      setFileNameDisplay("No file chosen");
     }
   };
 
@@ -64,6 +64,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
 
     setIsCurrentlyProcessing(true);
     onProcessing(true);
+    const originalFileNameForParsing = selectedFile.name;
 
     try {
       const reader = new FileReader();
@@ -78,7 +79,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
             description: "Extracting data on the server. This may take a moment for large files.",
           });
           
-          const result = await parseExcelFlow({ excelFileBase64: actualBase64, originalFileName: selectedFile.name });
+          const result = await parseExcelFlow({ excelFileBase64: actualBase64, originalFileName: originalFileNameForParsing });
 
           if (result.error) {
             toast({
@@ -86,7 +87,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
               title: "File Processing Error",
               description: result.error,
             });
-            onDataParsed([], []);
+            onDataParsed([], [], originalFileNameForParsing);
             setIsCurrentlyProcessing(false);
             onProcessing(false);
             return; 
@@ -110,7 +111,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
                 description: `${result.parsedData.length} rows of data loaded.`,
               });
           }
-          onDataParsed(result.parsedData, result.headers);
+          onDataParsed(result.parsedData, result.headers, originalFileNameForParsing);
         } catch (processError) {
           console.error("Error during server-side processing:", processError);
           toast({
@@ -118,7 +119,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
             title: "Error During Processing",
             description: processError instanceof Error ? processError.message : "An unknown error occurred on the server.",
           });
-          onDataParsed([], []);
+          onDataParsed([], [], originalFileNameForParsing);
         } finally {
           setIsCurrentlyProcessing(false);
           onProcessing(false);
@@ -133,7 +134,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         });
         setIsCurrentlyProcessing(false);
         onProcessing(false);
-        onDataParsed([], []);
+        onDataParsed([], [], originalFileNameForParsing);
       };
     } catch (error) {
       console.error("Error setting up file read:", error);
@@ -144,7 +145,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
       });
       setIsCurrentlyProcessing(false);
       onProcessing(false);
-      onDataParsed([], []);
+      onDataParsed([], [], originalFileNameForParsing);
     }
   };
 
@@ -164,7 +165,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
           aria-describedby="file-upload-help"
           disabled={isCurrentlyProcessing}
         />
-        <span className="text-sm text-muted-foreground truncate" style={{maxWidth: '200px'}}>{fileName}</span>
+        <span className="text-sm text-muted-foreground truncate" style={{maxWidth: '200px'}}>{fileNameDisplay}</span>
       </div>
        <p id="file-upload-help" className="text-sm text-muted-foreground">
           Please upload an Excel file (.xlsx or .xls).
@@ -188,3 +189,4 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
 };
 
 export default FileUpload;
+
