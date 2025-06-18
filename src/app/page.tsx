@@ -2,10 +2,11 @@
 "use client";
 
 import type React from 'react';
-import { useState, useCallback, useMemo } from 'react';
-import { Leaf, FileSpreadsheet, AlertCircle, ListChecks, ServerCrash } from 'lucide-react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import { Leaf, FileSpreadsheet, AlertCircle, ListChecks, TableIcon } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useTableProcessor, calculateProcessedTableData, type ProcessedTableData } from '@/hooks/useTableProcessor';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption } from '@/types';
@@ -14,14 +15,15 @@ import {
     DEFAULT_IMAGE_PIVOT_SUMMARIES,
     SPECIAL_PIVOT_UOM_ROW_GROUPINGS,
     SPECIAL_PIVOT_UOM_COLUMN_FIELD,
-    SPECIAL_PIVOT_UOM_VALUE_FIELD
+    SPECIAL_PIVOT_UOM_VALUE_FIELD,
+    PIVOT_BLANK_MARKER
 } from '@/types';
 import FileUpload from '@/components/FileUpload';
 import DataTable from '@/components/DataTable';
 import InteractiveFilters from '@/components/InteractiveFilters';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
+import DietWiseLogo from '@/components/DietWiseLogo';
 
 
 export default function Home() {
@@ -40,14 +42,25 @@ export default function Home() {
 
   const { processedData, columns: currentTableColumns, grandTotalRow, filteredData } = useTableProcessor({ rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters });
 
+  useEffect(() => {
+    // This effect ensures that when a new file is uploaded, and filters are reset,
+    // we also reset hasAppliedFilters to false, so the user is prompted to apply filters again.
+    if (!isFileUploaded) {
+        setHasAppliedFilters(false);
+        // Optionally, reset other states if needed when no file is present
+        // setGroupings(DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => ({ column: col as string })));
+        // setSummaries(DEFAULT_IMAGE_PIVOT_SUMMARIES);
+    }
+  }, [isFileUploaded]);
+
   const handleDataParsed = useCallback(async (data: DietDataRow[], headers: string[]) => {
     setRawData(data);
     setAllHeaders(headers);
     setIsProcessingFile(false);
     setIsFileUploaded(true);
     setActiveTab("extractedData");
-    setFilters([]); 
-    setHasAppliedFilters(false); 
+    setFilters([]);
+    setHasAppliedFilters(false); // Reset this on new data load
 
     const requiredDefaultPivotCols = [
         ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => col as string),
@@ -56,13 +69,12 @@ export default function Home() {
     const canApplyDefaultImagePivot = requiredDefaultPivotCols.every(col => headers.includes(col as string));
 
     if (canApplyDefaultImagePivot) {
-        const defaultGroupings: GroupingOption[] = DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => ({ column: col as string }));
-        setGroupings(defaultGroupings);
+        setGroupings(DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => ({ column: col as string })));
         setSummaries(DEFAULT_IMAGE_PIVOT_SUMMARIES);
         if (data.length > 0) {
             toast({
-                title: "Default Pivot View Prepared",
-                description: "Table configured with default groupings and summaries. Apply filters to view.",
+                title: "Default Pivot View Ready",
+                description: "Table configured with standard pivot. Apply filters to view.",
             });
         }
     } else {
@@ -83,15 +95,18 @@ export default function Home() {
                 });
             }
         } else {
-            const fallbackGroupingCandidates: (keyof DietDataRow)[] = ['group_name', 'common_name', 'ingredient_name'];
+            const fallbackGroupingCandidates = ['group_name', 'common_name', 'ingredient_name'];
             const availableFallbackGroupings = fallbackGroupingCandidates.filter(h => headers.includes(h as string));
             const fallbackGroupings: GroupingOption[] = availableFallbackGroupings.length > 0
                 ? availableFallbackGroupings.slice(0,2).map(col => ({ column: col as string }))
                 : headers.length > 0 ? [{ column: headers[0] }] : [];
             setGroupings(fallbackGroupings);
+
             const fallbackSummaries: SummarizationOption[] = (headers.includes('ingredient_qty'))
                 ? [{ column: 'ingredient_qty', type: 'sum' }]
-                : [];
+                 : (headers.includes('total_animal'))
+                    ? [{ column: 'total_animal', type: 'sum'}]
+                    : [];
             setSummaries(fallbackSummaries);
             if (data.length > 0) {
                  toast({
@@ -102,6 +117,12 @@ export default function Home() {
             }
         }
     }
+     if (data.length === 0 && headers.length > 0) {
+        // Handled by toast in FileUpload or if no specific pivot applied.
+    } else if (data.length === 0 && headers.length === 0) {
+        // Handled by FileUpload.
+    }
+
   }, [toast]);
 
   const handleApplyFiltersCallback = useCallback((newFilters: FilterOption[]) => {
@@ -109,34 +130,27 @@ export default function Home() {
     setHasAppliedFilters(true);
   }, []);
 
-  const uniqueSectionNamesForExport = useMemo((): string[] => {
-    if (!hasAppliedFilters || !filteredData || filteredData.length === 0) {
-      return [];
-    }
-    const sectionNames = new Set<string>();
-    for (const row of filteredData) { // Use filteredData to get sections present after user's initial filtering
-      const sectionName = String(row.section_name || '').trim();
-      if (sectionName) {
-        sectionNames.add(sectionName);
-      }
-    }
-    return Array.from(sectionNames).sort();
-  }, [filteredData, hasAppliedFilters]);
-
 
   const year = new Date().getFullYear();
 
   return (
     <main className="min-h-screen bg-background text-foreground flex flex-col">
+      <header className="px-4 py-3 border-b flex items-center justify-between">
+        <DietWiseLogo />
+        <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm">Help</Button>
+            <Button variant="ghost" size="sm">Settings</Button>
+        </div>
+      </header>
       <div className="px-4 py-2 border-b flex-1 min-h-0 flex flex-col">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full h-full flex flex-col">
-          <TabsList className="bg-muted p-1 rounded-md">
-            <TabsTrigger value="uploadExcel" className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Upload Excel</TabsTrigger>
-            <TabsTrigger value="extractedData" disabled={!isFileUploaded && !isProcessingFile} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Extracted Data</TabsTrigger>
-            <TabsTrigger value="exportSections" disabled={!isFileUploaded && !isProcessingFile} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Export Sections</TabsTrigger>
+          <TabsList className="bg-muted p-1 rounded-md grid grid-cols-3">
+            <TabsTrigger value="uploadExcel" className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><FileSpreadsheet className="h-4 w-4"/>Upload Excel</TabsTrigger>
+            <TabsTrigger value="extractedData" disabled={!isFileUploaded && !isProcessingFile} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><TableIcon className="h-4 w-4" />View Data</TabsTrigger>
+            <TabsTrigger value="exportSections" disabled={!isFileUploaded && !isProcessingFile} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><ListChecks className="h-4 w-4"/>Export by Section</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="uploadExcel" className="mt-2">
+          <TabsContent value="uploadExcel" className="mt-2 flex-1 overflow-y-auto">
             <div className="container mx-auto flex flex-col items-center justify-center space-y-8 py-10">
               {!isFileUploaded && (
                 <div className="text-center space-y-4">
@@ -199,12 +213,12 @@ export default function Home() {
                     </CardContent>
                   </Card>
                 )}
-                {rawData.length === 0 && isFileUploaded && (
+                {rawData.length === 0 && isFileUploaded && !isProcessingFile && (
                      <Card className="flex-1">
                         <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
                             <FileSpreadsheet className="h-12 w-12 text-muted-foreground/50 mb-4" />
                             <p className="font-semibold">No Data in File</p>
-                            <p>No data found in the uploaded file.</p>
+                            <p>No data found in the uploaded file, or the file only contains headers.</p>
                             <p>Please try uploading a different file.</p>
                         </CardContent>
                     </Card>
@@ -241,26 +255,18 @@ export default function Home() {
                 {hasAppliedFilters && rawData.length > 0 && (
                   <ScrollArea className="flex-1">
                     <div className="space-y-6">
-                      {uniqueSectionNamesForExport.length === 0 && processedData.length > 0 && (
-                          <Card>
-                            <CardHeader>
-                                <CardTitle className="text-lg">Full Data View (No Specific Sections Filtered or Found)</CardTitle>
-                            </CardHeader>
-                            <CardContent className="min-h-0">
-                                <DataTable data={processedData} columns={currentTableColumns} grandTotalRow={grandTotalRow} />
-                            </CardContent>
-                          </Card>
-                      )}
-                      {uniqueSectionNamesForExport.map((sectionName) => {
-                        const dataForThisSection = rawData.filter(row => String(row.section_name || '').trim() === sectionName.trim());
+                      {filteredData.length > 0 && [...new Set(filteredData.map(row => String(row.section_name || '').trim()).filter(name => name))].sort().map((sectionName) => {
+                        const rawDataForThisSection = rawData.filter(row => String(row.section_name || '').trim() === sectionName);
+                        
                         const sectionTableData: ProcessedTableData = calculateProcessedTableData(
-                            dataForThisSection,
-                            groupings, // Use main groupings
-                            summaries, // Use main summaries
-                            filters,   // Use main user-applied filters (already applied to get dataForThisSection from rawData effectively)
+                            rawDataForThisSection, 
+                            groupings, 
+                            summaries, 
+                            filters,   
                             allHeaders,
-                            true // hasAppliedFilters is true here
+                            true 
                         );
+
                         if (sectionTableData.processedData.length === 0) {
                             return (
                                 <Card key={sectionName}>
@@ -278,8 +284,8 @@ export default function Home() {
                             <CardHeader>
                               <CardTitle className="text-xl font-semibold">Section: {sectionName}</CardTitle>
                             </CardHeader>
-                            <CardContent className="min-h-0 pt-0"> {/* Ensure CardContent allows DataTable to manage its own height */}
-                               <div style={{ height: '500px' }}> {/* Temporary fixed height for DataTable container */}
+                            <CardContent className="min-h-0 pt-0">
+                               <div style={{ height: 'auto', maxHeight: '600px', overflowY: 'auto' }}> 
                                 <DataTable
                                     data={sectionTableData.processedData}
                                     columns={sectionTableData.columns}
@@ -290,19 +296,31 @@ export default function Home() {
                           </Card>
                         );
                       })}
-                       {uniqueSectionNamesForExport.length > 0 && processedData.length === 0 && (
+                      
+                       {hasAppliedFilters && filteredData.length > 0 && ![...new Set(filteredData.map(row => String(row.section_name || '').trim()).filter(name => name))].length && (
+                         <Card>
+                            <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
+                                <AlertCircle className="h-12 w-12 text-primary/50 mb-4" />
+                                <p className="font-semibold">No Sections Found in Filtered Data</p>
+                                <p>The current filter selection resulted in data, but no specific 'section_name' values were found to group by for export.</p>
+                                <p>The full filtered table is displayed in the "View Data" tab.</p>
+                            </CardContent>
+                         </Card>
+                       )}
+                       
+                       {hasAppliedFilters && filteredData.length === 0 && rawData.length > 0 && (
                          <Card>
                             <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
                                 <AlertCircle className="h-12 w-12 text-destructive/50 mb-4" />
                                 <p className="font-semibold">No Data Matches Filters</p>
-                                <p>The current filter selection resulted in no data for any section.</p>
+                                <p>The current filter selection resulted in no data from the uploaded file.</p>
                             </CardContent>
                          </Card>
                        )}
                     </div>
                   </ScrollArea>
                 )}
-                {rawData.length === 0 && isFileUploaded && (
+                {rawData.length === 0 && isFileUploaded && !isProcessingFile && (
                     <Card className="flex-1">
                         <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
                             <FileSpreadsheet className="h-12 w-12 text-muted-foreground/50 mb-4" />
@@ -328,4 +346,3 @@ export default function Home() {
     </main>
   );
 }
-

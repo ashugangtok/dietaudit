@@ -35,7 +35,7 @@ export interface GroupingOption {
 
 export interface SummarizationOption {
   column: string;
-  type: 'sum' | 'average' | 'count';
+  type: 'sum' | 'average' | 'count' | 'first' | 'max'; // Added 'first' and 'max'
 }
 
 export interface FilterOption {
@@ -90,7 +90,7 @@ export const DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
 
 export const DEFAULT_IMAGE_PIVOT_SUMMARIES: SummarizationOption[] = [
   { column: 'ingredient_qty', type: 'sum' },
-  { column: 'total_animal', type: 'count' },
+  { column: 'total_animal', type: 'sum' }, // Changed to 'sum' to reflect common pivot behavior for counts
 ];
 
 // Column to be available in InteractiveFilters as per image

@@ -3,7 +3,7 @@
 
 import { useMemo } from 'react';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption } from '@/types';
-import { NUMERIC_COLUMNS, DATE_COLUMNS, PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER, SPECIAL_PIVOT_UOM_ROW_GROUPINGS, SPECIAL_PIVOT_UOM_COLUMN_FIELD, SPECIAL_PIVOT_UOM_VALUE_FIELD } from '@/types';
+import { NUMERIC_COLUMNS, DATE_COLUMNS, PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER, SPECIAL_PIVOT_UOM_ROW_GROUPINGS, SPECIAL_PIVOT_UOM_COLUMN_FIELD, SPECIAL_PIVOT_UOM_VALUE_FIELD, DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS } from '@/types';
 
 interface UseTableProcessorProps {
   rawData: DietDataRow[];
@@ -37,12 +37,12 @@ const getColumnValueInternal = (row: DietDataRow, column: string): any => {
     let value = row[column];
     if (NUMERIC_COLUMNS.includes(column as keyof DietDataRow)) {
       const parsedValue = parseFloat(value as string);
-      return isNaN(parsedValue) ? 0 : parsedValue;
+      return isNaN(parsedValue) ? ( (value === '' || value === undefined || value === null) ? '' : 0 ) : parsedValue;
     }
     if (DATE_COLUMNS.includes(column as keyof DietDataRow)) {
       return value ? new Date(value as string).toLocaleDateString() : '';
     }
-    return value;
+    return value === undefined || value === null ? '' : value;
   };
 
 
@@ -61,11 +61,10 @@ export function calculateProcessedTableData(
     return rawDataToProcess.filter(row => {
       return filtersToApply.every(filter => {
         const rowValue = getColumnValueInternal(row, filter.column);
-         if (rowValue === undefined && Object.keys(row).includes(filter.column) ) {
-        } else if (rowValue === undefined || rowValue === null) {
-            if (filter.type === 'equals' && filter.value === '') return true; 
-            return false;
-        }
+        
+        if (rowValue === '' && filter.type === 'equals' && filter.value === '') return true;
+        if (rowValue === '') return false;
+
 
         const filterValue = filter.value;
         const normalizedRowValue = String(rowValue).toLowerCase();
@@ -133,11 +132,12 @@ export function calculateProcessedTableData(
       return { data: [], dynamicColumns: allHeadersForData.length > 0 ? allHeadersForData : [], grandTotalRow: undefined };
     }
 
-    let dataToProcess = [...internalFilteredDataResult];
+    let dataToProcess: DietDataRow[] = [...internalFilteredDataResult];
     let dynamicColumns: string[] = dataToProcess.length > 0 && dataToProcess[0] ? Object.keys(dataToProcess[0]) : (allHeadersForData.length > 0 ? allHeadersForData : []);
     let grandTotalRow: DietDataRow | undefined = undefined;
 
     if (isSpecialPivotModeActive) {
+      // ... (Special UOM Pivot Logic remains unchanged, omitted for brevity)
       const rowKeyColumns = SPECIAL_PIVOT_UOM_ROW_GROUPINGS as string[];
       const pivotColName = SPECIAL_PIVOT_UOM_COLUMN_FIELD;
       const valueColName = SPECIAL_PIVOT_UOM_VALUE_FIELD;
@@ -156,7 +156,7 @@ export function calculateProcessedTableData(
             baseRow[col] = keyParts[index];
           });
           uniquePivotColumnValues.forEach(pivotVal => {
-            baseRow[pivotVal] = undefined;
+            baseRow[pivotVal] = undefined; 
           });
           pivotedDataMap.set(mapKey, baseRow);
         }
@@ -176,7 +176,7 @@ export function calculateProcessedTableData(
           if (typeof pivotedRow[pivotCol] === 'number') {
             pivotedRow[pivotCol] = parseFloat((pivotedRow[pivotCol] as number).toFixed(2));
           } else if (pivotedRow[pivotCol] === undefined) {
-             pivotedRow[pivotCol] = '';
+             pivotedRow[pivotCol] = ''; 
           }
         });
       });
@@ -230,192 +230,233 @@ export function calculateProcessedTableData(
       return { data: dataToProcess, dynamicColumns, grandTotalRow };
     }
 
+    // Standard Pivot Logic (Image-based)
     const groupingColNames = groupingsToApply.map(g => g.column);
-    if (groupingsToApply.length > 0) {
-      const grouped = new Map<string, DietDataRow[]>();
-      dataToProcess.forEach(row => {
-        const groupKey = groupingsToApply.map(g => getColumnValueInternal(row, g.column)).join(' | ');
-        if (!grouped.has(groupKey)) grouped.set(groupKey, []);
-        grouped.get(groupKey)!.push(row);
-      });
+    const summaryColDetails = summariesToApply.map(s => ({
+        name: `${s.column}_${s.type}`, // e.g. ingredient_qty_sum
+        originalColumn: s.column,
+        type: s.type,
+    }));
+    const summaryColNames = summaryColDetails.map(s => s.name);
 
-      const result: DietDataRow[] = [];
-      const summaryColNames = summariesToApply.map(s => `${s.column}_${s.type}`);
-      dynamicColumns = [...new Set([...groupingColNames, ...summaryColNames].filter(col => col !== 'note'))];
-      if (summariesToApply.length === 0 && dataToProcess.length > 0 && dataToProcess[0] && groupingsToApply.length > 0) {
-        const originalCols = Object.keys(dataToProcess[0]);
-        const otherCols = originalCols.filter(col => !groupingColNames.includes(col) && col !== 'note');
-        dynamicColumns = [...groupingColNames, ...otherCols];
-      }
+    dynamicColumns = [...groupingColNames, ...summaryColNames];
 
-      grouped.forEach((groupRows, groupKey) => {
-        const representativeRow: DietDataRow = { note: PIVOT_SUBTOTAL_MARKER };
-        const groupKeyValues = groupKey.split(' | ');
-        groupingsToApply.forEach((g, idx) => {
-            const originalValue = groupKeyValues[idx];
-             representativeRow[g.column] = (originalValue === "undefined" || originalValue === "null" || originalValue === "") ? "" : originalValue;
+    if (groupingColNames.length > 0 && internalFilteredDataResult.length > 0) {
+        const grouped = new Map<string, DietDataRow[]>();
+        internalFilteredDataResult.forEach(row => {
+            const groupKey = groupingColNames.map(gCol => getColumnValueInternal(row, gCol)).join('||');
+            if (!grouped.has(groupKey)) grouped.set(groupKey, []);
+            grouped.get(groupKey)!.push(row);
         });
-        if (summariesToApply.length > 0) {
-          summariesToApply.forEach(summary => {
-            const values = groupRows.map(row => getColumnValueInternal(row, summary.column)).filter(v => typeof v === 'number' && !isNaN(v)) as number[];
-            let summaryValue: number | string = 0;
-            if (values.length > 0) {
-              switch (summary.type) {
-                case 'sum': summaryValue = values.reduce((acc, val) => acc + val, 0); break;
-                case 'average': summaryValue = values.reduce((acc, val) => acc + val, 0) / values.length; break;
-                case 'count': summaryValue = values.length; break;
-              }
-            } else if (summary.type === 'count') {
-              summaryValue = 0;
-            } else {
-              summaryValue = ''; 
-            }
-            const valueToSet = summary.type === 'average' && typeof summaryValue === 'number' ? parseFloat(summaryValue.toFixed(2)) : summaryValue;
-            representativeRow[`${summary.column}_${summary.type}`] = typeof valueToSet === 'number' && NUMERIC_COLUMNS.includes(summary.column as keyof DietDataRow) ? parseFloat(valueToSet.toFixed(2)) : valueToSet;
-          });
-        } else if (groupRows.length > 0 && groupRows[0]) {
-            const originalCols = Object.keys(groupRows[0]);
-            const otherCols = originalCols.filter(col => !groupingColNames.includes(col) && col !== 'note');
-            otherCols.forEach(col => {
-                representativeRow[col] = getColumnValueInternal(groupRows[0], col);
+
+        const result: DietDataRow[] = [];
+        grouped.forEach((groupRows) => {
+            const representativeRow: DietDataRow = {};
+            const firstRowInGroup = groupRows[0];
+
+            groupingColNames.forEach(gCol => {
+                representativeRow[gCol] = getColumnValueInternal(firstRowInGroup, gCol);
             });
-        }
-        result.push(representativeRow);
-      });
-      dataToProcess = result;
-      dataToProcess.sort((a, b) => {
-        for (const col of groupingColNames) {
-          const valA = getColumnValueInternal(a, col); 
-          const valB = getColumnValueInternal(b, col); 
-          if (valA === undefined || valA === null || valA === "") { 
-            if (valB === undefined || valB === null || valB === "") return 0; 
-            return -1; 
-          }
-          if (valB === undefined || valB === null || valB === "") return 1; 
-          if (typeof valA === 'string' && typeof valB === 'string') {
-            const comparison = valA.localeCompare(valB);
-            if (comparison !== 0) return comparison;
-          } else {
-            if (valA < valB) return -1;
-            if (valA > valB) return 1;
-          }
-        }
-        return 0;
-      });
-      let lastNonSubtotalRowKeyValues: (string | number | undefined)[] = [];
-      dataToProcess = dataToProcess.map((row, rowIndex) => {
-        const newRow = { ...row };
-         if (row.note === PIVOT_SUBTOTAL_MARKER) {
-             groupingColNames.forEach(gCol => {
-                // Ensure the actual grouping value is present, not PIVOT_BLANK_MARKER
-                 if (newRow[gCol] === PIVOT_BLANK_MARKER && rowIndex > 0) {
-                    let prevVal = PIVOT_BLANK_MARKER;
-                    // Find the last actual value for this grouping column
-                    for (let k = rowIndex -1; k >=0; k--) {
-                        if (dataToProcess[k][gCol] !== PIVOT_BLANK_MARKER) {
-                            prevVal = dataToProcess[k][gCol];
+
+            summaryColDetails.forEach(summary => {
+                const values = groupRows.map(row => getColumnValueInternal(row, summary.originalColumn));
+                let summaryValue: string | number = '';
+
+                const numericValues = values.map(v => parseFloat(String(v))).filter(v => !isNaN(v));
+
+                if (numericValues.length > 0) {
+                    switch (summary.type) {
+                        case 'sum':
+                            summaryValue = numericValues.reduce((acc, val) => acc + val, 0);
                             break;
+                        case 'average':
+                            summaryValue = numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length;
+                            break;
+                        case 'count': // Count of non-empty, non-NaN numeric values
+                            summaryValue = numericValues.length;
+                            break;
+                        case 'first':
+                            summaryValue = numericValues[0];
+                            break;
+                        case 'max':
+                            summaryValue = Math.max(...numericValues);
+                            break;
+                        default:
+                            summaryValue = ''; // Should not happen with typed SummarizationOption
+                    }
+                     if (typeof summaryValue === 'number' && (summary.type === 'sum' || summary.type === 'average')) {
+                        summaryValue = parseFloat(summaryValue.toFixed(4)); // Increased precision
+                    }
+                } else if (summary.type === 'count') {
+                    summaryValue = 0; // If no numeric values, count is 0
+                } else {
+                     // For 'first' or 'max' if no numeric, or if column isn't numeric
+                    const firstNonEmpty = values.find(v => v !== '' && v !== undefined && v !== null);
+                    summaryValue = summary.type === 'first' ? (firstNonEmpty !== undefined ? firstNonEmpty : '') : '';
+                }
+                representativeRow[summary.name] = summaryValue;
+            });
+            result.push(representativeRow);
+        });
+        
+        dataToProcess = result;
+
+        // Sort by grouping columns
+        dataToProcess.sort((a, b) => {
+            for (const col of groupingColNames) {
+                const valA = getColumnValueInternal(a, col);
+                const valB = getColumnValueInternal(b, col);
+                if (valA === PIVOT_BLANK_MARKER || valB === PIVOT_BLANK_MARKER) continue;
+
+                if (typeof valA === 'string' && typeof valB === 'string') {
+                    const comparison = valA.localeCompare(valB);
+                    if (comparison !== 0) return comparison;
+                } else if (typeof valA === 'number' && typeof valB === 'number') {
+                    if (valA < valB) return -1;
+                    if (valA > valB) return 1;
+                } else { // Mixed types or other types, treat as string
+                    const strA = String(valA);
+                    const strB = String(valB);
+                    const comparison = strA.localeCompare(strB);
+                    if (comparison !== 0) return comparison;
+                }
+            }
+            return 0;
+        });
+
+        // Apply blanking logic
+        if (groupingColNames.length > 0) {
+            let lastKeyValues: (string | number | undefined)[] = new Array(groupingColNames.length).fill(undefined);
+            dataToProcess = dataToProcess.map((row, rowIndex) => {
+                const newRow = { ...row };
+                let resetSubsequentKeys = false;
+                for (let i = 0; i < groupingColNames.length; i++) {
+                    const gCol = groupingColNames[i];
+                    // The last grouping column (e.g., ingredient_name) should typically not be blanked for this pivot style
+                    if (i === groupingColNames.length - 1 && groupingColNames.includes('ingredient_name')) { 
+                        lastKeyValues[i] = getColumnValueInternal(newRow, gCol);
+                        continue;
+                    }
+
+                    const currentValue = getColumnValueInternal(newRow, gCol);
+                    if (rowIndex > 0 && !resetSubsequentKeys && currentValue === lastKeyValues[i]) {
+                        newRow[gCol] = PIVOT_BLANK_MARKER;
+                    } else {
+                        newRow[gCol] = currentValue; // Ensure actual value is set if not blanking
+                        lastKeyValues[i] = currentValue;
+                        resetSubsequentKeys = true; // If a key changes, all subsequent keys in this row's lastKeyValues must be reset
+                        for (let j = i + 1; j < groupingColNames.length; j++) {
+                           lastKeyValues[j] = undefined; // Force re-evaluation for subsequent keys
                         }
                     }
-                    newRow[gCol] = prevVal; // Use the actual value for the subtotal row label
                 }
+                return newRow;
             });
-            lastNonSubtotalRowKeyValues = groupingColNames.map(col => newRow[col]);
-            return newRow;
+        }
+    } else if (summariesToApply.length > 0 && internalFilteredDataResult.length > 0) {
+        // Fallback for only summaries, no groupings (like the "Overall Summary" case)
+        const summaryRow: DietDataRow = { note: "Overall Summary" };
+        summaryColDetails.forEach(summary => {
+            const values = internalFilteredDataResult.map(row => getColumnValueInternal(row, summary.originalColumn));
+            let summaryValue: string | number = '';
+            // Similar summary calculation as above
+             const numericValues = values.map(v => parseFloat(String(v))).filter(v => !isNaN(v));
+             if (numericValues.length > 0) {
+                 switch (summary.type) {
+                     case 'sum': summaryValue = numericValues.reduce((acc, val) => acc + val, 0); break;
+                     case 'average': summaryValue = numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length; break;
+                     case 'count': summaryValue = numericValues.length; break;
+                     case 'first': summaryValue = numericValues[0]; break;
+                     case 'max': summaryValue = Math.max(...numericValues); break;
+                 }
+                 if (typeof summaryValue === 'number' && (summary.type === 'sum' || summary.type === 'average')) {
+                    summaryValue = parseFloat(summaryValue.toFixed(4));
+                 }
+             } else if (summary.type === 'count') {
+                 summaryValue = 0;
+             } else {
+                const firstNonEmpty = values.find(v => v !== '' && v !== undefined && v !== null);
+                summaryValue = summary.type === 'first' ? (firstNonEmpty !== undefined ? firstNonEmpty : '') : '';
+             }
+            summaryRow[summary.name] = summaryValue;
+        });
+        
+        // Try to set a label for the summary row
+        if (dynamicColumns.length > 0 && !summaryColNames.includes(dynamicColumns[0])) {
+            summaryRow[dynamicColumns[0]] = "Overall Summary";
+        } else if (dynamicColumns.length > 0 && summaryColNames.includes(dynamicColumns[0])) {
+            // If the first dynamic column is a summary column, create a descriptive label
+            const firstOriginalCol = summaryColDetails.find(s => s.name === dynamicColumns[0])?.originalColumn || dynamicColumns[0];
+            summaryRow[dynamicColumns[0]] = `Overall ${firstOriginalCol.replace(/_/g, ' ')}`;
+        } else if (allHeadersForData.length > 0) {
+            summaryRow[allHeadersForData[0]] = "Overall Summary"; // Fallback if dynamicColumns is empty
         }
 
-        // For regular data rows (not subtotals)
-        if (rowIndex === 0 || (dataToProcess[rowIndex-1]?.note === PIVOT_SUBTOTAL_MARKER && row.note !== PIVOT_SUBTOTAL_MARKER)) {
-            lastNonSubtotalRowKeyValues = groupingColNames.map(col => row[col]);
-            return row;
-        }
-        const currentRowKeyValues = groupingColNames.map(col => row[col]);
-        
-        let sameAsLast = true;
-        for (let i = 0; i < groupingColNames.length; i++) {
-          if (sameAsLast && currentRowKeyValues[i] === lastNonSubtotalRowKeyValues[i]) {
-            newRow[groupingColNames[i]] = PIVOT_BLANK_MARKER;
-          } else {
-            sameAsLast = false;
-          }
-        }
-        lastNonSubtotalRowKeyValues = currentRowKeyValues;
-        return newRow;
-      });
-    } else if (summariesToApply.length > 0 && dataToProcess.length > 0) {
-        const summaryRow: DietDataRow = { note: "Overall Summary" };
-        dynamicColumns = summariesToApply.map(s => `${s.column}_${s.type}`);
-        summariesToApply.forEach(summary => {
-            const values = dataToProcess.map(row => getColumnValueInternal(row, summary.column)).filter(v => typeof v === 'number' && !isNaN(v)) as number[];
-            let summaryValue: number | string = 0;
-            if (values.length > 0) {
-                switch (summary.type) {
-                case 'sum': summaryValue = values.reduce((acc, val) => acc + val, 0); break;
-                case 'average': summaryValue = values.reduce((acc, val) => acc + val, 0) / values.length; break;
-                case 'count': summaryValue = values.length; break;
-                }
-            } else if (summary.type === 'count') {
-                summaryValue = 0;
-            } else {
-                summaryValue = '';
-            }
-            const valueToSet = summary.type === 'average' && typeof summaryValue === 'number' ? parseFloat(summaryValue.toFixed(2)) : summaryValue;
-            summaryRow[`${summary.column}_${summary.type}`] = typeof valueToSet === 'number' && NUMERIC_COLUMNS.includes(summary.column as keyof DietDataRow) ? parseFloat(valueToSet.toFixed(2)) : valueToSet;
-        });
-        if (dynamicColumns.length > 0 && !summariesToApply.map(s => s.column + "_" + s.type).includes(dynamicColumns[0])) {
-             summaryRow[dynamicColumns[0]] = "Overall Summary";
-        } else if (dynamicColumns.length > 0) {
-             const firstSummaryCol = dynamicColumns[0];
-             const originalFirstColName = firstSummaryCol.substring(0, firstSummaryCol.lastIndexOf('_'));
-             summaryRow[firstSummaryCol] = `Overall Summary for ${originalFirstColName.replace(/_/g, ' ')}`;
-        }
+
         dataToProcess = [summaryRow];
+        dynamicColumns = summaryColNames; // Only summary columns are relevant here
+    } else {
+      // No groupings and no summaries, or no data
+      dataToProcess = internalFilteredDataResult;
+      // dynamicColumns are already set from initial data or allHeadersForData
     }
 
-    if (summariesToApply.length > 0 && internalFilteredDataResult.length > 0 && !grandTotalRow && (groupingsToApply.length > 0 || dataToProcess.some(r => r.note === "Overall Summary"))) {
+
+    // Calculate Grand Total
+    if (summariesToApply.length > 0 && internalFilteredDataResult.length > 0) {
         grandTotalRow = { note: "Grand Total" };
-        if(groupingColNames.length > 0) {
+        if (groupingColNames.length > 0) {
             grandTotalRow[groupingColNames[0]] = "Grand Total";
-             for (let i = 1; i < groupingColNames.length; i++) {
+            for (let i = 1; i < groupingColNames.length; i++) {
                 grandTotalRow[groupingColNames[i]] = PIVOT_BLANK_MARKER;
             }
-        } else if (dynamicColumns.length > 0 && !summariesToApply.map(s => s.column + "_" + s.type).includes(dynamicColumns[0])) {
-             grandTotalRow[dynamicColumns[0]] = "Grand Total";
+        } else if (dynamicColumns.length > 0 && !summaryColNames.includes(dynamicColumns[0])) {
+            grandTotalRow[dynamicColumns[0]] = "Grand Total";
         }
-        summariesToApply.forEach(summary => {
-            const values = internalFilteredDataResult.map(row => getColumnValueInternal(row, summary.column)).filter(v => typeof v === 'number' && !isNaN(v)) as number[];
-            let totalValue: number | string = 0;
-            if (values.length > 0) {
-                switch (summary.type) {
-                case 'sum': totalValue = values.reduce((acc, val) => acc + val, 0); break;
-                case 'average': totalValue = values.reduce((acc, val) => acc + val, 0) / values.length; break;
-                case 'count': totalValue = values.length; break;
-                }
-            } else if (summary.type === 'count') {
-                totalValue = 0;
-            } else {
-                totalValue = '';
-            }
-            const valueToSet = summary.type === 'average' && typeof totalValue === 'number' ? parseFloat(totalValue.toFixed(2)) : totalValue;
-            grandTotalRow![`${summary.column}_${summary.type}`] = typeof valueToSet === 'number' && NUMERIC_COLUMNS.includes(summary.column as keyof DietDataRow) ? parseFloat(valueToSet.toFixed(2)) : valueToSet;
+
+        summaryColDetails.forEach(summary => {
+            const values = internalFilteredDataResult.map(row => getColumnValueInternal(row, summary.originalColumn));
+            let totalValue: string | number = '';
+            // Similar summary calculation as above
+            const numericValues = values.map(v => parseFloat(String(v))).filter(v => !isNaN(v));
+             if (numericValues.length > 0) {
+                 switch (summary.type) {
+                     case 'sum': totalValue = numericValues.reduce((acc, val) => acc + val, 0); break;
+                     case 'average': totalValue = numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length; break;
+                     case 'count': totalValue = numericValues.length; break;
+                     case 'first': totalValue = numericValues[0]; break;
+                     case 'max': totalValue = Math.max(...numericValues); break;
+                 }
+                  if (typeof totalValue === 'number' && (summary.type === 'sum' || summary.type === 'average')) {
+                    totalValue = parseFloat(totalValue.toFixed(4));
+                 }
+             } else if (summary.type === 'count') {
+                 totalValue = 0;
+             } else {
+                const firstNonEmpty = values.find(v => v !== '' && v !== undefined && v !== null);
+                totalValue = summary.type === 'first' ? (firstNonEmpty !== undefined ? firstNonEmpty : '') : '';
+             }
+            grandTotalRow![summary.name] = totalValue;
         });
+         // Ensure "Grand Total" label is in the first summary column if no grouping columns
+        if (groupingColNames.length === 0 && summaryColNames.length > 0 && grandTotalRow) {
+            grandTotalRow[summaryColNames[0]] = `Grand Total (${(grandTotalRow[summaryColNames[0]] !== undefined && grandTotalRow[summaryColNames[0]] !== '') ? grandTotalRow[summaryColNames[0]] : ''})`;
+            if (summaryColDetails.find(s => s.name === summaryColNames[0])?.originalColumn && (grandTotalRow[summaryColNames[0]] === undefined || String(grandTotalRow[summaryColNames[0]]).trim() === "" || grandTotalRow[summaryColNames[0]] === "Grand Total ()")) {
+                 grandTotalRow[summaryColNames[0]] = `Grand Total (${summaryColDetails.find(s => s.name === summaryColNames[0])?.originalColumn.replace(/_/g, ' ')})`;
+            }
+        }
+    }
+    
+    // Final column list should not include 'note'
+    dynamicColumns = dynamicColumns.filter(col => col !== 'note');
+    if (grandTotalRow && !Object.keys(grandTotalRow).some(k => k !== 'note' && grandTotalRow[k] === 'Grand Total')) {
+        const firstColForGT = dynamicColumns.length > 0 ? dynamicColumns[0] : (groupingColNames.length > 0 ? groupingColNames[0] : (summaryColNames.length > 0 ? summaryColNames[0] : undefined));
+        if (firstColForGT) {
+            grandTotalRow[firstColForGT] = 'Grand Total' + (grandTotalRow[firstColForGT] ? ` (${grandTotalRow[firstColForGT]})` : '');
+        }
     }
 
-    dynamicColumns = dynamicColumns.filter(col => col !== 'note');
-    if (grandTotalRow && grandTotalRow.note === "Grand Total") {
-        const firstMeaningfulCol = groupingColNames.length > 0 ? groupingColNames[0] : (dynamicColumns.find(c => !summariesToApply.some(s => `${s.column}_${s.type}` === c)));
-        if (firstMeaningfulCol && !Object.keys(grandTotalRow).includes(firstMeaningfulCol)) {
-            const tempFirstCol = dynamicColumns[0] || 'description';
-            grandTotalRow[tempFirstCol] = "Grand Total";
-        } else if (firstMeaningfulCol && grandTotalRow[firstMeaningfulCol] !== "Grand Total" && groupingColNames.length === 0) {
-             const firstKeyToSetGT = Object.keys(grandTotalRow).find(k => k !== 'note' && !summariesToApply.some(s => `${s.column}_${s.type}` === k));
-             if (firstKeyToSetGT && grandTotalRow[firstKeyToSetGT] !== "Grand Total") {
-                grandTotalRow[firstKeyToSetGT] = "Grand Total";
-             } else if (!firstKeyToSetGT && dynamicColumns.length > 0) {
-                grandTotalRow[dynamicColumns[0]] = `Grand Total (${dynamicColumns[0].substring(0, dynamicColumns[0].lastIndexOf('_')).replace(/_/g, ' ')})`;
-             }
-        }
-    }
+
     return { data: dataToProcess, dynamicColumns, grandTotalRow };
   })();
 
@@ -440,4 +481,3 @@ export function useTableProcessor({
         return calculateProcessedTableData(rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters);
     }, [rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters]);
 }
-
