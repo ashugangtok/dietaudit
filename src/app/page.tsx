@@ -16,6 +16,7 @@ import {
     SPECIAL_PIVOT_UOM_ROW_GROUPINGS,
     SPECIAL_PIVOT_UOM_COLUMN_FIELD,
     SPECIAL_PIVOT_UOM_VALUE_FIELD,
+    PIVOT_BLANK_MARKER 
 } from '@/types';
 import FileUpload from '@/components/FileUpload';
 import DataTable from '@/components/DataTable';
@@ -287,9 +288,9 @@ export default function Home() {
                           
                           const sectionTableData: ProcessedTableData = calculateProcessedTableData(
                               rawDataForThisSection, 
-                              groupings, // Use main groupings
-                              summaries, // Use main summaries
-                              filters,   // Apply main filters to the section's subset of rawData
+                              groupings, 
+                              summaries, 
+                              filters,   
                               allHeaders,
                               true 
                           );
