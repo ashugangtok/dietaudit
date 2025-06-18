@@ -25,11 +25,11 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface ExportSectionData {
   sectionName: string;
-  groups: ExportGroupData[];
+  enclosures: ExportEnclosureData[];
 }
 
-interface ExportGroupData {
-  groupName: string;
+interface ExportEnclosureData {
+  enclosureName: string;
   consumingSpecies: string[];
   ingredientsData: DietDataRow[];
 }
@@ -131,28 +131,28 @@ export default function Home() {
 
     for (const row of filteredData) {
       const sectionName = String(row.section_name || 'Uncategorized Section');
-      const groupName = String(row.group_name || 'Uncategorized Group');
+      const enclosureName = String(row.user_enclosure_name || 'Uncategorized Enclosure');
       const commonName = String(row.common_name || '');
 
       if (!sections[sectionName]) {
         sections[sectionName] = {};
       }
-      if (!sections[sectionName][groupName]) {
-        sections[sectionName][groupName] = { consumingSpecies: new Set(), ingredients: [] };
+      if (!sections[sectionName][enclosureName]) {
+        sections[sectionName][enclosureName] = { consumingSpecies: new Set(), ingredients: [] };
       }
       if (commonName) {
-        sections[sectionName][groupName].consumingSpecies.add(commonName);
+        sections[sectionName][enclosureName].consumingSpecies.add(commonName);
       }
-      sections[sectionName][groupName].ingredients.push(row);
+      sections[sectionName][enclosureName].ingredients.push(row);
     }
 
-    return Object.entries(sections).map(([sectionName, groups]) => ({
+    return Object.entries(sections).map(([sectionName, enclosures]) => ({
       sectionName,
-      groups: Object.entries(groups).map(([groupName, data]) => ({
-        groupName,
+      enclosures: Object.entries(enclosures).map(([enclosureName, data]) => ({
+        enclosureName,
         consumingSpecies: Array.from(data.consumingSpecies).sort(),
         ingredientsData: data.ingredients,
-      })).sort((a, b) => a.groupName.localeCompare(b.groupName)),
+      })).sort((a, b) => a.enclosureName.localeCompare(b.enclosureName)),
     })).sort((a,b) => a.sectionName.localeCompare(b.sectionName));
   }, [filteredData, hasAppliedFilters]);
 
@@ -277,29 +277,29 @@ export default function Home() {
                       {exportPageData.map((section) => (
                         <Card key={section.sectionName} className="shadow-md">
                           <CardHeader className="bg-muted/50 p-4">
-                            <CardTitle className="text-xl">{section.sectionName}</CardTitle>
+                            <CardTitle className="text-xl">Section: {section.sectionName}</CardTitle>
                           </CardHeader>
                           <CardContent className="p-0">
-                            {section.groups.map((group) => (
-                              <div key={group.groupName} className="border-t">
+                            {section.enclosures.map((enclosure) => (
+                              <div key={enclosure.enclosureName} className="border-t">
                                 <div className="p-4">
-                                  <h4 className="text-lg font-semibold text-primary">{group.groupName}</h4>
-                                  {group.consumingSpecies.length > 0 && (
+                                  <h4 className="text-lg font-semibold text-primary">Enclosure: {enclosure.enclosureName}</h4>
+                                  {enclosure.consumingSpecies.length > 0 && (
                                     <p className="text-sm text-muted-foreground mt-1">
-                                      <span className="font-medium">Consuming Species:</span> {group.consumingSpecies.join(', ')}
+                                      <span className="font-medium">Consuming Species:</span> {enclosure.consumingSpecies.join(', ')}
                                     </p>
                                   )}
                                 </div>
-                                {group.ingredientsData.length > 0 ? (
+                                {enclosure.ingredientsData.length > 0 ? (
                                   <div className="px-4 pb-4 max-h-[400px] overflow-y-auto">
                                     <DataTable 
-                                      data={group.ingredientsData} 
+                                      data={enclosure.ingredientsData} 
                                       columns={INGREDIENT_TABLE_COLUMNS_EXPORT.filter(col => allHeaders.includes(col))} 
                                       isLoading={false}
                                       />
                                   </div>
                                 ) : (
-                                  <p className="px-4 pb-4 text-sm text-muted-foreground">No ingredient data for this group.</p>
+                                  <p className="px-4 pb-4 text-sm text-muted-foreground">No ingredient data for this enclosure.</p>
                                 )}
                               </div>
                             ))}
