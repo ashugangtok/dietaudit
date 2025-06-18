@@ -1,6 +1,7 @@
 
 "use client";
 
+import { useMemo } from 'react';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption } from '@/types';
 import { NUMERIC_COLUMNS, DATE_COLUMNS, PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER, SPECIAL_PIVOT_UOM_ROW_GROUPINGS, SPECIAL_PIVOT_UOM_COLUMN_FIELD, SPECIAL_PIVOT_UOM_VALUE_FIELD } from '@/types';
 
@@ -54,7 +55,7 @@ export function calculateProcessedTableData(
   shouldProcessData: boolean
 ): ProcessedTableData {
 
-  const internalFilteredDataResult = (() => {
+  const internalFilteredDataResult = useMemo(() => {
     if (!shouldProcessData || !filtersToApply.length) return rawDataToProcess;
     
     return rawDataToProcess.filter(row => {
@@ -109,9 +110,9 @@ export function calculateProcessedTableData(
         }
       });
     });
-  })();
+  }, [rawDataToProcess, filtersToApply, shouldProcessData]);
 
-  const isSpecialPivotModeActive = (() => {
+  const isSpecialPivotModeActive = useMemo(() => {
     if (!shouldProcessData) return false;
 
     if (summariesToApply.length === 1 && summariesToApply[0].column === SPECIAL_PIVOT_UOM_VALUE_FIELD && summariesToApply[0].type === 'sum') {
@@ -125,9 +126,9 @@ export function calculateProcessedTableData(
              allHeadersForData.includes(SPECIAL_PIVOT_UOM_VALUE_FIELD);
     }
     return false;
-  })();
+  }, [summariesToApply, groupingsToApply, allHeadersForData, shouldProcessData]);
 
-  const processedDataAndColumnsResult = ((): { data: DietDataRow[], dynamicColumns: string[], grandTotalRow?: DietDataRow } => {
+  const processedDataAndColumnsResult = useMemo((): { data: DietDataRow[], dynamicColumns: string[], grandTotalRow?: DietDataRow } => {
     if (!shouldProcessData) {
       return { data: [], dynamicColumns: allHeadersForData.length > 0 ? allHeadersForData : [], grandTotalRow: undefined };
     }
@@ -413,7 +414,7 @@ export function calculateProcessedTableData(
         }
     }
     return { data: dataToProcess, dynamicColumns, grandTotalRow };
-  })();
+  }, [shouldProcessData, internalFilteredDataResult, groupingsToApply, summariesToApply, allHeadersForData, isSpecialPivotModeActive]);
 
   return {
     processedData: processedDataAndColumnsResult.data,
@@ -432,6 +433,9 @@ export function useTableProcessor({
   allHeaders,
   hasAppliedFilters,
 }: UseTableProcessorProps): ProcessedTableData {
-    return calculateProcessedTableData(rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters);
+    // The main call to the processing logic, wrapped with useMemo for the hook itself
+    // to avoid re-calculating unless its direct dependencies change.
+    return useMemo(() => {
+        return calculateProcessedTableData(rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters);
+    }, [rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters]);
 }
-
