@@ -86,21 +86,25 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
           <TableFooter className="sticky bottom-0 bg-secondary font-bold z-10 shadow-sm">
             <TableRow data-testid="grand-total-row">
               {displayColumns.map((column, colIndex) => {
-                let cellValue = grandTotalRow[column];
-                
-                if (colIndex === 0 && (grandTotalRow[column] === undefined || grandTotalRow[column] === PIVOT_BLANK_MARKER || grandTotalRow[column] === null)) {
-                  cellValue = "Grand Total"; 
-                } else if (colIndex !==0 && (grandTotalRow[column] === undefined || grandTotalRow[column] === null)) {
-                  cellValue = ""; // Empty for other undefined/null grand total cells
-                } else if (typeof grandTotalRow[column] === 'number') {
-                  const numVal = grandTotalRow[column] as number;
-                  cellValue = Number.isInteger(numVal) ? String(numVal) : numVal.toFixed(2);
-                }
+                const rawCellValue = grandTotalRow[column];
+                let displayCellValue;
 
+                if (colIndex === 0 && (rawCellValue === undefined || rawCellValue === PIVOT_BLANK_MARKER || rawCellValue === null)) {
+                  displayCellValue = "Grand Total";
+                } else if (rawCellValue === PIVOT_BLANK_MARKER) {
+                  displayCellValue = ""; 
+                } else if (typeof rawCellValue === 'number') {
+                  const numVal = rawCellValue as number;
+                  displayCellValue = Number.isInteger(numVal) ? String(numVal) : numVal.toFixed(2);
+                } else if (rawCellValue === undefined || rawCellValue === null) {
+                   displayCellValue = "";
+                } else {
+                  displayCellValue = String(rawCellValue);
+                }
 
                  return (
                     <TableCell key={column} className="whitespace-nowrap">
-                      {String(cellValue)}
+                      {displayCellValue}
                     </TableCell>
                   );
               })}
