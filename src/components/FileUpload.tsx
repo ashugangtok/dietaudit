@@ -81,7 +81,15 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
           const result = await parseExcelFlow({ excelFileBase64: actualBase64, originalFileName: selectedFile.name });
 
           if (result.error) {
-            throw new Error(result.error);
+            toast({
+              variant: "destructive",
+              title: "File Processing Error",
+              description: result.error,
+            });
+            onDataParsed([], []);
+            setIsCurrentlyProcessing(false);
+            onProcessing(false);
+            return; 
           }
           
           if (result.parsedData.length === 0 && result.headers.length > 0) {
