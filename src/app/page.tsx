@@ -2,8 +2,7 @@
 "use client";
 
 import type React from 'react';
-import { useState, useCallback }
-from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Leaf } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,25 +20,38 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<string>("uploadExcel");
   const [rawData, setRawData] = useState<DietDataRow[]>([]);
   const [allHeaders, setAllHeaders] = useState<string[]>([]);
-  
+
   const [groupings, setGroupings] = useState<GroupingOption[]>([]);
   const [summaries, setSummaries] = useState<SummarizationOption[]>([]);
   const [filters, setFilters] = useState<FilterOption[]>([]);
-  
+
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [isFileUploaded, setIsFileUploaded] = useState(false);
   const { toast } = useToast();
 
-  const { processedData, columns: currentTableColumns, grandTotalRow } = useTableProcessor({ rawData, groupings, summaries, filters, allHeaders });
+  const { processedData, columns: currentTableColumns, grandTotalRow, filteredData } = useTableProcessor({ rawData, groupings, summaries, filters, allHeaders });
+
+  const sortedDataForExportTab = useMemo(() => {
+    if (!filteredData || filteredData.length === 0) {
+      return [];
+    }
+    return [...filteredData].sort((a, b) => {
+      const sectionA = String(a.section_name || '').toLowerCase();
+      const sectionB = String(b.section_name || '').toLowerCase();
+      if (sectionA < sectionB) return -1;
+      if (sectionA > sectionB) return 1;
+      return 0;
+    });
+  }, [filteredData]);
 
   const handleDataParsed = useCallback(async (data: DietDataRow[], headers: string[]) => {
     setRawData(data);
     setAllHeaders(headers);
-    setIsProcessingFile(false); 
+    setIsProcessingFile(false);
     setIsFileUploaded(true);
     setActiveTab("extractedData");
 
-    const canApplySpecialPivot = 
+    const canApplySpecialPivot =
         EXPECTED_PIVOT_ROW_GROUPINGS.every(col => headers.includes(col as string)) &&
         headers.includes(PIVOT_COLUMN_FIELD) &&
         headers.includes(PIVOT_VALUE_FIELD);
@@ -50,8 +62,8 @@ export default function Home() {
 
         const defaultPivotSummaries: SummarizationOption[] = [{ column: PIVOT_VALUE_FIELD, type: 'sum' }];
         setSummaries(defaultPivotSummaries);
-        
-        setFilters([]); 
+
+        setFilters([]);
 
         toast({
             title: "Diet Analysis by Unit of Measure View Applied",
@@ -60,9 +72,9 @@ export default function Home() {
     } else {
         const fallbackGroupingCandidates: (keyof DietDataRow)[] = ['group_name', 'common_name', 'ingredient_name'];
         const availableFallbackGroupings = fallbackGroupingCandidates.filter(h => headers.includes(h as string));
-        
-        const fallbackGroupings: GroupingOption[] = availableFallbackGroupings.length > 0 
-            ? availableFallbackGroupings.slice(0,2).map(col => ({ column: col as string })) 
+
+        const fallbackGroupings: GroupingOption[] = availableFallbackGroupings.length > 0
+            ? availableFallbackGroupings.slice(0,2).map(col => ({ column: col as string }))
             : headers.length > 0 ? [{ column: headers[0] }] : [];
         setGroupings(fallbackGroupings);
 
@@ -71,7 +83,7 @@ export default function Home() {
             : [];
         setSummaries(fallbackSummaries);
         setFilters([]);
-        
+
         if (data.length > 0 && !canApplySpecialPivot) {
             toast({
                 title: "Data Loaded",
@@ -129,7 +141,7 @@ export default function Home() {
                         <Skeleton className="h-8 w-8 rounded-full" />
                         <Skeleton className="h-6 w-48" />
                     </div>
-                    <Skeleton className="h-10 w-full" /> 
+                    <Skeleton className="h-10 w-full" />
                     <Skeleton className="h-20 w-full" />
                     <Skeleton className="h-4 w-full mt-4" />
                     <Skeleton className="h-4 w-3/4 mt-2" />
@@ -138,8 +150,8 @@ export default function Home() {
             )}
             {!isProcessingFile && isFileUploaded && rawData.length > 0 && (
               <div className="space-y-6">
-                <InteractiveFilters 
-                    rawData={rawData} 
+                <InteractiveFilters
+                    rawData={rawData}
                     allHeaders={allHeaders}
                     filters={filters}
                     setFilters={setFilters}
@@ -163,7 +175,7 @@ export default function Home() {
                 </Card>
             )}
           </TabsContent>
-          
+
           <TabsContent value="exportSections" className="mt-6">
              {isProcessingFile && (
               <Card>
@@ -176,21 +188,38 @@ export default function Home() {
                         <Skeleton className="h-8 w-8 rounded-full" />
                         <Skeleton className="h-6 w-48" />
                     </div>
-                    <Skeleton className="h-10 w-full" /> 
+                    <Skeleton className="h-10 w-full" />
                     <Skeleton className="h-20 w-full" />
                 </CardContent>
               </Card>
             )}
-            {!isProcessingFile && isFileUploaded && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Export Sections</CardTitle>
-                  <CardDescription>Functionality for exporting sections will be implemented here.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <p className="text-muted-foreground">Export options for different sections will appear here once available.</p>
-                </CardContent>
-              </Card>
+            {!isProcessingFile && isFileUploaded && sortedDataForExportTab.length > 0 && (
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Data Sorted by Section Name</CardTitle>
+                    <CardDescription>This table shows the filtered data, sorted by section name. All original columns are included.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <DataTable data={sortedDataForExportTab} columns={allHeaders} />
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+            {!isProcessingFile && isFileUploaded && sortedDataForExportTab.length === 0 && rawData.length > 0 && (
+                 <Card>
+                    <CardContent className="p-6 text-center text-muted-foreground">
+                        <p>No data matches the current filters for the Export Sections view, or data is missing the 'section_name' field.</p>
+                    </CardContent>
+                </Card>
+            )}
+            {!isProcessingFile && isFileUploaded && rawData.length === 0 && (
+                 <Card>
+                    <CardContent className="p-6 text-center text-muted-foreground">
+                        <p>No data found in the uploaded file.</p>
+                        <p>Please try uploading a different file.</p>
+                    </CardContent>
+                </Card>
             )}
             {!isProcessingFile && !isFileUploaded && (
                  <Card>
@@ -202,7 +231,7 @@ export default function Home() {
           </TabsContent>
         </Tabs>
       </div>
-      
+
       <footer className="py-6 text-center text-sm text-muted-foreground border-t mt-auto">
         <div className="container mx-auto">
           Diet Insights &copy; {year}

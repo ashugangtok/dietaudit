@@ -10,13 +10,14 @@ interface UseTableProcessorProps {
   groupings: GroupingOption[];
   summaries: SummarizationOption[];
   filters: FilterOption[];
-  allHeaders: string[]; 
+  allHeaders: string[];
 }
 
 interface ProcessedTableData {
   processedData: DietDataRow[];
   columns: string[];
   grandTotalRow?: DietDataRow;
+  filteredData: DietDataRow[]; // Added to return filtered data before further processing
 }
 
 const parseTime = (timeStr: string | undefined | number): { hours: number; minutes: number } | null => {
@@ -51,7 +52,7 @@ export function useTableProcessor({
     return value;
   }, []);
 
-  const filteredData = useMemo(() => {
+  const internalFilteredData = useMemo(() => {
     if (!filters.length) return rawData;
     return rawData.filter(row => {
       return filters.every(filter => {
@@ -66,7 +67,7 @@ export function useTableProcessor({
 
         const filterValue = filter.value;
         const normalizedRowValue = String(rowValue).toLowerCase();
-        
+
         switch (filter.type) {
           case 'equals':
             return normalizedRowValue === String(filterValue).toLowerCase();
@@ -115,31 +116,31 @@ export function useTableProcessor({
       const currentGroupingCols = groupings.map(g => g.column);
       const allExpectedGroupingsPresent = EXPECTED_PIVOT_ROW_GROUPINGS.every(col => currentGroupingCols.includes(col as string));
       const correctNumberOfGroupings = currentGroupingCols.length === EXPECTED_PIVOT_ROW_GROUPINGS.length;
-      
+
       return allExpectedGroupingsPresent &&
              correctNumberOfGroupings &&
-             allHeaders.includes(PIVOT_COLUMN_FIELD) && 
-             allHeaders.includes(PIVOT_VALUE_FIELD);    
+             allHeaders.includes(PIVOT_COLUMN_FIELD) &&
+             allHeaders.includes(PIVOT_VALUE_FIELD);
     }
     return false;
   }, [groupings, summaries, allHeaders]);
 
 
   const processedDataAndColumns = useMemo((): { data: DietDataRow[], dynamicColumns: string[], grandTotalRow?: DietDataRow } => {
-    let dataToProcess = [...filteredData];
+    let dataToProcess = [...internalFilteredData]; // Use internalFilteredData
     let dynamicColumns: string[] = dataToProcess.length > 0 && dataToProcess[0] ? Object.keys(dataToProcess[0]) : [];
     let grandTotalRow: DietDataRow | undefined = undefined;
 
     if (isSpecialPivotMode) {
       const rowKeyColumns = EXPECTED_PIVOT_ROW_GROUPINGS as string[];
-      const pivotColName = PIVOT_COLUMN_FIELD; 
-      const valueColName = PIVOT_VALUE_FIELD;  
+      const pivotColName = PIVOT_COLUMN_FIELD;
+      const valueColName = PIVOT_VALUE_FIELD;
 
-      const uniquePivotColumnValues = [...new Set(filteredData.map(row => String(row[pivotColName] || 'Unknown')).filter(val => val.trim() !== ''))].sort();
+      const uniquePivotColumnValues = [...new Set(internalFilteredData.map(row => String(row[pivotColName] || 'Unknown')).filter(val => val.trim() !== ''))].sort();
       dynamicColumns = [...rowKeyColumns, ...uniquePivotColumnValues];
       const pivotedDataMap = new Map<string, DietDataRow>();
 
-      for (const row of filteredData) {
+      for (const row of internalFilteredData) {
         const keyParts = rowKeyColumns.map(col => String(row[col] || ''));
         const mapKey = keyParts.join('||');
 
@@ -149,14 +150,14 @@ export function useTableProcessor({
             baseRow[col] = keyParts[index];
           });
           uniquePivotColumnValues.forEach(pivotVal => {
-            baseRow[pivotVal] = undefined; 
+            baseRow[pivotVal] = undefined;
           });
           pivotedDataMap.set(mapKey, baseRow);
         }
 
         const mapEntry = pivotedDataMap.get(mapKey)!;
         const currentPivotActualValue = String(row[pivotColName] || 'Unknown');
-        
+
         const qty = parseFloat(String(row[valueColName] || '0'));
 
         if (!isNaN(qty) && currentPivotActualValue.trim() !== '') {
@@ -164,7 +165,7 @@ export function useTableProcessor({
           mapEntry[currentPivotActualValue] = (isNaN(existingQty) ? 0 : existingQty) + qty;
         }
       }
-      
+
       dataToProcess = Array.from(pivotedDataMap.values());
 
       dataToProcess.forEach(pivotedRow => {
@@ -172,11 +173,11 @@ export function useTableProcessor({
           if (typeof pivotedRow[pivotCol] === 'number') {
             pivotedRow[pivotCol] = parseFloat((pivotedRow[pivotCol] as number).toFixed(2));
           } else if (pivotedRow[pivotCol] === undefined) {
-             pivotedRow[pivotCol] = ''; 
+             pivotedRow[pivotCol] = '';
           }
         });
       });
-      
+
       dataToProcess.sort((a, b) => {
         for (const col of rowKeyColumns) {
           const valA = String(a[col] || '').toLowerCase();
@@ -206,7 +207,7 @@ export function useTableProcessor({
         lastRowKeyValues = currentRowKeyValues;
         return newRow;
       });
-      
+
 
       if (dataToProcess.length > 0) {
         grandTotalRow = { note: "Grand Total" };
@@ -217,7 +218,7 @@ export function useTableProcessor({
           }
         }
         uniquePivotColumnValues.forEach(pivotColValue => {
-          const total = filteredData.reduce((sum, currentRow) => { 
+          const total = internalFilteredData.reduce((sum, currentRow) => {
             if (String(currentRow[pivotColName] || 'Unknown') === pivotColValue) {
                 const val = parseFloat(String(currentRow[valueColName] || '0'));
                 return sum + (isNaN(val) ? 0 : val);
@@ -241,7 +242,7 @@ export function useTableProcessor({
 
       const result: DietDataRow[] = [];
       const summaryColNames = summaries.map(s => `${s.column}_${s.type}`);
-      
+
       dynamicColumns = [...new Set([...groupingColNames, ...summaryColNames].filter(col => col !== 'note'))];
       if (summaries.length === 0 && dataToProcess.length > 0 && dataToProcess[0] && groupings.length > 0) {
         const originalCols = Object.keys(dataToProcess[0]);
@@ -261,7 +262,7 @@ export function useTableProcessor({
             representativeRow[g.column] = groupKeyValues[idx];
           }
         });
-        
+
         if (summaries.length > 0) {
           summaries.forEach(summary => {
             const values = groupRows.map(row => getColumnValue(row, summary.column)).filter(v => typeof v === 'number' && !isNaN(v)) as number[];
@@ -275,7 +276,7 @@ export function useTableProcessor({
             } else if (summary.type === 'count') {
               summaryValue = 0;
             } else {
-              summaryValue = 'N/A'; 
+              summaryValue = 'N/A';
             }
             const valueToSet = summary.type === 'average' && typeof summaryValue === 'number' ? parseFloat(summaryValue.toFixed(2)) : summaryValue;
             representativeRow[`${summary.column}_${summary.type}`] = typeof valueToSet === 'number' && NUMERIC_COLUMNS.includes(summary.column as keyof DietDataRow) ? parseFloat(valueToSet.toFixed(2)) : valueToSet;
@@ -290,13 +291,13 @@ export function useTableProcessor({
         result.push(representativeRow);
       });
       dataToProcess = result;
-      
+
       dataToProcess.sort((a, b) => {
         for (const col of groupingColNames) {
           const valA_raw = getColumnValue(a, col);
           const valB_raw = getColumnValue(b, col);
-          const valA = (col === groupingColNames[0] && String(valA_raw).startsWith('Subtotal for ')) 
-                       ? String(valA_raw).replace('Subtotal for ', '') 
+          const valA = (col === groupingColNames[0] && String(valA_raw).startsWith('Subtotal for '))
+                       ? String(valA_raw).replace('Subtotal for ', '')
                        : valA_raw;
           const valB = (col === groupingColNames[0] && String(valB_raw).startsWith('Subtotal for '))
                        ? String(valB_raw).replace('Subtotal for ', '')
@@ -316,9 +317,9 @@ export function useTableProcessor({
       let lastNonSubtotalRowKeyValues: (string | number | undefined)[] = [];
       dataToProcess = dataToProcess.map((row, rowIndex) => {
         if (row.note === PIVOT_SUBTOTAL_MARKER) {
-            return row; 
+            return row;
         }
-        if (rowIndex === 0 || dataToProcess[rowIndex-1]?.note === PIVOT_SUBTOTAL_MARKER) { 
+        if (rowIndex === 0 || dataToProcess[rowIndex-1]?.note === PIVOT_SUBTOTAL_MARKER) {
             lastNonSubtotalRowKeyValues = groupingColNames.map(col => row[col]);
             return row;
         }
@@ -337,10 +338,10 @@ export function useTableProcessor({
         return newRow;
       });
 
-    } else if (summaries.length > 0 && dataToProcess.length > 0) { 
-        const summaryRow: DietDataRow = { note: "Overall Summary" }; 
+    } else if (summaries.length > 0 && dataToProcess.length > 0) {
+        const summaryRow: DietDataRow = { note: "Overall Summary" };
         dynamicColumns = summaries.map(s => `${s.column}_${s.type}`);
-        
+
         summaries.forEach(summary => {
             const values = dataToProcess.map(row => getColumnValue(row, summary.column)).filter(v => typeof v === 'number' && !isNaN(v)) as number[];
             let summaryValue: number | string = 0;
@@ -368,10 +369,10 @@ export function useTableProcessor({
 
         dataToProcess = [summaryRow];
     }
-    
-    if (summaries.length > 0 && filteredData.length > 0 && !grandTotalRow && (groupings.length > 0 || dataToProcess.some(r => r.note === "Overall Summary"))) {
-        grandTotalRow = { note: "Grand Total" }; 
-        
+
+    if (summaries.length > 0 && internalFilteredData.length > 0 && !grandTotalRow && (groupings.length > 0 || dataToProcess.some(r => r.note === "Overall Summary"))) {
+        grandTotalRow = { note: "Grand Total" };
+
         if(groupingColNames.length > 0) {
             grandTotalRow[groupingColNames[0]] = "Grand Total";
              for (let i = 1; i < groupingColNames.length; i++) {
@@ -383,7 +384,7 @@ export function useTableProcessor({
 
 
         summaries.forEach(summary => {
-            const values = filteredData.map(row => getColumnValue(row, summary.column)).filter(v => typeof v === 'number' && !isNaN(v)) as number[];
+            const values = internalFilteredData.map(row => getColumnValue(row, summary.column)).filter(v => typeof v === 'number' && !isNaN(v)) as number[];
             let totalValue: number | string = 0;
             if (values.length > 0) {
                 switch (summary.type) {
@@ -400,12 +401,12 @@ export function useTableProcessor({
             grandTotalRow![`${summary.column}_${summary.type}`] = typeof valueToSet === 'number' && NUMERIC_COLUMNS.includes(summary.column as keyof DietDataRow) ? parseFloat(valueToSet.toFixed(2)) : valueToSet;
         });
     }
-    
+
     dynamicColumns = dynamicColumns.filter(col => col !== 'note');
     if (grandTotalRow && grandTotalRow.note === "Grand Total") {
         const firstMeaningfulCol = groupingColNames.length > 0 ? groupingColNames[0] : (dynamicColumns.find(c => !summaries.some(s => `${s.column}_${s.type}` === c)));
         if (firstMeaningfulCol && !Object.keys(grandTotalRow).includes(firstMeaningfulCol)) {
-            const tempFirstCol = dynamicColumns[0] || 'description'; 
+            const tempFirstCol = dynamicColumns[0] || 'description';
             grandTotalRow[tempFirstCol] = "Grand Total";
         } else if (firstMeaningfulCol && grandTotalRow[firstMeaningfulCol] !== "Grand Total" && groupingColNames.length === 0) {
              const firstKeyToSetGT = Object.keys(grandTotalRow).find(k => k !== 'note' && !summaries.some(s => `${s.column}_${s.type}` === k));
@@ -417,11 +418,12 @@ export function useTableProcessor({
         }
     }
     return { data: dataToProcess, dynamicColumns, grandTotalRow };
-  }, [filteredData, groupings, summaries, getColumnValue, isSpecialPivotMode, allHeaders]);
+  }, [internalFilteredData, groupings, summaries, getColumnValue, isSpecialPivotMode, allHeaders]);
 
   return {
     processedData: processedDataAndColumns.data,
     columns: processedDataAndColumns.dynamicColumns,
     grandTotalRow: processedDataAndColumns.grandTotalRow,
+    filteredData: internalFilteredData, // Return the filtered data
   };
 }
