@@ -25,13 +25,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface ExportSectionData {
   sectionName: string;
-  enclosures: ExportEnclosureData[];
-}
-
-interface ExportEnclosureData {
-  enclosureName: string;
-  consumingSpecies: string[];
-  animalCount?: number;
   ingredientsData: DietDataRow[];
 }
 
@@ -128,50 +121,20 @@ export default function Home() {
       return [];
     }
 
-    const sections: Record<string, Record<string, { consumingSpecies: Set<string>; ingredients: DietDataRow[], animalCountMap: Map<string, number> }>> = {};
+    const sections: Record<string, DietDataRow[]> = {};
 
     for (const row of filteredData) {
       const sectionName = String(row.section_name || 'Uncategorized Section').trim();
-      const enclosureName = String(row.user_enclosure_name || 'Uncategorized Enclosure').trim();
-      const commonName = String(row.common_name || '').trim();
-      const animalNum = Number(row.total_animal);
-
+      
       if (!sections[sectionName]) {
-        sections[sectionName] = {};
+        sections[sectionName] = [];
       }
-      if (!sections[sectionName][enclosureName]) {
-        sections[sectionName][enclosureName] = { consumingSpecies: new Set(), ingredients: [], animalCountMap: new Map() };
-      }
-
-      if (commonName) { // Ensure commonName is not empty after trim
-        sections[sectionName][enclosureName].consumingSpecies.add(commonName);
-        if (!isNaN(animalNum) && animalNum > 0) {
-            const currentMaxCount = sections[sectionName][enclosureName].animalCountMap.get(commonName) || 0;
-            if (animalNum > currentMaxCount) {
-                 sections[sectionName][enclosureName].animalCountMap.set(commonName, animalNum);
-            } else if (!sections[sectionName][enclosureName].animalCountMap.has(commonName)) {
-                 // If it's the first time we see this species and animalNum isn't greater than 0 (e.g. currentMax was 0), set it.
-                 sections[sectionName][enclosureName].animalCountMap.set(commonName, animalNum);
-            }
-        }
-      }
-      sections[sectionName][enclosureName].ingredients.push(row);
+      sections[sectionName].push(row);
     }
 
-    return Object.entries(sections).map(([sectionName, enclosures]) => ({
+    return Object.entries(sections).map(([sectionName, ingredientsData]) => ({
       sectionName,
-      enclosures: Object.entries(enclosures).map(([enclosureName, data]) => {
-        let totalAnimalCount = 0;
-        for (const count of data.animalCountMap.values()) {
-            totalAnimalCount += count;
-        }
-        return {
-          enclosureName,
-          consumingSpecies: Array.from(data.consumingSpecies).sort(),
-          animalCount: totalAnimalCount > 0 ? totalAnimalCount : undefined,
-          ingredientsData: data.ingredients,
-        };
-      }).sort((a, b) => a.enclosureName.localeCompare(b.enclosureName)),
+      ingredientsData,
     })).sort((a,b) => a.sectionName.localeCompare(b.sectionName));
   }, [filteredData, hasAppliedFilters]);
 
@@ -299,34 +262,17 @@ export default function Home() {
                             <CardTitle className="text-xl">Section: {section.sectionName}</CardTitle>
                           </CardHeader>
                           <CardContent className="p-0">
-                            {section.enclosures.map((enclosure) => (
-                              <div key={enclosure.enclosureName} className="border-t">
-                                <div className="p-4">
-                                  <h4 className="text-lg font-semibold text-primary">Enclosure: {enclosure.enclosureName}</h4>
-                                  {enclosure.consumingSpecies.length > 0 && (
-                                    <p className="text-sm text-muted-foreground mt-1">
-                                      <span className="font-medium">Consuming Species:</span> {enclosure.consumingSpecies.join(', ')}
-                                    </p>
-                                  )}
-                                  {enclosure.animalCount !== undefined && (
-                                    <p className="text-sm text-muted-foreground mt-1">
-                                      <span className="font-medium">Animal Count:</span> {enclosure.animalCount}
-                                    </p>
-                                  )}
-                                </div>
-                                {enclosure.ingredientsData.length > 0 ? (
-                                  <div className="px-4 pb-4 max-h-[400px] overflow-y-auto">
-                                    <DataTable 
-                                      data={enclosure.ingredientsData} 
-                                      columns={INGREDIENT_TABLE_COLUMNS_EXPORT.filter(col => allHeaders.includes(col))} 
-                                      isLoading={false}
-                                      />
-                                  </div>
-                                ) : (
-                                  <p className="px-4 pb-4 text-sm text-muted-foreground">No ingredient data for this enclosure.</p>
-                                )}
+                            {section.ingredientsData.length > 0 ? (
+                              <div className="px-4 py-4 max-h-[600px] overflow-y-auto">
+                                <DataTable 
+                                  data={section.ingredientsData} 
+                                  columns={INGREDIENT_TABLE_COLUMNS_EXPORT.filter(col => allHeaders.includes(col))} 
+                                  isLoading={false}
+                                />
                               </div>
-                            ))}
+                            ) : (
+                              <p className="px-4 py-4 text-sm text-muted-foreground">No ingredient data for this section.</p>
+                            )}
                           </CardContent>
                         </Card>
                       ))}
