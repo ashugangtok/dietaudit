@@ -5,15 +5,18 @@ import type React from 'react';
 import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import type { DietDataRow } from '@/types';
-import { UploadCloud } from 'lucide-react';
+import { UploadCloud, Loader2 } from 'lucide-react';
 import { parseExcelFlow } from '@/ai/flows/parse-excel-flow';
 
 interface FileUploadProps {
   onDataParsed: (data: DietDataRow[], headers: string[]) => void;
   onProcessing: (isProcessing: boolean) => void;
 }
+
+const MAX_FILE_SIZE_BYTES = 7 * 1024 * 1024; // 7MB
 
 const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -25,7 +28,20 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       const file = event.target.files[0];
-      // Basic type check
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        toast({
+          variant: "destructive",
+          title: "File Too Large",
+          description: `Please select a file smaller than ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB.`,
+        });
+        setSelectedFile(null);
+        setFileName("No file chosen");
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        return;
+      }
+
       if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || file.type === 'application/vnd.ms-excel' || file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
         setSelectedFile(file);
         setFileName(file.name);
@@ -62,7 +78,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
     }
 
     setIsCurrentlyProcessing(true);
-    onProcessing(true); 
+    onProcessing(true);
 
     try {
       const reader = new FileReader();
@@ -112,7 +128,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
           onDataParsed([], []);
         } finally {
           setIsCurrentlyProcessing(false);
-          onProcessing(false); 
+          onProcessing(false);
         }
       };
       reader.onerror = (error) => {
@@ -142,7 +158,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
   return (
     <div className="space-y-4">
       <div className="flex items-center space-x-2">
-        <Button onClick={triggerFileInput} variant="outline" className="cursor-pointer">
+        <Button onClick={triggerFileInput} variant="outline" className="cursor-pointer" disabled={isCurrentlyProcessing}>
           <UploadCloud className="mr-2 h-4 w-4" /> Choose File
         </Button>
         <Input 
@@ -153,15 +169,27 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
           onChange={handleFileChange}
           className="hidden" 
           aria-describedby="file-upload-help"
+          disabled={isCurrentlyProcessing}
         />
         <span className="text-sm text-muted-foreground truncate" style={{maxWidth: '200px'}}>{fileName}</span>
       </div>
        <p id="file-upload-help" className="text-sm text-muted-foreground">
-          Please upload an Excel file (.xlsx or .xls).
+          Please upload an Excel file (.xlsx or .xls) up to {MAX_FILE_SIZE_BYTES / 1024 / 1024}MB.
         </p>
       <Button onClick={handleFileUpload} disabled={!selectedFile || isCurrentlyProcessing} className="w-full sm:w-auto">
-        <UploadCloud className="mr-2 h-4 w-4" /> Upload and Process
+        {isCurrentlyProcessing ? (
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        ) : (
+          <UploadCloud className="mr-2 h-4 w-4" />
+        )}
+        {isCurrentlyProcessing ? "Processing..." : "Upload and Process"}
       </Button>
+      {isCurrentlyProcessing && (
+        <div className="space-y-2 pt-2">
+          <Progress value={50} className="w-full" /> 
+          <p className="text-sm text-muted-foreground text-center">Processing file, please wait...</p>
+        </div>
+      )}
     </div>
   );
 };
