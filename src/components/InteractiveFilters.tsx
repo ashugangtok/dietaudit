@@ -18,7 +18,7 @@ interface InteractiveFiltersProps {
 
 type TimeOfDayFilterValue = 'all' | 'before6am' | '6to12' | '12to6' | 'after6pm';
 
-// Updated FILTERABLE_COLUMNS
+// Updated FILTERABLE_COLUMNS based on user request and image
 const FILTERABLE_COLUMNS = [
   { key: 'site_name', label: 'Site Name', placeholder: 'All Sites' },
   { key: 'section_name', label: 'Section Name', placeholder: 'All Sections' },
@@ -26,6 +26,7 @@ const FILTERABLE_COLUMNS = [
   { key: 'group_name', label: 'Group Name', placeholder: 'All Groups' },
   { key: 'common_name', label: 'Species Name (Common)', placeholder: 'All Species' },
   { key: 'diet_name', label: 'Diet Name', placeholder: 'All Diets' },
+  { key: 'class_name', label: 'Class Name', placeholder: 'All Classes'}, // Added from pivot image
 ];
 
 const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
@@ -64,7 +65,7 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
     }
     setFilters(newFilters);
   };
-  
+
   // Placeholder for date range filter - UI only for now
   const handleDateRangeChange = (range: string) => {
     setActiveDateRange(range);
@@ -89,9 +90,9 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
         <Filter className="mr-2 h-5 w-5" /> Filters & Date Range
       </h3>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-3 gap-4"> {/* Adjusted grid for potentially 6 dropdowns */}
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4"> {/* Adjusted grid for potentially 7 dropdowns */}
         {FILTERABLE_COLUMNS.map(({ key, label, placeholder }) => {
-          if (!allHeaders.includes(key)) return null;
+          if (!allHeaders.includes(key) && !uniqueValues[key]?.length) return null; // Hide if header not present or no unique values
           const currentFilterValue = filters.find(f => f.column === key)?.value || 'all';
           return (
             <div key={key} className="space-y-1">
@@ -99,9 +100,10 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
               <Select
                 value={currentFilterValue as string}
                 onValueChange={(value) => handleDropdownFilterChange(key, value)}
+                disabled={!uniqueValues[key] || uniqueValues[key].length === 0}
               >
                 <SelectTrigger id={`filter-${key}`}>
-                  <SelectValue placeholder={placeholder} />
+                  <SelectValue placeholder={uniqueValues[key] && uniqueValues[key].length > 0 ? placeholder : `No ${label} data`} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{placeholder}</SelectItem>
@@ -132,13 +134,15 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
                 size="sm"
                 onClick={() => handleTimeOfDayChange(value as TimeOfDayFilterValue)}
                 className="flex items-center gap-2"
+                disabled={!allHeaders.includes('meal_start_time')}
               >
                 <Icon className="h-4 w-4" /> {label}
               </Button>
             ))}
+             {!allHeaders.includes('meal_start_time') && <p className="text-xs text-muted-foreground mt-1">Meal Start Time data not available for filtering.</p>}
           </div>
         </div>
-        
+
         <div>
           <Label className="text-sm font-medium mb-2 block">View Totals For:</Label>
            <div className="flex flex-wrap gap-2">

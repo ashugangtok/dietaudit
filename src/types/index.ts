@@ -51,11 +51,11 @@ export interface AISuggestions {
 }
 
 export const EXPECTED_HEADERS: (keyof DietDataRow)[] = [
-  "common_name", "class_name", "order_name", "family_name", "genus_name", 
-  "user_enclosure_name", "section_name", "site_name", "group_name", "sex", 
-  "total_animal", "date", "diet_id", "diet_name", "diet_no", 
-  "meal_start_time", "meal_end_time", "ingredient_name", "type", "type_name", 
-  "meal_time", "preparation_type_name", "cut_size_name", "ingredient_qty", 
+  "common_name", "class_name", "order_name", "family_name", "genus_name",
+  "user_enclosure_name", "section_name", "site_name", "group_name", "sex",
+  "total_animal", "date", "diet_id", "diet_name", "diet_no",
+  "meal_start_time", "meal_end_time", "ingredient_name", "type", "type_name",
+  "meal_time", "preparation_type_name", "cut_size_name", "ingredient_qty",
   "base_uom_name"
 ];
 
@@ -65,11 +65,11 @@ export const DATE_COLUMNS: (keyof DietDataRow)[] = ["date"]; // Assuming 'date' 
 export const PIVOT_BLANK_MARKER = '__PIVOT_BLANK__';
 export const PIVOT_SUBTOTAL_MARKER = '__PIVOT_SUBTOTAL__';
 
-// Constants for the specific "Diet Analysis by Unit of Measure" pivot view
-// Based on image: Rows: group_name, common_name, meal_start_time, diet_name, type_name, ingredient_name
+// Specific "Diet Analysis by Unit of Measure" pivot view (old default)
+// Rows: group_name, common_name, meal_start_time, diet_name, type_name, ingredient_name
 // Columns: base_uom_name
 // Values: Sum of ingredient_qty
-export const EXPECTED_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
+export const SPECIAL_PIVOT_UOM_ROW_GROUPINGS: (keyof DietDataRow)[] = [
   'group_name',
   'common_name',
   'meal_start_time',
@@ -77,6 +77,25 @@ export const EXPECTED_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
   'type_name',
   'ingredient_name',
 ];
-export const PIVOT_COLUMN_FIELD: keyof DietDataRow = 'base_uom_name';
-export const PIVOT_VALUE_FIELD: keyof DietDataRow = 'ingredient_qty';
-export const PIVOT_DEFAULT_FILTERS: (keyof DietDataRow)[] = []; // Removed section_name, meal_time as InteractiveFilters handles them
+export const SPECIAL_PIVOT_UOM_COLUMN_FIELD: keyof DietDataRow = 'base_uom_name';
+export const SPECIAL_PIVOT_UOM_VALUE_FIELD: keyof DietDataRow = 'ingredient_qty';
+
+
+// Default pivot configuration based on the user-provided image
+export const DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
+  'group_name',
+  'meal_start_time',
+  'diet_name',
+  'common_name',
+  'type_name',
+  'ingredient_name',
+];
+
+export const DEFAULT_IMAGE_PIVOT_SUMMARIES: SummarizationOption[] = [
+  { column: 'ingredient_qty', type: 'sum' },
+  { column: 'total_animal', type: 'count' },
+];
+
+// Column to be available in InteractiveFilters as per image
+export const DEFAULT_IMAGE_PIVOT_FILTER_COLUMNS: (keyof DietDataRow)[] = ['class_name'];
+export const PIVOT_DEFAULT_FILTERS: (keyof DietDataRow)[] = [];

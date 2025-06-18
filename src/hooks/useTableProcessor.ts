@@ -3,7 +3,7 @@
 
 import { useMemo, useCallback } from 'react';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption } from '@/types';
-import { NUMERIC_COLUMNS, DATE_COLUMNS, PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER, EXPECTED_PIVOT_ROW_GROUPINGS, PIVOT_COLUMN_FIELD, PIVOT_VALUE_FIELD } from '@/types';
+import { NUMERIC_COLUMNS, DATE_COLUMNS, PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER, SPECIAL_PIVOT_UOM_ROW_GROUPINGS, SPECIAL_PIVOT_UOM_COLUMN_FIELD, SPECIAL_PIVOT_UOM_VALUE_FIELD } from '@/types';
 
 interface UseTableProcessorProps {
   rawData: DietDataRow[];
@@ -112,15 +112,15 @@ export function useTableProcessor({
 
   const isSpecialPivotMode = useMemo(() => {
     // Check if the current configuration matches the "Diet Analysis by Unit of Measure" pivot
-    if (summaries.length === 1 && summaries[0].column === PIVOT_VALUE_FIELD && summaries[0].type === 'sum') {
+    if (summaries.length === 1 && summaries[0].column === SPECIAL_PIVOT_UOM_VALUE_FIELD && summaries[0].type === 'sum') {
       const currentGroupingCols = groupings.map(g => g.column);
-      const allExpectedGroupingsPresent = EXPECTED_PIVOT_ROW_GROUPINGS.every(col => currentGroupingCols.includes(col as string));
-      const correctNumberOfGroupings = currentGroupingCols.length === EXPECTED_PIVOT_ROW_GROUPINGS.length;
+      const allExpectedGroupingsPresent = SPECIAL_PIVOT_UOM_ROW_GROUPINGS.every(col => currentGroupingCols.includes(col as string));
+      const correctNumberOfGroupings = currentGroupingCols.length === SPECIAL_PIVOT_UOM_ROW_GROUPINGS.length;
 
       return allExpectedGroupingsPresent &&
              correctNumberOfGroupings &&
-             allHeaders.includes(PIVOT_COLUMN_FIELD) &&
-             allHeaders.includes(PIVOT_VALUE_FIELD);
+             allHeaders.includes(SPECIAL_PIVOT_UOM_COLUMN_FIELD) &&
+             allHeaders.includes(SPECIAL_PIVOT_UOM_VALUE_FIELD);
     }
     return false;
   }, [groupings, summaries, allHeaders]);
@@ -132,9 +132,9 @@ export function useTableProcessor({
     let grandTotalRow: DietDataRow | undefined = undefined;
 
     if (isSpecialPivotMode) {
-      const rowKeyColumns = EXPECTED_PIVOT_ROW_GROUPINGS as string[];
-      const pivotColName = PIVOT_COLUMN_FIELD;
-      const valueColName = PIVOT_VALUE_FIELD;
+      const rowKeyColumns = SPECIAL_PIVOT_UOM_ROW_GROUPINGS as string[];
+      const pivotColName = SPECIAL_PIVOT_UOM_COLUMN_FIELD;
+      const valueColName = SPECIAL_PIVOT_UOM_VALUE_FIELD;
 
       const uniquePivotColumnValues = [...new Set(internalFilteredData.map(row => String(row[pivotColName] || 'Unknown')).filter(val => val.trim() !== ''))].sort();
       dynamicColumns = [...rowKeyColumns, ...uniquePivotColumnValues];

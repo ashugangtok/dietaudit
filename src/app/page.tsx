@@ -9,7 +9,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/hooks/use-toast';
 import { useTableProcessor } from '@/hooks/useTableProcessor';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption } from '@/types';
-import { EXPECTED_PIVOT_ROW_GROUPINGS, PIVOT_COLUMN_FIELD, PIVOT_VALUE_FIELD } from '@/types';
+import {
+    DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS,
+    DEFAULT_IMAGE_PIVOT_SUMMARIES,
+    SPECIAL_PIVOT_UOM_ROW_GROUPINGS,
+    SPECIAL_PIVOT_UOM_COLUMN_FIELD,
+    SPECIAL_PIVOT_UOM_VALUE_FIELD
+} from '@/types';
 import FileUpload from '@/components/FileUpload';
 import DataTable from '@/components/DataTable';
 import InteractiveFilters from '@/components/InteractiveFilters';
@@ -29,20 +35,30 @@ export default function Home() {
   const [isFileUploaded, setIsFileUploaded] = useState(false);
   const { toast } = useToast();
 
-  const { processedData, columns: currentTableColumns, grandTotalRow, filteredData } = useTableProcessor({ rawData, groupings, summaries, filters, allHeaders });
+  const { processedData, columns: currentTableColumns, grandTotalRow } = useTableProcessor({ rawData, groupings, summaries, filters, allHeaders });
 
   const sortedDataForExportTab = useMemo(() => {
     if (!processedData || processedData.length === 0) {
       return [];
     }
+    // Sort by section_name if it exists in the processedData's columns
+    // The actual 'section_name' might be one of the grouping columns or a separate data column
+    // For this generic sort, we assume 'section_name' is a direct key if available.
+    // If 'section_name' is not a primary column in processedData (e.g., it was grouped away and not a grouping key),
+    // this sort might not have a visible effect on that specific field, but will ensure stability.
+    const sectionNameKey = currentTableColumns.find(col => col.toLowerCase() === 'section_name');
+
     return [...processedData].sort((a, b) => {
-      const sectionA = String(a.section_name || '').toLowerCase();
-      const sectionB = String(b.section_name || '').toLowerCase();
-      if (sectionA < sectionB) return -1;
-      if (sectionA > sectionB) return 1;
+      if (sectionNameKey) {
+        const sectionA = String(a[sectionNameKey] || '').toLowerCase();
+        const sectionB = String(b[sectionNameKey] || '').toLowerCase();
+        if (sectionA < sectionB) return -1;
+        if (sectionA > sectionB) return 1;
+      }
+      // Fallback sort or if section_name is not present / not the primary sort key here
       return 0;
     });
-  }, [processedData]);
+  }, [processedData, currentTableColumns]);
 
   const handleDataParsed = useCallback(async (data: DietDataRow[], headers: string[]) => {
     setRawData(data);
@@ -50,45 +66,64 @@ export default function Home() {
     setIsProcessingFile(false);
     setIsFileUploaded(true);
     setActiveTab("extractedData");
-    setFilters([]); 
+    setFilters([]);
 
-    const canApplySpecialPivot =
-        EXPECTED_PIVOT_ROW_GROUPINGS.every(col => headers.includes(col as string)) &&
-        headers.includes(PIVOT_COLUMN_FIELD) &&
-        headers.includes(PIVOT_VALUE_FIELD);
+    // Check if columns for the new default image-based pivot exist
+    const requiredDefaultPivotCols = [
+        ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS,
+        ...DEFAULT_IMAGE_PIVOT_SUMMARIES.map(s => s.column)
+    ];
+    const canApplyDefaultImagePivot = requiredDefaultPivotCols.every(col => headers.includes(col as string));
 
-    if (canApplySpecialPivot) {
-        const defaultPivotGroupings: GroupingOption[] = EXPECTED_PIVOT_ROW_GROUPINGS.map(col => ({ column: col as string }));
-        setGroupings(defaultPivotGroupings);
-
-        const defaultPivotSummaries: SummarizationOption[] = [{ column: PIVOT_VALUE_FIELD, type: 'sum' }];
-        setSummaries(defaultPivotSummaries);
-
+    if (canApplyDefaultImagePivot) {
+        const defaultGroupings: GroupingOption[] = DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => ({ column: col as string }));
+        setGroupings(defaultGroupings);
+        setSummaries(DEFAULT_IMAGE_PIVOT_SUMMARIES);
         toast({
-            title: "Diet Analysis by Unit of Measure View Applied",
-            description: "Table configured to show ingredient quantities by unit of measure. Customize further as needed using filters.",
+            title: "Default Pivot View Applied",
+            description: "Table configured with default groupings and summaries. Customize further as needed.",
         });
     } else {
-        const fallbackGroupingCandidates: (keyof DietDataRow)[] = ['group_name', 'common_name', 'ingredient_name'];
-        const availableFallbackGroupings = fallbackGroupingCandidates.filter(h => headers.includes(h as string));
+        // Fallback if default image pivot columns are not all present
+        // Try the old UOM pivot if its columns are present
+        const canApplySpecialUOMPivot =
+            SPECIAL_PIVOT_UOM_ROW_GROUPINGS.every(col => headers.includes(col as string)) &&
+            headers.includes(SPECIAL_PIVOT_UOM_COLUMN_FIELD) &&
+            headers.includes(SPECIAL_PIVOT_UOM_VALUE_FIELD);
 
-        const fallbackGroupings: GroupingOption[] = availableFallbackGroupings.length > 0
-            ? availableFallbackGroupings.slice(0,2).map(col => ({ column: col as string }))
-            : headers.length > 0 ? [{ column: headers[0] }] : [];
-        setGroupings(fallbackGroupings);
+        if (canApplySpecialUOMPivot) {
+            const uomPivotGroupings: GroupingOption[] = SPECIAL_PIVOT_UOM_ROW_GROUPINGS.map(col => ({ column: col as string }));
+            setGroupings(uomPivotGroupings);
 
-        const fallbackSummaries: SummarizationOption[] = (headers.includes('ingredient_qty'))
-            ? [{ column: 'ingredient_qty', type: 'sum' }]
-            : [];
-        setSummaries(fallbackSummaries);
-        
+            const uomPivotSummaries: SummarizationOption[] = [{ column: SPECIAL_PIVOT_UOM_VALUE_FIELD, type: 'sum' }];
+            setSummaries(uomPivotSummaries);
 
-        if (data.length > 0 && !canApplySpecialPivot) {
             toast({
-                title: "Data Loaded",
-                description: "Default view applied. Some columns for the 'Diet Analysis by Unit of Measure' view might be missing. Configure manually or use filters.",
-                variant: "default"
+                title: "Diet Analysis by Unit of Measure View Applied",
+                description: "Table configured to show ingredient quantities by unit of measure. Customize further as needed.",
             });
+        } else {
+            // Generic fallback if neither pivot can be applied
+            const fallbackGroupingCandidates: (keyof DietDataRow)[] = ['group_name', 'common_name', 'ingredient_name'];
+            const availableFallbackGroupings = fallbackGroupingCandidates.filter(h => headers.includes(h as string));
+
+            const fallbackGroupings: GroupingOption[] = availableFallbackGroupings.length > 0
+                ? availableFallbackGroupings.slice(0,2).map(col => ({ column: col as string }))
+                : headers.length > 0 ? [{ column: headers[0] }] : [];
+            setGroupings(fallbackGroupings);
+
+            const fallbackSummaries: SummarizationOption[] = (headers.includes('ingredient_qty'))
+                ? [{ column: 'ingredient_qty', type: 'sum' }]
+                : [];
+            setSummaries(fallbackSummaries);
+
+            if (data.length > 0) {
+                 toast({
+                    title: "Data Loaded",
+                    description: "Default pivot configuration could not be fully applied due to missing columns. Basic view applied. Configure manually or use filters.",
+                    variant: "default"
+                });
+            }
         }
     }
   }, [toast]);
@@ -194,7 +229,7 @@ export default function Home() {
                 </CardContent>
               </Card>
             )}
-            {!isProcessingFile && isFileUploaded && ( 
+            {!isProcessingFile && isFileUploaded && (
               <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
                  <InteractiveFilters
                     rawData={rawData}
@@ -208,7 +243,7 @@ export default function Home() {
                     <CardHeader>
                         <CardTitle>Data Sorted by Section Name</CardTitle>
                         <CardDescription>
-                        This table shows the data from the 'Extracted Data' tab (filtered and potentially grouped/summarized), sorted by section name.
+                        This table shows the data from the 'Extracted Data' tab (filtered and potentially grouped/summarized), sorted by section name (if available in the current view).
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -216,14 +251,13 @@ export default function Home() {
                     </CardContent>
                     </Card>
                   </div>
-                ) : rawData.length > 0 ? ( 
+                ) : rawData.length > 0 ? (
                      <Card>
                         <CardContent className="p-6 text-center text-muted-foreground">
                             <p>No data matches the current filters for the Export Sections view, or the data from 'Extracted Data' is empty.</p>
-                            <p>If 'Extracted Data' has content, check if 'section_name' is available for sorting.</p>
                         </CardContent>
                     </Card>
-                ) : ( 
+                ) : (
                     <Card>
                         <CardContent className="p-6 text-center text-muted-foreground">
                             <p>No data found in the uploaded file.</p>
