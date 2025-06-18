@@ -83,19 +83,32 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
         return { parsedData: [], headers: [], error: "No valid header row found in the Excel sheet."};
     }
 
-    const actualHeaders = rawHeaders.map((header, idx) => {
-        let headerName = String(header || '').trim(); 
-        if (headerName === "") {
-            headerName = `column_${idx + 1}`;
+    const actualHeaders: string[] = [];
+    rawHeaders.forEach((header) => {
+        let baseName = String(header || '').trim();
+        let currentCandidateName = baseName;
+
+        if (baseName === "") {
+            let i = 1;
+            currentCandidateName = `column_${i}`;
+            while (actualHeaders.includes(currentCandidateName)) {
+                i++;
+                currentCandidateName = `column_${i}`;
+            }
+        } else {
+            let count = 0;
+            // Check if currentCandidateName (which is baseName initially) exists
+            if (actualHeaders.includes(currentCandidateName)) {
+                count = 1; // Start suffixing with _1
+                currentCandidateName = `${baseName}_${count}`;
+            }
+            // Ensure the suffixed name is unique
+            while (actualHeaders.includes(currentCandidateName)) {
+                count++;
+                currentCandidateName = `${baseName}_${count}`;
+            }
         }
-        let count = 0;
-        let finalHeaderName = headerName;
-        const tempHeaders = [...actualHeaders.slice(0, idx).map(String), ...rawHeaders.slice(0,idx).map(h => String(h || '').trim())];
-        while(tempHeaders.includes(finalHeaderName)) {
-            count++;
-            finalHeaderName = `${headerName}_${count}`;
-        }
-        return finalHeaderName;
+        actualHeaders.push(currentCandidateName);
     });
 
     const parsedData: DietDataRow[] = jsonData.slice(headerRowIndex + 1).map((rowArray: any) => { 
