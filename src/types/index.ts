@@ -87,7 +87,8 @@ export const DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
   'meal_start_time',
   'diet_name',
   'common_name',
-  'ingredient_name', // Adjusted to match image's implied granularity for "type name" column
+  'type_name',
+  'ingredient_name',
 ];
 
 export const DEFAULT_IMAGE_PIVOT_SUMMARIES: SummarizationOption[] = [
@@ -98,4 +99,5 @@ export const DEFAULT_IMAGE_PIVOT_SUMMARIES: SummarizationOption[] = [
 // Column to be available in InteractiveFilters as per image
 export const DEFAULT_IMAGE_PIVOT_FILTER_COLUMNS: (keyof DietDataRow)[] = ['class_name'];
 export const PIVOT_DEFAULT_FILTERS: (keyof DietDataRow)[] = [];
+
 
