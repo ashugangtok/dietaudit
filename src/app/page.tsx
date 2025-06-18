@@ -131,9 +131,9 @@ export default function Home() {
     const sections: Record<string, Record<string, { consumingSpecies: Set<string>; ingredients: DietDataRow[], animalCountMap: Map<string, number> }>> = {};
 
     for (const row of filteredData) {
-      const sectionName = String(row.section_name || 'Uncategorized Section');
-      const enclosureName = String(row.user_enclosure_name || 'Uncategorized Enclosure');
-      const commonName = String(row.common_name || '');
+      const sectionName = String(row.section_name || 'Uncategorized Section').trim();
+      const enclosureName = String(row.user_enclosure_name || 'Uncategorized Enclosure').trim();
+      const commonName = String(row.common_name || '').trim();
       const animalNum = Number(row.total_animal);
 
       if (!sections[sectionName]) {
@@ -142,10 +142,17 @@ export default function Home() {
       if (!sections[sectionName][enclosureName]) {
         sections[sectionName][enclosureName] = { consumingSpecies: new Set(), ingredients: [], animalCountMap: new Map() };
       }
-      if (commonName) {
+
+      if (commonName) { // Ensure commonName is not empty after trim
         sections[sectionName][enclosureName].consumingSpecies.add(commonName);
         if (!isNaN(animalNum) && animalNum > 0) {
-            sections[sectionName][enclosureName].animalCountMap.set(commonName, animalNum);
+            const currentMaxCount = sections[sectionName][enclosureName].animalCountMap.get(commonName) || 0;
+            if (animalNum > currentMaxCount) {
+                 sections[sectionName][enclosureName].animalCountMap.set(commonName, animalNum);
+            } else if (!sections[sectionName][enclosureName].animalCountMap.has(commonName)) {
+                 // If it's the first time we see this species and animalNum isn't greater than 0 (e.g. currentMax was 0), set it.
+                 sections[sectionName][enclosureName].animalCountMap.set(commonName, animalNum);
+            }
         }
       }
       sections[sectionName][enclosureName].ingredients.push(row);
@@ -361,3 +368,4 @@ export default function Home() {
     </main>
   );
 }
+
