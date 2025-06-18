@@ -33,11 +33,27 @@ export type ParseExcelOutput = z.infer<typeof ParseExcelOutputSchema>;
 
 export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcelOutput> {
   try {
+    if (!input.excelFileBase64) {
+      return { parsedData: [], headers: [], error: "No Excel file content provided." };
+    }
     const fileBuffer = Buffer.from(input.excelFileBase64, 'base64');
     
-    const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+    if (fileBuffer.length === 0) {
+        return { parsedData: [], headers: [], error: "Provided Excel file content is empty."};
+    }
+
+    const workbook = XLSX.read(fileBuffer, { type: 'buffer', cellStyles: false, bookVBA: false });
+
+    if (!workbook || workbook.SheetNames.length === 0) {
+      return { parsedData: [], headers: [], error: "Could not read the Excel workbook or it contains no sheets." };
+    }
+    
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
+
+    if (!worksheet) {
+      return { parsedData: [], headers: [], error: `Could not read the sheet named '${sheetName}'.` };
+    }
     
     const jsonData = XLSX.utils.sheet_to_json<DietDataRow>(worksheet, {
       header: 1, 
@@ -45,8 +61,11 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
       blankrows: false, 
     });
 
-    if (jsonData.length === 0) {
-      return { parsedData: [], headers: [], error: "Excel file is completely empty or contains no readable sheets." };
+    if (jsonData.length === 0 && fileBuffer.length > 500) { // Check if jsonData is empty for a non-trivial file size
+      return { parsedData: [], headers: [], error: "Excel file appears to have content, but no data could be extracted. The sheet might be empty or in an unsupported format." };
+    }
+     if (jsonData.length === 0) {
+      return { parsedData: [], headers: [], error: "Excel file is empty or contains no readable data rows after parsing." };
     }
     
     let headerRowIndex = -1;
@@ -61,7 +80,7 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
     }
 
     if (headerRowIndex === -1) {
-        return { parsedData: [], headers: [], error: "Excel file does not contain any data or headers."};
+        return { parsedData: [], headers: [], error: "No valid header row found in the Excel sheet."};
     }
 
     const actualHeaders = rawHeaders.map((header, idx) => {
@@ -71,7 +90,7 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
         }
         let count = 0;
         let finalHeaderName = headerName;
-        const tempHeaders = [...rawHeaders.slice(0, idx).map(String)]; 
+        const tempHeaders = [...actualHeaders.slice(0, idx).map(String), ...rawHeaders.slice(0,idx).map(h => String(h || '').trim())];
         while(tempHeaders.includes(finalHeaderName)) {
             count++;
             finalHeaderName = `${headerName}_${count}`;
@@ -88,6 +107,7 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
     }).filter(row => Object.values(row).some(val => val !== undefined && String(val).trim() !== "")); 
 
     if (parsedData.length === 0 && actualHeaders.length > 0) {
+        // This case is handled on client with a specific toast.
         return { parsedData: [], headers: actualHeaders };
     }
     
@@ -95,7 +115,17 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
 
   } catch (err) {
     console.error(`Error processing Excel file (${input.originalFileName}):`, err);
-    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during server-side Excel processing.";
+    let errorMessage = "An unknown error occurred during server-side Excel processing.";
+    if (err instanceof Error) {
+        errorMessage = err.message;
+    }
+    // More specific error for known xlsx issues if possible
+    if (errorMessage.includes("Corrupted zip")) {
+        errorMessage = "The Excel file appears to be corrupted or is not a valid .xlsx/.xls file.";
+    } else if (errorMessage.includes("Cell Styles")) {
+        errorMessage = "Error processing cell styles in the Excel file. Try saving without complex styling.";
+    }
+    
     return { parsedData: [], headers: [], error: errorMessage };
   }
 }
@@ -113,3 +143,4 @@ const parseExcelServerFlow = ai.defineFlow(
   }
 );
 */
+
