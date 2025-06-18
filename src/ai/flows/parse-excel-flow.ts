@@ -1,9 +1,8 @@
-
 'use server';
 /**
- * @fileOverview A Genkit flow to parse an Excel file.
+ * @fileOverview A Genkit flow to parse an Excel file from Firebase Storage.
  *
- * - parseExcelFlow - Parses an Excel file content (base64) and returns structured data.
+ * - parseExcelFlow - Downloads an Excel file from Firebase Storage, parses it, and returns structured data.
  * - ParseExcelInput - The input type for the parseExcelFlow.
  * - ParseExcelOutput - The return type for the parseExcelFlow.
  */
@@ -12,14 +11,28 @@ import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
 import * as XLSX from 'xlsx';
 import type { DietDataRow } from '@/types';
+import * as admin from 'firebase-admin';
+
+// Initialize Firebase Admin SDK if not already initialized
+// This typically happens once per Cloud Function instance
+if (admin.apps.length === 0) {
+  try {
+    admin.initializeApp(); // For environments like Cloud Functions where config is auto-discovered
+  } catch (e) {
+    console.error("Failed to initialize Firebase Admin SDK in parse-excel-flow:", e);
+    // If running locally without GOOGLE_APPLICATION_CREDENTIALS, this might fail.
+    // Ensure your environment is set up for Firebase Admin.
+  }
+}
+
 
 const ParseExcelInputSchema = z.object({
-  excelFileBase64: z
+  storageFilePath: z
     .string()
     .describe(
-      "The content of the Excel file, base64 encoded. Expected format: '<encoded_data>' (without 'data:mime/type;base64,')"
+      "The full path to the Excel file in Firebase Storage. e.g., 'excel-uploads/unique-id/filename.xlsx'"
     ),
-  fileName: z.string().describe('The name of the uploaded file, for context or logging.'),
+  originalFileName: z.string().describe('The original name of the uploaded file, for context or logging.'),
 });
 export type ParseExcelInput = z.infer<typeof ParseExcelInputSchema>;
 
@@ -32,8 +45,23 @@ export type ParseExcelOutput = z.infer<typeof ParseExcelOutputSchema>;
 
 
 export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcelOutput> {
+  if (admin.apps.length === 0) {
+    const errorMessage = "Firebase Admin SDK is not initialized. Cannot access Storage.";
+    console.error(errorMessage);
+    return { parsedData: [], headers: [], error: errorMessage };
+  }
+  
   try {
-    const fileBuffer = Buffer.from(input.excelFileBase64, 'base64');
+    const bucket = admin.storage().bucket(); // Uses default bucket or configured one
+    const file = bucket.file(input.storageFilePath);
+
+    const [exists] = await file.exists();
+    if (!exists) {
+        throw new Error(`File not found in Firebase Storage at path: ${input.storageFilePath}`);
+    }
+
+    const [fileBuffer] = await file.download();
+    
     const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
@@ -45,11 +73,9 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
     });
 
     if (jsonData.length === 0) {
-      // Handles completely empty file or sheet
       return { parsedData: [], headers: [], error: "Excel file is completely empty or contains no readable sheets." };
     }
     
-    // Find the first row with any content to treat as header
     let headerRowIndex = -1;
     let rawHeaders: any[] = [];
     for (let i = 0; i < jsonData.length; i++) {
@@ -62,17 +88,14 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
     }
 
     if (headerRowIndex === -1) {
-        // No content found at all in any row
         return { parsedData: [], headers: [], error: "Excel file does not contain any data or headers."};
     }
 
-    // Process headers to ensure they are strings and unique
     const actualHeaders = rawHeaders.map((header, idx) => {
         let headerName = String(header || '').trim();
         if (headerName === "") {
-            headerName = `column_${idx + 1}`; // Default name for empty header
+            headerName = `column_${idx + 1}`;
         }
-        // Ensure uniqueness (simple append if duplicate, can be made more robust)
         let count = 0;
         let finalHeaderName = headerName;
         const tempHeaders = [...rawHeaders.slice(0, idx).map(String)];
@@ -93,23 +116,23 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
     }).filter(row => Object.values(row).some(val => val !== undefined && String(val).trim() !== ""));
 
     if (parsedData.length === 0 && actualHeaders.length > 0) {
-        // Only headers found, no data rows
         return { parsedData: [], headers: actualHeaders };
     }
     
+    // Optionally delete the file from storage after processing
+    // await file.delete(); 
+    // console.log(`Successfully processed and deleted ${input.storageFilePath} from Storage.`);
+
     return { parsedData, headers: actualHeaders };
 
   } catch (err) {
-    console.error(`Error parsing Excel file (${input.fileName}) on server:`, err);
-    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during server-side Excel parsing.";
+    console.error(`Error processing Excel file from Storage (${input.originalFileName}, path: ${input.storageFilePath}):`, err);
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during server-side Excel processing from Storage.";
     return { parsedData: [], headers: [], error: errorMessage };
   }
 }
 
-// This defines the flow for Genkit, but we are calling the function parseExcelFlow directly.
-// If we wanted to use Genkit's flow invocation mechanism (e.g., from a client library or another flow),
-// we would uncomment and use this. For direct server-side calls from client components,
-// the exported async function is sufficient.
+// Genkit flow definition (optional if only calling the function directly as a server action)
 /*
 const parseExcelServerFlow = ai.defineFlow(
   {
@@ -118,10 +141,7 @@ const parseExcelServerFlow = ai.defineFlow(
     outputSchema: ParseExcelOutputSchema,
   },
   async (input) => {
-    return parseExcelFlow(input); // Call the core logic function
+    return parseExcelFlow(input);
   }
 );
 */
-// Note: Direct invocation of `parseExcelFlow` as a server action is simpler here.
-// If Genkit specific features like tracing, auth policies tied to flows were critical,
-// then using `ai.defineFlow` and invoking it would be preferred.
