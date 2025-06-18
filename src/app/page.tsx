@@ -140,7 +140,7 @@ export default function Home() {
 
   const handleDownloadSectionPdf = (sectionName: string, sectionTableData: ProcessedTableData) => {
      if (sectionTableData.processedData.length > 0 && sectionTableData.columns.length > 0) {
-      exportToPdf(sectionTableData.processedData, sectionTableData.columns, `Section Report: ${sectionName} - ${originalFileName}`, `${originalFileName}_section_${sectionName.replace(/\s+/g, '_')}`, sectionTableData.grandTotalRow);
+      exportToPdf(sectionTableData.processedData, sectionTableData.columns, `Section Report: ${sectionName}`, `${originalFileName}_section_${sectionName.replace(/\s+/g, '_')}`, sectionTableData.grandTotalRow);
       toast({ title: "PDF Download Started", description: `PDF for section ${sectionName} is being generated.` });
     } else {
       toast({ variant: "destructive", title: "No Data", description: `No data available to export for section ${sectionName}.` });
