@@ -87,8 +87,7 @@ export const DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
   'meal_start_time',
   'diet_name',
   'common_name',
-  'type_name',
-  'ingredient_name',
+  'ingredient_name', // Adjusted to match image's implied granularity for "type name" column
 ];
 
 export const DEFAULT_IMAGE_PIVOT_SUMMARIES: SummarizationOption[] = [
