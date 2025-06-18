@@ -21,18 +21,6 @@ export interface ProcessedTableData {
   filteredData: DietDataRow[];
 }
 
-const parseTime = (timeStr: string | undefined | number): { hours: number; minutes: number } | null => {
-  if (typeof timeStr !== 'string') return null;
-  const parts = timeStr.split(':');
-  if (parts.length !== 2) return null;
-  const hours = parseInt(parts[0], 10);
-  const minutes = parseInt(parts[1], 10);
-  if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-    return null;
-  }
-  return { hours, minutes };
-};
-
 const getColumnValueInternal = (row: DietDataRow, column: string): any => {
     let value = row[column];
     if (NUMERIC_COLUMNS.includes(column as keyof DietDataRow)) {
@@ -87,23 +75,10 @@ export function calculateProcessedTableData(
               return minCheck && maxCheck;
             }
             return true;
-          case 'timeOfDay':
-            const mealTime = parseTime(row[filter.column] as string); 
-            if (!mealTime) return false; 
-
-            switch(filter.value) {
-                case 'before6am': 
-                    return mealTime.hours < 6;
-                case '6to12': 
-                    return mealTime.hours >= 6 && mealTime.hours < 12;
-                case '12to6': 
-                    return mealTime.hours >= 12 && mealTime.hours < 18;
-                case 'after6pm': 
-                    return mealTime.hours >= 18;
-                case 'all':
-                default:
-                    return true;
-            }
+          // Time of Day filter logic removed as UI is removed.
+          // case 'timeOfDay':
+          //   // ...
+          //   return true;
           default:
             return true;
         }
@@ -137,7 +112,6 @@ export function calculateProcessedTableData(
     let grandTotalRow: DietDataRow | undefined = undefined;
 
     if (isSpecialPivotModeActive) {
-      // ... (Special UOM Pivot Logic remains unchanged, omitted for brevity)
       const rowKeyColumns = SPECIAL_PIVOT_UOM_ROW_GROUPINGS as string[];
       const pivotColName = SPECIAL_PIVOT_UOM_COLUMN_FIELD;
       const valueColName = SPECIAL_PIVOT_UOM_VALUE_FIELD;
@@ -230,10 +204,9 @@ export function calculateProcessedTableData(
       return { data: dataToProcess, dynamicColumns, grandTotalRow };
     }
 
-    // Standard Pivot Logic (Image-based)
     const groupingColNames = groupingsToApply.map(g => g.column);
     const summaryColDetails = summariesToApply.map(s => ({
-        name: `${s.column}_${s.type}`, // e.g. ingredient_qty_sum
+        name: `${s.column}_${s.type}`, 
         originalColumn: s.column,
         type: s.type,
     }));
@@ -272,7 +245,7 @@ export function calculateProcessedTableData(
                         case 'average':
                             summaryValue = numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length;
                             break;
-                        case 'count': // Count of non-empty, non-NaN numeric values
+                        case 'count': 
                             summaryValue = numericValues.length;
                             break;
                         case 'first':
@@ -282,15 +255,14 @@ export function calculateProcessedTableData(
                             summaryValue = Math.max(...numericValues);
                             break;
                         default:
-                            summaryValue = ''; // Should not happen with typed SummarizationOption
+                            summaryValue = ''; 
                     }
                      if (typeof summaryValue === 'number' && (summary.type === 'sum' || summary.type === 'average')) {
-                        summaryValue = parseFloat(summaryValue.toFixed(4)); // Increased precision
+                        summaryValue = parseFloat(summaryValue.toFixed(4)); 
                     }
                 } else if (summary.type === 'count') {
-                    summaryValue = 0; // If no numeric values, count is 0
+                    summaryValue = 0; 
                 } else {
-                     // For 'first' or 'max' if no numeric, or if column isn't numeric
                     const firstNonEmpty = values.find(v => v !== '' && v !== undefined && v !== null);
                     summaryValue = summary.type === 'first' ? (firstNonEmpty !== undefined ? firstNonEmpty : '') : '';
                 }
@@ -301,7 +273,6 @@ export function calculateProcessedTableData(
         
         dataToProcess = result;
 
-        // Sort by grouping columns
         dataToProcess.sort((a, b) => {
             for (const col of groupingColNames) {
                 const valA = getColumnValueInternal(a, col);
@@ -314,7 +285,7 @@ export function calculateProcessedTableData(
                 } else if (typeof valA === 'number' && typeof valB === 'number') {
                     if (valA < valB) return -1;
                     if (valA > valB) return 1;
-                } else { // Mixed types or other types, treat as string
+                } else { 
                     const strA = String(valA);
                     const strB = String(valB);
                     const comparison = strA.localeCompare(strB);
@@ -324,7 +295,6 @@ export function calculateProcessedTableData(
             return 0;
         });
 
-        // Apply blanking logic
         if (groupingColNames.length > 0) {
             let lastKeyValues: (string | number | undefined)[] = new Array(groupingColNames.length).fill(undefined);
             dataToProcess = dataToProcess.map((row, rowIndex) => {
@@ -332,21 +302,18 @@ export function calculateProcessedTableData(
                 let resetSubsequentKeys = false;
                 for (let i = 0; i < groupingColNames.length; i++) {
                     const gCol = groupingColNames[i];
-                    // The last grouping column (e.g., ingredient_name) should typically not be blanked for this pivot style
-                    if (i === groupingColNames.length - 1 && groupingColNames.includes('ingredient_name')) { 
-                        lastKeyValues[i] = getColumnValueInternal(newRow, gCol);
-                        continue;
-                    }
-
+                    
                     const currentValue = getColumnValueInternal(newRow, gCol);
-                    if (rowIndex > 0 && !resetSubsequentKeys && currentValue === lastKeyValues[i]) {
+                    if (rowIndex > 0 && !resetSubsequentKeys && currentValue === lastKeyValues[i] && gCol !== 'ingredient_name') { 
                         newRow[gCol] = PIVOT_BLANK_MARKER;
                     } else {
-                        newRow[gCol] = currentValue; // Ensure actual value is set if not blanking
+                        newRow[gCol] = currentValue; 
                         lastKeyValues[i] = currentValue;
-                        resetSubsequentKeys = true; // If a key changes, all subsequent keys in this row's lastKeyValues must be reset
-                        for (let j = i + 1; j < groupingColNames.length; j++) {
-                           lastKeyValues[j] = undefined; // Force re-evaluation for subsequent keys
+                        if (currentValue !== lastKeyValues[i] || i ===0 ) { // If this key changed or it's the first key
+                           resetSubsequentKeys = true; 
+                           for (let j = i + 1; j < groupingColNames.length; j++) {
+                               lastKeyValues[j] = undefined; 
+                           }
                         }
                     }
                 }
@@ -354,12 +321,10 @@ export function calculateProcessedTableData(
             });
         }
     } else if (summariesToApply.length > 0 && internalFilteredDataResult.length > 0) {
-        // Fallback for only summaries, no groupings (like the "Overall Summary" case)
         const summaryRow: DietDataRow = { note: "Overall Summary" };
         summaryColDetails.forEach(summary => {
             const values = internalFilteredDataResult.map(row => getColumnValueInternal(row, summary.originalColumn));
             let summaryValue: string | number = '';
-            // Similar summary calculation as above
              const numericValues = values.map(v => parseFloat(String(v))).filter(v => !isNaN(v));
              if (numericValues.length > 0) {
                  switch (summary.type) {
@@ -381,28 +346,22 @@ export function calculateProcessedTableData(
             summaryRow[summary.name] = summaryValue;
         });
         
-        // Try to set a label for the summary row
         if (dynamicColumns.length > 0 && !summaryColNames.includes(dynamicColumns[0])) {
             summaryRow[dynamicColumns[0]] = "Overall Summary";
         } else if (dynamicColumns.length > 0 && summaryColNames.includes(dynamicColumns[0])) {
-            // If the first dynamic column is a summary column, create a descriptive label
             const firstOriginalCol = summaryColDetails.find(s => s.name === dynamicColumns[0])?.originalColumn || dynamicColumns[0];
             summaryRow[dynamicColumns[0]] = `Overall ${firstOriginalCol.replace(/_/g, ' ')}`;
         } else if (allHeadersForData.length > 0) {
-            summaryRow[allHeadersForData[0]] = "Overall Summary"; // Fallback if dynamicColumns is empty
+            summaryRow[allHeadersForData[0]] = "Overall Summary"; 
         }
 
 
         dataToProcess = [summaryRow];
-        dynamicColumns = summaryColNames; // Only summary columns are relevant here
+        dynamicColumns = summaryColNames; 
     } else {
-      // No groupings and no summaries, or no data
       dataToProcess = internalFilteredDataResult;
-      // dynamicColumns are already set from initial data or allHeadersForData
     }
 
-
-    // Calculate Grand Total
     if (summariesToApply.length > 0 && internalFilteredDataResult.length > 0) {
         grandTotalRow = { note: "Grand Total" };
         if (groupingColNames.length > 0) {
@@ -417,7 +376,6 @@ export function calculateProcessedTableData(
         summaryColDetails.forEach(summary => {
             const values = internalFilteredDataResult.map(row => getColumnValueInternal(row, summary.originalColumn));
             let totalValue: string | number = '';
-            // Similar summary calculation as above
             const numericValues = values.map(v => parseFloat(String(v))).filter(v => !isNaN(v));
              if (numericValues.length > 0) {
                  switch (summary.type) {
@@ -438,7 +396,6 @@ export function calculateProcessedTableData(
              }
             grandTotalRow![summary.name] = totalValue;
         });
-         // Ensure "Grand Total" label is in the first summary column if no grouping columns
         if (groupingColNames.length === 0 && summaryColNames.length > 0 && grandTotalRow) {
             grandTotalRow[summaryColNames[0]] = `Grand Total (${(grandTotalRow[summaryColNames[0]] !== undefined && grandTotalRow[summaryColNames[0]] !== '') ? grandTotalRow[summaryColNames[0]] : ''})`;
             if (summaryColDetails.find(s => s.name === summaryColNames[0])?.originalColumn && (grandTotalRow[summaryColNames[0]] === undefined || String(grandTotalRow[summaryColNames[0]]).trim() === "" || grandTotalRow[summaryColNames[0]] === "Grand Total ()")) {
@@ -447,12 +404,12 @@ export function calculateProcessedTableData(
         }
     }
     
-    // Final column list should not include 'note'
     dynamicColumns = dynamicColumns.filter(col => col !== 'note');
     if (grandTotalRow && !Object.keys(grandTotalRow).some(k => k !== 'note' && grandTotalRow[k] === 'Grand Total')) {
         const firstColForGT = dynamicColumns.length > 0 ? dynamicColumns[0] : (groupingColNames.length > 0 ? groupingColNames[0] : (summaryColNames.length > 0 ? summaryColNames[0] : undefined));
         if (firstColForGT) {
-            grandTotalRow[firstColForGT] = 'Grand Total' + (grandTotalRow[firstColForGT] ? ` (${grandTotalRow[firstColForGT]})` : '');
+            const gtValue = grandTotalRow[firstColForGT];
+            grandTotalRow[firstColForGT] = 'Grand Total' + ((gtValue !== undefined && gtValue !== PIVOT_BLANK_MARKER && String(gtValue).trim() !== '') ? ` (${gtValue})` : '');
         }
     }
 

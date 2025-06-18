@@ -40,8 +40,8 @@ export interface SummarizationOption {
 
 export interface FilterOption {
   column: string;
-  value: string | number | string[] | number[] | 'all' | 'before6am' | '6to12' | '12to6' | 'after6pm'; 
-  type: 'equals' | 'contains' | 'in' | 'range_number' | 'range_date' | 'timeOfDay';
+  value: string | number | string[] | number[]; 
+  type: 'equals' | 'contains' | 'in' | 'range_number' | 'range_date';
 }
 
 export interface AISuggestions {
