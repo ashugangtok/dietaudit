@@ -60,8 +60,8 @@ export default function Home() {
     setIsProcessingFile(false);
     setIsFileUploaded(true);
     setActiveTab("extractedData");
-    setFilters([]); // Clear any previous user-defined filters
-    setHasAppliedFilters(false); // Reset this flag
+    setFilters([]); 
+    setHasAppliedFilters(false); 
 
     const requiredDefaultPivotCols = [
         ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => col as string),
@@ -118,7 +118,7 @@ export default function Home() {
     }
   }, [toast]);
 
-  const handleApplyFiltersClick = useCallback((newFilters: FilterOption[]) => {
+  const handleApplyFiltersCallback = useCallback((newFilters: FilterOption[]) => {
     setFilters(newFilters);
     setHasAppliedFilters(true);
   }, []);
@@ -220,7 +220,7 @@ export default function Home() {
                     rawData={rawData}
                     allHeaders={allHeaders}
                     appliedFilters={filters}
-                    onApplyFilters={handleApplyFiltersClick}
+                    onApplyFilters={handleApplyFiltersCallback}
                 />
                 {!hasAppliedFilters && rawData.length > 0 && (
                   <Card className="flex-1">
@@ -274,7 +274,7 @@ export default function Home() {
                     rawData={rawData}
                     allHeaders={allHeaders}
                     appliedFilters={filters}
-                    onApplyFilters={handleApplyFiltersClick}
+                    onApplyFilters={handleApplyFiltersCallback}
                 />
                 {!hasAppliedFilters && rawData.length > 0 && (
                   <Card className="flex-1">
@@ -361,4 +361,3 @@ export default function Home() {
     </main>
   );
 }
-
