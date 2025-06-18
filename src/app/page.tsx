@@ -37,6 +37,7 @@ export default function Home() {
     }
     // Sort the processedData by section_name.
     // If section_name is not a direct column (e.g., due to grouping), this sort may not be effective.
+    // Make sure 'section_name' exists or provide a fallback.
     return [...processedData].sort((a, b) => {
       const sectionA = String(a.section_name || '').toLowerCase();
       const sectionB = String(b.section_name || '').toLowerCase();
@@ -52,6 +53,7 @@ export default function Home() {
     setIsProcessingFile(false);
     setIsFileUploaded(true);
     setActiveTab("extractedData");
+    setFilters([]); // Reset filters on new file upload
 
     const canApplySpecialPivot =
         EXPECTED_PIVOT_ROW_GROUPINGS.every(col => headers.includes(col as string)) &&
@@ -64,8 +66,6 @@ export default function Home() {
 
         const defaultPivotSummaries: SummarizationOption[] = [{ column: PIVOT_VALUE_FIELD, type: 'sum' }];
         setSummaries(defaultPivotSummaries);
-
-        setFilters([]);
 
         toast({
             title: "Diet Analysis by Unit of Measure View Applied",
@@ -84,7 +84,7 @@ export default function Home() {
             ? [{ column: 'ingredient_qty', type: 'sum' }]
             : [];
         setSummaries(fallbackSummaries);
-        setFilters([]);
+        
 
         if (data.length > 0 && !canApplySpecialPivot) {
             toast({
@@ -195,36 +195,42 @@ export default function Home() {
                 </CardContent>
               </Card>
             )}
-            {!isProcessingFile && isFileUploaded && sortedDataForExportTab.length > 0 && (
+            {!isProcessingFile && isFileUploaded && ( // Show filters and table once file is uploaded
               <div className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Data Sorted by Section Name</CardTitle>
-                    <CardDescription>
-                      This table shows the data from the 'Extracted Data' tab (potentially grouped and summarized), sorted by section name.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <DataTable data={sortedDataForExportTab} columns={currentTableColumns} />
-                  </CardContent>
-                </Card>
+                 <InteractiveFilters
+                    rawData={rawData}
+                    allHeaders={allHeaders}
+                    filters={filters}
+                    setFilters={setFilters}
+                />
+                {sortedDataForExportTab.length > 0 ? (
+                    <Card>
+                    <CardHeader>
+                        <CardTitle>Data Sorted by Section Name</CardTitle>
+                        <CardDescription>
+                        This table shows the data from the 'Extracted Data' tab (filtered and potentially grouped/summarized), sorted by section name.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <DataTable data={sortedDataForExportTab} columns={currentTableColumns} />
+                    </CardContent>
+                    </Card>
+                ) : rawData.length > 0 ? ( // File uploaded, data exists, but current filters yield no results for processedData
+                     <Card>
+                        <CardContent className="p-6 text-center text-muted-foreground">
+                            <p>No data matches the current filters for the Export Sections view, or the data from 'Extracted Data' is empty.</p>
+                            <p>If 'Extracted Data' has content, check if 'section_name' is available for sorting.</p>
+                        </CardContent>
+                    </Card>
+                ) : ( // File uploaded, but rawData is empty
+                    <Card>
+                        <CardContent className="p-6 text-center text-muted-foreground">
+                            <p>No data found in the uploaded file.</p>
+                            <p>Please try uploading a different file.</p>
+                        </CardContent>
+                    </Card>
+                )}
               </div>
-            )}
-            {!isProcessingFile && isFileUploaded && sortedDataForExportTab.length === 0 && rawData.length > 0 && (
-                 <Card>
-                    <CardContent className="p-6 text-center text-muted-foreground">
-                        <p>No data matches the current filters for the Export Sections view, or the data from 'Extracted Data' is empty.</p>
-                         <p>If 'Extracted Data' has content, check if 'section_name' is available for sorting.</p>
-                    </CardContent>
-                </Card>
-            )}
-            {!isProcessingFile && isFileUploaded && rawData.length === 0 && (
-                 <Card>
-                    <CardContent className="p-6 text-center text-muted-foreground">
-                        <p>No data found in the uploaded file.</p>
-                        <p>Please try uploading a different file.</p>
-                    </CardContent>
-                </Card>
             )}
             {!isProcessingFile && !isFileUploaded && (
                  <Card>

@@ -18,12 +18,14 @@ interface InteractiveFiltersProps {
 
 type TimeOfDayFilterValue = 'all' | 'before6am' | '6to12' | '12to6' | 'after6pm';
 
+// Updated FILTERABLE_COLUMNS
 const FILTERABLE_COLUMNS = [
   { key: 'site_name', label: 'Site Name', placeholder: 'All Sites' },
   { key: 'section_name', label: 'Section Name', placeholder: 'All Sections' },
   { key: 'user_enclosure_name', label: 'Enclosure Name', placeholder: 'All Enclosures' },
-  { key: 'class_name', label: 'Class Name', placeholder: 'All Classes' },
+  { key: 'group_name', label: 'Group Name', placeholder: 'All Groups' },
   { key: 'common_name', label: 'Species Name (Common)', placeholder: 'All Species' },
+  { key: 'diet_name', label: 'Diet Name', placeholder: 'All Diets' },
 ];
 
 const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
@@ -87,7 +89,7 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
         <Filter className="mr-2 h-5 w-5" /> Filters & Date Range
       </h3>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-3 gap-4"> {/* Adjusted grid for potentially 6 dropdowns */}
         {FILTERABLE_COLUMNS.map(({ key, label, placeholder }) => {
           if (!allHeaders.includes(key)) return null;
           const currentFilterValue = filters.find(f => f.column === key)?.value || 'all';
@@ -115,7 +117,7 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
         <div>
-          <Label className="text-sm font-medium mb-2 block">Filter by Time of Day:</Label>
+          <Label className="text-sm font-medium mb-2 block">Filter by Time of Day (Meal Start Time):</Label>
           <div className="flex flex-wrap gap-2">
             {[
               { value: 'all', label: 'All Day', icon: Clock },
