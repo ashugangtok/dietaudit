@@ -3,8 +3,6 @@
 
 import type React from 'react';
 import { useState, useRef } from 'react';
-// XLSX will be used by the server-side flow now
-// import * as XLSX from 'xlsx'; 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
@@ -17,16 +15,33 @@ interface FileUploadProps {
   onProcessing: (isProcessing: boolean) => void;
 }
 
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+
 const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string>("No file chosen");
-  const [isCurrentlyProcessing, setIsCurrentlyProcessing] = useState(false); // Manages button disabled state
+  const [isCurrentlyProcessing, setIsCurrentlyProcessing] = useState(false);
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       const file = event.target.files[0];
+
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        toast({
+          variant: "destructive",
+          title: "File Too Large",
+          description: `Please upload a file smaller than ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.`,
+        });
+        setSelectedFile(null);
+        setFileName("No file chosen");
+        if(fileInputRef.current) {
+            fileInputRef.current.value = ''; // Reset file input
+        }
+        return;
+      }
+
       if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || file.type === 'application/vnd.ms-excel' || file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
         setSelectedFile(file);
         setFileName(file.name);
@@ -63,7 +78,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
     }
 
     setIsCurrentlyProcessing(true);
-    onProcessing(true); // Signal to parent that processing has started
+    onProcessing(true); 
     
     const reader = new FileReader();
 
@@ -72,12 +87,9 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         const dataUrl = e.target?.result as string;
         if (!dataUrl) throw new Error("File data is empty or could not be read as Data URL.");
         
-        // Extract base64 part from Data URL
-        // Format: "data:<mime_type>;base64,<encoded_data>"
         const base64Content = dataUrl.split(',')[1];
         if (!base64Content) throw new Error("Could not extract base64 content from Data URL.");
 
-        // Call the server-side flow
         const result = await parseExcelFlow({ excelFileBase64: base64Content, fileName: selectedFile.name });
 
         if (result.error) {
@@ -109,12 +121,12 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         toast({
           variant: "destructive",
           title: "Error Processing File",
-          description: error instanceof Error ? error.message : "An unknown error occurred during server-side processing.",
+          description: error instanceof Error ? error.message : "An unknown error occurred during server-side processing. The file might be too large or malformed.",
         });
         onDataParsed([], []); 
       } finally {
         setIsCurrentlyProcessing(false);
-        onProcessing(false); // Signal to parent that processing has finished
+        onProcessing(false); 
       }
     };
 
@@ -128,7 +140,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
       onProcessing(false); 
     };
 
-    reader.readAsDataURL(selectedFile); // Read as Data URL to get base64
+    reader.readAsDataURL(selectedFile);
   };
 
   return (
@@ -149,7 +161,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         <span className="text-sm text-muted-foreground truncate" style={{maxWidth: '200px'}}>{fileName}</span>
       </div>
        <p id="file-upload-help" className="text-sm text-muted-foreground">
-          Please upload an Excel file (.xlsx) with the diet plan.
+          Please upload an Excel file (.xlsx) with the diet plan. Max file size: ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.
         </p>
       <Button onClick={handleFileUpload} disabled={!selectedFile || isCurrentlyProcessing} className="w-full sm:w-auto">
         <UploadCloud className="mr-2 h-4 w-4" /> Upload and Process
