@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { UploadCloud, Loader2 } from 'lucide-react';
 
 interface FileUploadProps {
-  onFileSelected: (base64Content: string, fileName: string) => Promise<void>; // Changed to Promise<void>
+  onFileSelected: (base64Content: string, fileName: string) => void; // Changed back from Promise<void>
   onProcessing: (isProcessing: boolean) => void;
   disabled?: boolean;
 }
@@ -18,7 +18,7 @@ interface FileUploadProps {
 const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, disabled }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileNameDisplay, setFileNameDisplay] = useState<string>("No file chosen");
-  const [isReadingFileLocally, setIsReadingFileLocally] = useState(false); // For local FileReader only
+  const [isReadingFileLocally, setIsReadingFileLocally] = useState(false);
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -51,7 +51,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
     fileInputRef.current?.click();
   };
 
-  const handleFileReadAndPassUp = async () => {
+  const handleFileReadAndPassUp = async () => { // Still async due to FileReader, but onFileSelected is sync
     if (!selectedFile) {
       toast({
         variant: "destructive",
@@ -62,18 +62,17 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
     }
 
     setIsReadingFileLocally(true);
-    onProcessing(true); // Inform parent: overall processing (including server parse) starts
+    onProcessing(true); // Parent's general processing starts
 
     try {
       const reader = new FileReader();
       reader.readAsDataURL(selectedFile);
       
-      reader.onload = async (e) => {
+      reader.onload = (e) => { // Removed async here as onFileSelected is sync
         try {
           const base64String = e.target?.result as string;
           const actualBase64 = base64String.substring(base64String.indexOf(',') + 1);
-          // onFileSelected is now async and handles the server parsing
-          await onFileSelected(actualBase64, selectedFile.name); 
+          onFileSelected(actualBase64, selectedFile.name); // Call synchronous prop
         } catch (readError) {
           console.error("Error processing file after read or in onFileSelected:", readError);
           toast({
@@ -83,7 +82,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
           });
         } finally {
           setIsReadingFileLocally(false);
-          // onProcessing(false) is now handled by the parent component (page.tsx) after parseExcelFlow completes
+          // Parent (page.tsx) will call onProcessing(false) after its own processing (including server parse) completes or fails.
         }
       };
       reader.onerror = (error) => {
@@ -130,14 +129,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
           Please upload an Excel file (.xlsx or .xls).
         </p>
       <Button onClick={handleFileReadAndPassUp} disabled={!selectedFile || isReadingFileLocally || disabled} className="w-full sm:w-auto">
-        {(disabled && !isReadingFileLocally && !selectedFile ) ? ( // Show loader if parent is loading (disabled=true) but no file selected yet for this component AND local reading isn't happening
+        {(disabled && !isReadingFileLocally ) ? ( 
            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         ) : isReadingFileLocally ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         ) : (
           <UploadCloud className="mr-2 h-4 w-4" />
         )}
-        {isReadingFileLocally ? "Reading File..." : (disabled && !isReadingFileLocally && !selectedFile) ? "Processing..." : "Confirm & Process File"}
+        {isReadingFileLocally ? "Reading File..." : (disabled && !isReadingFileLocally) ? "Processing..." : "Confirm & Select File"}
       </Button>
       {isReadingFileLocally && ( 
         <div className="space-y-2 pt-2">
@@ -150,5 +149,4 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
 };
 
 export default FileUpload;
-
     
