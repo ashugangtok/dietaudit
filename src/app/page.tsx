@@ -16,7 +16,7 @@ import {
     SPECIAL_PIVOT_UOM_ROW_GROUPINGS,
     SPECIAL_PIVOT_UOM_COLUMN_FIELD,
     SPECIAL_PIVOT_UOM_VALUE_FIELD,
-    PIVOT_BLANK_MARKER 
+    PIVOT_BLANK_MARKER
 } from '@/types';
 import FileUpload from '@/components/FileUpload';
 import DataTable from '@/components/DataTable';
@@ -211,13 +211,6 @@ export default function Home() {
                     appliedFilters={filters}
                     onApplyFilters={handleApplyFiltersCallback}
                 />
-                 {hasAppliedFilters && rawData.length > 0 && processedData.length > 0 && (
-                  <div className="flex justify-end mb-2">
-                    <Button onClick={handleDownloadAllPdf} size="sm">
-                      <Download className="mr-2 h-4 w-4" /> Download All as PDF
-                    </Button>
-                  </div>
-                )}
                 {!hasAppliedFilters && rawData.length > 0 && (
                   <Card className="flex-1">
                     <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
@@ -272,6 +265,13 @@ export default function Home() {
                     appliedFilters={filters}
                     onApplyFilters={handleApplyFiltersCallback}
                 />
+                {hasAppliedFilters && rawData.length > 0 && processedData.length > 0 && (
+                  <div className="flex justify-end mb-2">
+                    <Button onClick={handleDownloadAllPdf} size="sm">
+                      <Download className="mr-2 h-4 w-4" /> Download All as PDF
+                    </Button>
+                  </div>
+                )}
                 {!hasAppliedFilters && rawData.length > 0 && (
                   <Card className="flex-1">
                     <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
@@ -390,3 +390,4 @@ export default function Home() {
     </main>
   );
 }
+
