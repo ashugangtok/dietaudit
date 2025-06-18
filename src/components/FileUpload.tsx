@@ -15,7 +15,7 @@ interface FileUploadProps {
   onProcessing: (isProcessing: boolean) => void;
 }
 
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE_BYTES = 30 * 1024 * 1024; // 30MB
 
 const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
