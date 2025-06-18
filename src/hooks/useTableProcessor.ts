@@ -17,7 +17,7 @@ interface ProcessedTableData {
   processedData: DietDataRow[];
   columns: string[];
   grandTotalRow?: DietDataRow;
-  filteredData: DietDataRow[]; // Added to return filtered data before further processing
+  filteredData: DietDataRow[];
 }
 
 const parseTime = (timeStr: string | undefined | number): { hours: number; minutes: number } | null => {
@@ -111,7 +111,6 @@ export function useTableProcessor({
   }, [rawData, filters, getColumnValue]);
 
   const isSpecialPivotMode = useMemo(() => {
-    // Check if the current configuration matches the "Diet Analysis by Unit of Measure" pivot
     if (summaries.length === 1 && summaries[0].column === SPECIAL_PIVOT_UOM_VALUE_FIELD && summaries[0].type === 'sum') {
       const currentGroupingCols = groupings.map(g => g.column);
       const allExpectedGroupingsPresent = SPECIAL_PIVOT_UOM_ROW_GROUPINGS.every(col => currentGroupingCols.includes(col as string));
@@ -127,7 +126,7 @@ export function useTableProcessor({
 
 
   const processedDataAndColumns = useMemo((): { data: DietDataRow[], dynamicColumns: string[], grandTotalRow?: DietDataRow } => {
-    let dataToProcess = [...internalFilteredData]; // Use internalFilteredData
+    let dataToProcess = [...internalFilteredData];
     let dynamicColumns: string[] = dataToProcess.length > 0 && dataToProcess[0] ? Object.keys(dataToProcess[0]) : [];
     let grandTotalRow: DietDataRow | undefined = undefined;
 
@@ -256,11 +255,7 @@ export function useTableProcessor({
         const groupKeyValues = groupKey.split(' | ');
 
         groupings.forEach((g, idx) => {
-          if (idx === 0) {
-             representativeRow[g.column] = `Subtotal for ${groupKeyValues[idx]}`;
-          } else {
-            representativeRow[g.column] = groupKeyValues[idx];
-          }
+          representativeRow[g.column] = groupKeyValues[idx]; // Changed: No "Subtotal for" prefix
         });
 
         if (summaries.length > 0) {
@@ -294,14 +289,9 @@ export function useTableProcessor({
 
       dataToProcess.sort((a, b) => {
         for (const col of groupingColNames) {
-          const valA_raw = getColumnValue(a, col);
-          const valB_raw = getColumnValue(b, col);
-          const valA = (col === groupingColNames[0] && String(valA_raw).startsWith('Subtotal for '))
-                       ? String(valA_raw).replace('Subtotal for ', '')
-                       : valA_raw;
-          const valB = (col === groupingColNames[0] && String(valB_raw).startsWith('Subtotal for '))
-                       ? String(valB_raw).replace('Subtotal for ', '')
-                       : valB_raw;
+          const valA = getColumnValue(a, col); // Simplified: use raw value for sorting
+          const valB = getColumnValue(b, col); // Simplified: use raw value for sorting
+          
           if (valA === undefined || valA === null) return -1;
           if (valB === undefined || valB === null) return 1;
           if (typeof valA === 'string' && typeof valB === 'string') {
@@ -317,9 +307,10 @@ export function useTableProcessor({
       let lastNonSubtotalRowKeyValues: (string | number | undefined)[] = [];
       dataToProcess = dataToProcess.map((row, rowIndex) => {
         if (row.note === PIVOT_SUBTOTAL_MARKER) {
-            return row;
+            // For subtotal rows, decide if blanking should apply based on previous *subtotal* row
+            // or always show full group path. For now, let's keep it simple and allow blanking.
         }
-        if (rowIndex === 0 || dataToProcess[rowIndex-1]?.note === PIVOT_SUBTOTAL_MARKER) {
+        if (rowIndex === 0 || dataToProcess[rowIndex-1]?.note === PIVOT_SUBTOTAL_MARKER && row.note !== PIVOT_SUBTOTAL_MARKER) {
             lastNonSubtotalRowKeyValues = groupingColNames.map(col => row[col]);
             return row;
         }
@@ -424,6 +415,8 @@ export function useTableProcessor({
     processedData: processedDataAndColumns.data,
     columns: processedDataAndColumns.dynamicColumns,
     grandTotalRow: processedDataAndColumns.grandTotalRow,
-    filteredData: internalFilteredData, // Return the filtered data
+    filteredData: internalFilteredData,
   };
 }
+
+    
