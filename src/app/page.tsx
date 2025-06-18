@@ -51,7 +51,6 @@ export default function Home() {
         const defaultPivotSummaries: SummarizationOption[] = [{ column: PIVOT_VALUE_FIELD, type: 'sum' }];
         setSummaries(defaultPivotSummaries);
         
-        // Removed default filters for section_name and meal_time as InteractiveFilters will handle them
         setFilters([]); 
 
         toast({
@@ -92,6 +91,7 @@ export default function Home() {
           <TabsList className="bg-muted p-1 rounded-md">
             <TabsTrigger value="uploadExcel" className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Upload Excel</TabsTrigger>
             <TabsTrigger value="extractedData" disabled={!isFileUploaded && !isProcessingFile} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Extracted Data</TabsTrigger>
+            <TabsTrigger value="exportSections" disabled={!isFileUploaded && !isProcessingFile} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Export Sections</TabsTrigger>
           </TabsList>
 
           <TabsContent value="uploadExcel" className="mt-6">
@@ -163,6 +163,43 @@ export default function Home() {
                 </Card>
             )}
           </TabsContent>
+          
+          <TabsContent value="exportSections" className="mt-6">
+             {isProcessingFile && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Processing File...</CardTitle>
+                  <CardDescription>Please wait until processing is complete to access export options.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-6 space-y-4">
+                    <div className="flex items-center space-x-2">
+                        <Skeleton className="h-8 w-8 rounded-full" />
+                        <Skeleton className="h-6 w-48" />
+                    </div>
+                    <Skeleton className="h-10 w-full" /> 
+                    <Skeleton className="h-20 w-full" />
+                </CardContent>
+              </Card>
+            )}
+            {!isProcessingFile && isFileUploaded && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Export Sections</CardTitle>
+                  <CardDescription>Functionality for exporting sections will be implemented here.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-6">
+                  <p className="text-muted-foreground">Export options for different sections will appear here once available.</p>
+                </CardContent>
+              </Card>
+            )}
+            {!isProcessingFile && !isFileUploaded && (
+                 <Card>
+                    <CardContent className="p-6 text-center text-muted-foreground">
+                        <p>Please upload an Excel file first to enable export options.</p>
+                    </CardContent>
+                </Card>
+            )}
+          </TabsContent>
         </Tabs>
       </div>
       
@@ -174,4 +211,3 @@ export default function Home() {
     </main>
   );
 }
-
