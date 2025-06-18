@@ -44,7 +44,7 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
   const displayColumns = columns.filter(col => col !== 'note');
 
   return (
-    <ScrollArea className="whitespace-nowrap rounded-md border" style={{ maxHeight: '600px' }}>
+    <ScrollArea className="whitespace-nowrap rounded-md border h-full">
       <Table className="min-w-full">
         <TableCaption>Dietary Data Overview</TableCaption>
         <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
@@ -115,4 +115,3 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
 };
 
 export default DataTable;
-

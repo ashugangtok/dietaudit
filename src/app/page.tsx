@@ -35,9 +35,6 @@ export default function Home() {
     if (!processedData || processedData.length === 0) {
       return [];
     }
-    // Sort the processedData by section_name.
-    // If section_name is not a direct column (e.g., due to grouping), this sort may not be effective.
-    // Make sure 'section_name' exists or provide a fallback.
     return [...processedData].sort((a, b) => {
       const sectionA = String(a.section_name || '').toLowerCase();
       const sectionB = String(b.section_name || '').toLowerCase();
@@ -53,7 +50,7 @@ export default function Home() {
     setIsProcessingFile(false);
     setIsFileUploaded(true);
     setActiveTab("extractedData");
-    setFilters([]); // Reset filters on new file upload
+    setFilters([]); 
 
     const canApplySpecialPivot =
         EXPECTED_PIVOT_ROW_GROUPINGS.every(col => headers.includes(col as string)) &&
@@ -100,15 +97,15 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-background text-foreground flex flex-col">
-      <div className="px-4 py-2 border-b">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <div className="px-4 py-2 border-b flex-1 min-h-0 flex flex-col">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full h-full flex flex-col">
           <TabsList className="bg-muted p-1 rounded-md">
             <TabsTrigger value="uploadExcel" className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Upload Excel</TabsTrigger>
             <TabsTrigger value="extractedData" disabled={!isFileUploaded && !isProcessingFile} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Extracted Data</TabsTrigger>
             <TabsTrigger value="exportSections" disabled={!isFileUploaded && !isProcessingFile} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm">Export Sections</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="uploadExcel" className="mt-6">
+          <TabsContent value="uploadExcel" className="mt-2">
             <div className="container mx-auto flex flex-col items-center justify-center space-y-8 py-10">
               {!isFileUploaded && (
                 <div className="text-center space-y-4">
@@ -131,7 +128,7 @@ export default function Home() {
             </div>
           </TabsContent>
 
-          <TabsContent value="extractedData" className="mt-6">
+          <TabsContent value="extractedData" className="mt-2 flex flex-col flex-1 min-h-0">
             {isProcessingFile && (
               <Card>
                 <CardHeader>
@@ -151,14 +148,16 @@ export default function Home() {
               </Card>
             )}
             {!isProcessingFile && isFileUploaded && rawData.length > 0 && (
-              <div className="space-y-6">
+              <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
                 <InteractiveFilters
                     rawData={rawData}
                     allHeaders={allHeaders}
                     filters={filters}
                     setFilters={setFilters}
                 />
-                <DataTable data={processedData} columns={currentTableColumns} grandTotalRow={grandTotalRow} />
+                <div className="flex-1 min-h-0">
+                  <DataTable data={processedData} columns={currentTableColumns} grandTotalRow={grandTotalRow} />
+                </div>
               </div>
             )}
             {!isProcessingFile && isFileUploaded && rawData.length === 0 && (
@@ -178,7 +177,7 @@ export default function Home() {
             )}
           </TabsContent>
 
-          <TabsContent value="exportSections" className="mt-6">
+          <TabsContent value="exportSections" className="mt-2 flex flex-col flex-1 min-h-0">
              {isProcessingFile && (
               <Card>
                 <CardHeader>
@@ -195,8 +194,8 @@ export default function Home() {
                 </CardContent>
               </Card>
             )}
-            {!isProcessingFile && isFileUploaded && ( // Show filters and table once file is uploaded
-              <div className="space-y-6">
+            {!isProcessingFile && isFileUploaded && ( 
+              <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
                  <InteractiveFilters
                     rawData={rawData}
                     allHeaders={allHeaders}
@@ -204,6 +203,7 @@ export default function Home() {
                     setFilters={setFilters}
                 />
                 {sortedDataForExportTab.length > 0 ? (
+                  <div className="flex-1 min-h-0">
                     <Card>
                     <CardHeader>
                         <CardTitle>Data Sorted by Section Name</CardTitle>
@@ -215,14 +215,15 @@ export default function Home() {
                         <DataTable data={sortedDataForExportTab} columns={currentTableColumns} />
                     </CardContent>
                     </Card>
-                ) : rawData.length > 0 ? ( // File uploaded, data exists, but current filters yield no results for processedData
+                  </div>
+                ) : rawData.length > 0 ? ( 
                      <Card>
                         <CardContent className="p-6 text-center text-muted-foreground">
                             <p>No data matches the current filters for the Export Sections view, or the data from 'Extracted Data' is empty.</p>
                             <p>If 'Extracted Data' has content, check if 'section_name' is available for sorting.</p>
                         </CardContent>
                     </Card>
-                ) : ( // File uploaded, but rawData is empty
+                ) : ( 
                     <Card>
                         <CardContent className="p-6 text-center text-muted-foreground">
                             <p>No data found in the uploaded file.</p>
