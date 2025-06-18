@@ -16,8 +16,6 @@ interface FileUploadProps {
   onProcessing: (isProcessing: boolean) => void;
 }
 
-const MAX_FILE_SIZE_BYTES = 7 * 1024 * 1024; // 7MB
-
 const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string>("No file chosen");
@@ -28,20 +26,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       const file = event.target.files[0];
-      if (file.size > MAX_FILE_SIZE_BYTES) {
-        toast({
-          variant: "destructive",
-          title: "File Too Large",
-          description: `Please select a file smaller than ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB.`,
-        });
-        setSelectedFile(null);
-        setFileName("No file chosen");
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
-        return;
-      }
-
+      
       if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || file.type === 'application/vnd.ms-excel' || file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
         setSelectedFile(file);
         setFileName(file.name);
@@ -174,7 +159,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         <span className="text-sm text-muted-foreground truncate" style={{maxWidth: '200px'}}>{fileName}</span>
       </div>
        <p id="file-upload-help" className="text-sm text-muted-foreground">
-          Please upload an Excel file (.xlsx or .xls) up to {MAX_FILE_SIZE_BYTES / 1024 / 1024}MB.
+          Please upload an Excel file (.xlsx or .xls).
         </p>
       <Button onClick={handleFileUpload} disabled={!selectedFile || isCurrentlyProcessing} className="w-full sm:w-auto">
         {isCurrentlyProcessing ? (
