@@ -2,23 +2,22 @@
 "use client";
 
 import type React from 'react';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import type { DietDataRow, FilterOption } from '@/types';
-import { Filter, Clock, Sunrise, Sun, Sunset, Moon } from 'lucide-react';
+import { Filter, Clock, Sunrise, Sun, Sunset, Moon, CheckSquare } from 'lucide-react';
 
 interface InteractiveFiltersProps {
   rawData: DietDataRow[];
   allHeaders: string[];
-  filters: FilterOption[];
-  setFilters: (filters: FilterOption[]) => void;
+  filters: FilterOption[]; // These are the currently *applied* filters
+  setFilters: (filters: FilterOption[]) => void; // This function applies the filters
 }
 
 type TimeOfDayFilterValue = 'all' | 'before6am' | '6to12' | '12to6' | 'after6pm';
 
-// Updated FILTERABLE_COLUMNS based on user request and image
 const FILTERABLE_COLUMNS = [
   { key: 'site_name', label: 'Site Name', placeholder: 'All Sites' },
   { key: 'section_name', label: 'Section Name', placeholder: 'All Sections' },
@@ -26,17 +25,38 @@ const FILTERABLE_COLUMNS = [
   { key: 'group_name', label: 'Group Name', placeholder: 'All Groups' },
   { key: 'common_name', label: 'Species Name (Common)', placeholder: 'All Species' },
   { key: 'diet_name', label: 'Diet Name', placeholder: 'All Diets' },
-  { key: 'class_name', label: 'Class Name', placeholder: 'All Classes'}, // Added from pivot image
+  { key: 'class_name', label: 'Class Name', placeholder: 'All Classes'},
 ];
 
 const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
   rawData,
   allHeaders,
-  filters,
+  filters: appliedFilters, // Renamed for clarity within this component
   setFilters,
 }) => {
-  const [activeTimeOfDay, setActiveTimeOfDay] = useState<TimeOfDayFilterValue>('all');
-  const [activeDateRange, setActiveDateRange] = useState<string>('1Day');
+  // Internal state for pending filter selections
+  const [pendingDropdownFilters, setPendingDropdownFilters] = useState<Record<string, string>>({});
+  const [pendingTimeOfDay, setPendingTimeOfDay] = useState<TimeOfDayFilterValue>('all');
+  const [activeDateRange, setActiveDateRange] = useState<string>('1Day'); // UI only for now
+
+  // Effect to initialize/synchronize pending filters with applied filters
+  useEffect(() => {
+    const initialDropdowns: Record<string, string> = {};
+    FILTERABLE_COLUMNS.forEach(({ key }) => {
+      initialDropdowns[key] = 'all'; // Default to 'all'
+    });
+    let initialTimeOfDay: TimeOfDayFilterValue = 'all';
+
+    appliedFilters.forEach(filter => {
+      if (FILTERABLE_COLUMNS.some(fc => fc.key === filter.column) && filter.type === 'equals') {
+        initialDropdowns[filter.column] = String(filter.value);
+      } else if (filter.column === 'meal_start_time' && filter.type === 'timeOfDay') {
+        initialTimeOfDay = filter.value as TimeOfDayFilterValue;
+      }
+    });
+    setPendingDropdownFilters(initialDropdowns);
+    setPendingTimeOfDay(initialTimeOfDay);
+  }, [appliedFilters]);
 
   const uniqueValues = useMemo(() => {
     const uVals: Record<string, string[]> = {};
@@ -49,57 +69,49 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
     return uVals;
   }, [rawData, allHeaders]);
 
-  const handleDropdownFilterChange = (column: string, value: string) => {
-    const newFilters = filters.filter(f => f.column !== column);
-    if (value !== 'all') {
-      newFilters.push({ column, value, type: 'equals' });
-    }
-    setFilters(newFilters);
+  const handlePendingDropdownChange = (column: string, value: string) => {
+    setPendingDropdownFilters(prev => ({ ...prev, [column]: value }));
   };
 
-  const handleTimeOfDayChange = (timeRange: TimeOfDayFilterValue) => {
-    setActiveTimeOfDay(timeRange);
-    const newFilters = filters.filter(f => f.column !== 'meal_start_time' || f.type !== 'timeOfDay');
-    if (timeRange !== 'all') {
-      newFilters.push({ column: 'meal_start_time', value: timeRange, type: 'timeOfDay' });
+  const handlePendingTimeOfDayChange = (timeRange: TimeOfDayFilterValue) => {
+    setPendingTimeOfDay(timeRange);
+  };
+
+  const handleApplyFilters = useCallback(() => {
+    const newFilters: FilterOption[] = [];
+    Object.entries(pendingDropdownFilters).forEach(([column, value]) => {
+      if (value !== 'all' && FILTERABLE_COLUMNS.some(fc => fc.key === column)) {
+        newFilters.push({ column, value, type: 'equals' });
+      }
+    });
+    if (pendingTimeOfDay !== 'all' && allHeaders.includes('meal_start_time')) {
+      newFilters.push({ column: 'meal_start_time', value: pendingTimeOfDay, type: 'timeOfDay' });
     }
     setFilters(newFilters);
-  };
+  }, [pendingDropdownFilters, pendingTimeOfDay, setFilters, allHeaders]);
 
   // Placeholder for date range filter - UI only for now
   const handleDateRangeChange = (range: string) => {
     setActiveDateRange(range);
-    // Actual date range filtering logic would be more complex and involve updating 'filters'
-    // For now, this just updates the UI state.
   };
-
-  useEffect(() => {
-    // Initialize activeTimeOfDay based on existing filters if any
-    const timeFilter = filters.find(f => f.column === 'meal_start_time' && f.type === 'timeOfDay');
-    if (timeFilter) {
-      setActiveTimeOfDay(timeFilter.value as TimeOfDayFilterValue);
-    } else {
-      setActiveTimeOfDay('all');
-    }
-  }, [filters]);
-
 
   return (
     <div className="p-4 bg-card rounded-lg shadow mb-6 space-y-6">
-      <h3 className="text-lg font-medium flex items-center text-primary">
-        <Filter className="mr-2 h-5 w-5" /> Filters & Date Range
-      </h3>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4"> {/* Adjusted grid for potentially 7 dropdowns */}
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-medium flex items-center text-primary">
+          <Filter className="mr-2 h-5 w-5" /> Filters & Date Range
+        </h3>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {FILTERABLE_COLUMNS.map(({ key, label, placeholder }) => {
-          if (!allHeaders.includes(key) && !uniqueValues[key]?.length) return null; // Hide if header not present or no unique values
-          const currentFilterValue = filters.find(f => f.column === key)?.value || 'all';
+          if (!allHeaders.includes(key) && !uniqueValues[key]?.length) return null;
           return (
             <div key={key} className="space-y-1">
               <Label htmlFor={`filter-${key}`} className="text-sm font-medium">{label}</Label>
               <Select
-                value={currentFilterValue as string}
-                onValueChange={(value) => handleDropdownFilterChange(key, value)}
+                value={pendingDropdownFilters[key] || 'all'}
+                onValueChange={(value) => handlePendingDropdownChange(key, value)}
                 disabled={!uniqueValues[key] || uniqueValues[key].length === 0}
               >
                 <SelectTrigger id={`filter-${key}`}>
@@ -130,9 +142,9 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
             ].map(({ value, label, icon: Icon }) => (
               <Button
                 key={value}
-                variant={activeTimeOfDay === value ? 'default' : 'outline'}
+                variant={pendingTimeOfDay === value ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => handleTimeOfDayChange(value as TimeOfDayFilterValue)}
+                onClick={() => handlePendingTimeOfDayChange(value as TimeOfDayFilterValue)}
                 className="flex items-center gap-2"
                 disabled={!allHeaders.includes('meal_start_time')}
               >
@@ -161,9 +173,13 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
           <p className="text-xs text-muted-foreground mt-1">Excluding Ingredients with Choice.</p>
         </div>
       </div>
+      <div className="flex justify-end pt-4">
+        <Button onClick={handleApplyFilters} size="lg">
+          <CheckSquare className="mr-2 h-5 w-5" /> Apply Filters
+        </Button>
+      </div>
     </div>
   );
 };
 
 export default InteractiveFilters;
-
