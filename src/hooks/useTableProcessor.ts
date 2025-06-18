@@ -11,6 +11,7 @@ interface UseTableProcessorProps {
   summaries: SummarizationOption[];
   filters: FilterOption[];
   allHeaders: string[];
+  hasAppliedFilters: boolean; // New prop
 }
 
 interface ProcessedTableData {
@@ -39,6 +40,7 @@ export function useTableProcessor({
   summaries,
   filters,
   allHeaders,
+  hasAppliedFilters, // Destructure new prop
 }: UseTableProcessorProps): ProcessedTableData {
   const getColumnValue = useCallback((row: DietDataRow, column: string): any => {
     let value = row[column];
@@ -53,17 +55,17 @@ export function useTableProcessor({
   }, []);
 
   const internalFilteredData = useMemo(() => {
-    if (!filters.length) return rawData;
+    if (!hasAppliedFilters || !filters.length) return rawData; // Process rawData only if filters applied and exist
+    
     return rawData.filter(row => {
       return filters.every(filter => {
         const rowValue = getColumnValue(row, filter.column);
          if (rowValue === undefined && Object.keys(row).includes(filter.column) ) {
             // allow blank string checks
         } else if (rowValue === undefined || rowValue === null) {
-            if (filter.type === 'equals' && filter.value === '') return true; // Allow filtering for blanks if value is empty string
+            if (filter.type === 'equals' && filter.value === '') return true; 
             return false;
         }
-
 
         const filterValue = filter.value;
         const normalizedRowValue = String(rowValue).toLowerCase();
@@ -87,17 +89,17 @@ export function useTableProcessor({
             }
             return true;
           case 'timeOfDay':
-            const mealTime = parseTime(row[filter.column] as string); // Assuming filter.column is 'meal_start_time'
-            if (!mealTime) return false; // If time is not parsable, don't include row
+            const mealTime = parseTime(row[filter.column] as string); 
+            if (!mealTime) return false; 
 
             switch(filter.value) {
-                case 'before6am': // Before 6:00
+                case 'before6am': 
                     return mealTime.hours < 6;
-                case '6to12': // 6:00 to 11:59
+                case '6to12': 
                     return mealTime.hours >= 6 && mealTime.hours < 12;
-                case '12to6': // 12:00 to 17:59
+                case '12to6': 
                     return mealTime.hours >= 12 && mealTime.hours < 18;
-                case 'after6pm': // 18:00 onwards
+                case 'after6pm': 
                     return mealTime.hours >= 18;
                 case 'all':
                 default:
@@ -108,9 +110,11 @@ export function useTableProcessor({
         }
       });
     });
-  }, [rawData, filters, getColumnValue]);
+  }, [rawData, filters, getColumnValue, hasAppliedFilters]);
 
   const isSpecialPivotMode = useMemo(() => {
+    if (!hasAppliedFilters) return false; // Don't activate special pivot if filters not applied
+
     if (summaries.length === 1 && summaries[0].column === SPECIAL_PIVOT_UOM_VALUE_FIELD && summaries[0].type === 'sum') {
       const currentGroupingCols = groupings.map(g => g.column);
       const allExpectedGroupingsPresent = SPECIAL_PIVOT_UOM_ROW_GROUPINGS.every(col => currentGroupingCols.includes(col as string));
@@ -122,12 +126,16 @@ export function useTableProcessor({
              allHeaders.includes(SPECIAL_PIVOT_UOM_VALUE_FIELD);
     }
     return false;
-  }, [groupings, summaries, allHeaders]);
+  }, [groupings, summaries, allHeaders, hasAppliedFilters]);
 
 
   const processedDataAndColumns = useMemo((): { data: DietDataRow[], dynamicColumns: string[], grandTotalRow?: DietDataRow } => {
+    if (!hasAppliedFilters) { // If filters haven't been applied, return empty structure
+      return { data: [], dynamicColumns: allHeaders.length > 0 ? allHeaders : [], grandTotalRow: undefined };
+    }
+
     let dataToProcess = [...internalFilteredData];
-    let dynamicColumns: string[] = dataToProcess.length > 0 && dataToProcess[0] ? Object.keys(dataToProcess[0]) : [];
+    let dynamicColumns: string[] = dataToProcess.length > 0 && dataToProcess[0] ? Object.keys(dataToProcess[0]) : (allHeaders.length > 0 ? allHeaders : []);
     let grandTotalRow: DietDataRow | undefined = undefined;
 
     if (isSpecialPivotMode) {
@@ -255,7 +263,7 @@ export function useTableProcessor({
         const groupKeyValues = groupKey.split(' | ');
 
         groupings.forEach((g, idx) => {
-          representativeRow[g.column] = groupKeyValues[idx]; // Changed: No "Subtotal for" prefix
+          representativeRow[g.column] = groupKeyValues[idx]; 
         });
 
         if (summaries.length > 0) {
@@ -289,8 +297,8 @@ export function useTableProcessor({
 
       dataToProcess.sort((a, b) => {
         for (const col of groupingColNames) {
-          const valA = getColumnValue(a, col); // Simplified: use raw value for sorting
-          const valB = getColumnValue(b, col); // Simplified: use raw value for sorting
+          const valA = getColumnValue(a, col); 
+          const valB = getColumnValue(b, col); 
           
           if (valA === undefined || valA === null) return -1;
           if (valB === undefined || valB === null) return 1;
@@ -307,10 +315,9 @@ export function useTableProcessor({
       let lastNonSubtotalRowKeyValues: (string | number | undefined)[] = [];
       dataToProcess = dataToProcess.map((row, rowIndex) => {
         if (row.note === PIVOT_SUBTOTAL_MARKER) {
-            // For subtotal rows, decide if blanking should apply based on previous *subtotal* row
-            // or always show full group path. For now, let's keep it simple and allow blanking.
+            // For subtotal rows, the group values are already set directly.
         }
-        if (rowIndex === 0 || dataToProcess[rowIndex-1]?.note === PIVOT_SUBTOTAL_MARKER && row.note !== PIVOT_SUBTOTAL_MARKER) {
+        if (rowIndex === 0 || (dataToProcess[rowIndex-1]?.note === PIVOT_SUBTOTAL_MARKER && row.note !== PIVOT_SUBTOTAL_MARKER)) {
             lastNonSubtotalRowKeyValues = groupingColNames.map(col => row[col]);
             return row;
         }
@@ -409,14 +416,12 @@ export function useTableProcessor({
         }
     }
     return { data: dataToProcess, dynamicColumns, grandTotalRow };
-  }, [internalFilteredData, groupings, summaries, getColumnValue, isSpecialPivotMode, allHeaders]);
+  }, [internalFilteredData, groupings, summaries, getColumnValue, isSpecialPivotMode, allHeaders, hasAppliedFilters]); // Added hasAppliedFilters dependency
 
   return {
     processedData: processedDataAndColumns.data,
     columns: processedDataAndColumns.dynamicColumns,
     grandTotalRow: processedDataAndColumns.grandTotalRow,
-    filteredData: internalFilteredData,
+    filteredData: internalFilteredData, // still useful to return, e.g. for counts or other non-table displays
   };
 }
-
-    

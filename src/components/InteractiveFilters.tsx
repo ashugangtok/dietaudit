@@ -12,8 +12,8 @@ import { Filter, Clock, Sunrise, Sun, Sunset, Moon, CheckSquare } from 'lucide-r
 interface InteractiveFiltersProps {
   rawData: DietDataRow[];
   allHeaders: string[];
-  filters: FilterOption[]; // These are the currently *applied* filters
-  setFilters: (filters: FilterOption[]) => void; // This function applies the filters
+  appliedFilters: FilterOption[]; // These are the currently *applied* filters from parent
+  onApplyFilters: (filters: FilterOption[]) => void; // Callback to parent to apply filters
 }
 
 type TimeOfDayFilterValue = 'all' | 'before6am' | '6to12' | '12to6' | 'after6pm';
@@ -31,19 +31,17 @@ const FILTERABLE_COLUMNS = [
 const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
   rawData,
   allHeaders,
-  filters: appliedFilters, // Renamed for clarity within this component
-  setFilters,
+  appliedFilters, 
+  onApplyFilters,
 }) => {
-  // Internal state for pending filter selections
   const [pendingDropdownFilters, setPendingDropdownFilters] = useState<Record<string, string>>({});
   const [pendingTimeOfDay, setPendingTimeOfDay] = useState<TimeOfDayFilterValue>('all');
-  const [activeDateRange, setActiveDateRange] = useState<string>('1Day'); // UI only for now
+  const [activeDateRange, setActiveDateRange] = useState<string>('1Day');
 
-  // Effect to initialize/synchronize pending filters with applied filters
   useEffect(() => {
     const initialDropdowns: Record<string, string> = {};
     FILTERABLE_COLUMNS.forEach(({ key }) => {
-      initialDropdowns[key] = 'all'; // Default to 'all'
+      initialDropdowns[key] = 'all'; 
     });
     let initialTimeOfDay: TimeOfDayFilterValue = 'all';
 
@@ -77,7 +75,7 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
     setPendingTimeOfDay(timeRange);
   };
 
-  const handleApplyFilters = useCallback(() => {
+  const handleApplyFiltersInternal = useCallback(() => {
     const newFilters: FilterOption[] = [];
     Object.entries(pendingDropdownFilters).forEach(([column, value]) => {
       if (value !== 'all' && FILTERABLE_COLUMNS.some(fc => fc.key === column)) {
@@ -87,10 +85,9 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
     if (pendingTimeOfDay !== 'all' && allHeaders.includes('meal_start_time')) {
       newFilters.push({ column: 'meal_start_time', value: pendingTimeOfDay, type: 'timeOfDay' });
     }
-    setFilters(newFilters);
-  }, [pendingDropdownFilters, pendingTimeOfDay, setFilters, allHeaders]);
+    onApplyFilters(newFilters);
+  }, [pendingDropdownFilters, pendingTimeOfDay, onApplyFilters, allHeaders]);
 
-  // Placeholder for date range filter - UI only for now
   const handleDateRangeChange = (range: string) => {
     setActiveDateRange(range);
   };
@@ -174,7 +171,7 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
         </div>
       </div>
       <div className="flex justify-end pt-4">
-        <Button onClick={handleApplyFilters} size="lg">
+        <Button onClick={handleApplyFiltersInternal} size="lg">
           <CheckSquare className="mr-2 h-5 w-5" /> Apply Filters
         </Button>
       </div>

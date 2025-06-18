@@ -30,22 +30,18 @@ export default function Home() {
   const [groupings, setGroupings] = useState<GroupingOption[]>([]);
   const [summaries, setSummaries] = useState<SummarizationOption[]>([]);
   const [filters, setFilters] = useState<FilterOption[]>([]);
+  const [hasAppliedFilters, setHasAppliedFilters] = useState(false);
 
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [isFileUploaded, setIsFileUploaded] = useState(false);
   const { toast } = useToast();
 
-  const { processedData, columns: currentTableColumns, grandTotalRow } = useTableProcessor({ rawData, groupings, summaries, filters, allHeaders });
+  const { processedData, columns: currentTableColumns, grandTotalRow, filteredData } = useTableProcessor({ rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters });
 
   const sortedDataForExportTab = useMemo(() => {
-    if (!processedData || processedData.length === 0) {
+    if (!hasAppliedFilters || !processedData || processedData.length === 0) {
       return [];
     }
-    // Sort by section_name if it exists in the processedData's columns
-    // The actual 'section_name' might be one of the grouping columns or a separate data column
-    // For this generic sort, we assume 'section_name' is a direct key if available.
-    // If 'section_name' is not a primary column in processedData (e.g., it was grouped away and not a grouping key),
-    // this sort might not have a visible effect on that specific field, but will ensure stability.
     const sectionNameKey = currentTableColumns.find(col => col.toLowerCase() === 'section_name');
 
     return [...processedData].sort((a, b) => {
@@ -55,10 +51,9 @@ export default function Home() {
         if (sectionA < sectionB) return -1;
         if (sectionA > sectionB) return 1;
       }
-      // Fallback sort or if section_name is not present / not the primary sort key here
       return 0;
     });
-  }, [processedData, currentTableColumns]);
+  }, [processedData, currentTableColumns, hasAppliedFilters]);
 
   const handleDataParsed = useCallback(async (data: DietDataRow[], headers: string[]) => {
     setRawData(data);
@@ -66,11 +61,11 @@ export default function Home() {
     setIsProcessingFile(false);
     setIsFileUploaded(true);
     setActiveTab("extractedData");
-    setFilters([]);
+    setFilters([]); // Clear previous filters
+    setHasAppliedFilters(false); // Require "Apply Filters" for new data
 
-    // Check if columns for the new default image-based pivot exist
     const requiredDefaultPivotCols = [
-        ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS,
+        ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => col as string),
         ...DEFAULT_IMAGE_PIVOT_SUMMARIES.map(s => s.column)
     ];
     const canApplyDefaultImagePivot = requiredDefaultPivotCols.every(col => headers.includes(col as string));
@@ -79,13 +74,13 @@ export default function Home() {
         const defaultGroupings: GroupingOption[] = DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => ({ column: col as string }));
         setGroupings(defaultGroupings);
         setSummaries(DEFAULT_IMAGE_PIVOT_SUMMARIES);
-        toast({
-            title: "Default Pivot View Applied",
-            description: "Table configured with default groupings and summaries. Customize further as needed.",
-        });
+        if (data.length > 0) { // Only toast if there's actual data potential
+            toast({
+                title: "Default Pivot View Prepared",
+                description: "Table configured with default groupings and summaries. Apply filters to view.",
+            });
+        }
     } else {
-        // Fallback if default image pivot columns are not all present
-        // Try the old UOM pivot if its columns are present
         const canApplySpecialUOMPivot =
             SPECIAL_PIVOT_UOM_ROW_GROUPINGS.every(col => headers.includes(col as string)) &&
             headers.includes(SPECIAL_PIVOT_UOM_COLUMN_FIELD as string) &&
@@ -94,39 +89,40 @@ export default function Home() {
         if (canApplySpecialUOMPivot) {
             const uomPivotGroupings: GroupingOption[] = SPECIAL_PIVOT_UOM_ROW_GROUPINGS.map(col => ({ column: col as string }));
             setGroupings(uomPivotGroupings);
-
             const uomPivotSummaries: SummarizationOption[] = [{ column: SPECIAL_PIVOT_UOM_VALUE_FIELD as string, type: 'sum' }];
             setSummaries(uomPivotSummaries);
-
-            toast({
-                title: "Diet Analysis by Unit of Measure View Applied",
-                description: "Table configured to show ingredient quantities by unit of measure. Customize further as needed.",
-            });
+            if (data.length > 0) {
+                toast({
+                    title: "Diet Analysis by UOM View Prepared",
+                    description: "Table configured for UOM analysis. Apply filters to view.",
+                });
+            }
         } else {
-            // Generic fallback if neither pivot can be applied
             const fallbackGroupingCandidates: (keyof DietDataRow)[] = ['group_name', 'common_name', 'ingredient_name'];
             const availableFallbackGroupings = fallbackGroupingCandidates.filter(h => headers.includes(h as string));
-
             const fallbackGroupings: GroupingOption[] = availableFallbackGroupings.length > 0
                 ? availableFallbackGroupings.slice(0,2).map(col => ({ column: col as string }))
                 : headers.length > 0 ? [{ column: headers[0] }] : [];
             setGroupings(fallbackGroupings);
-
             const fallbackSummaries: SummarizationOption[] = (headers.includes('ingredient_qty'))
                 ? [{ column: 'ingredient_qty', type: 'sum' }]
                 : [];
             setSummaries(fallbackSummaries);
-
             if (data.length > 0) {
                  toast({
-                    title: "Data Loaded",
-                    description: "Default pivot configuration could not be fully applied due to missing columns. Basic view applied. Configure manually or use filters.",
+                    title: "Data Loaded, Basic View Prepared",
+                    description: "Default pivot configuration could not be fully applied. Apply filters to view.",
                     variant: "default"
                 });
             }
         }
     }
   }, [toast]);
+
+  const handleApplyFiltersClick = useCallback((newFilters: FilterOption[]) => {
+    setFilters(newFilters);
+    setHasAppliedFilters(true);
+  }, []);
 
   const year = new Date().getFullYear();
 
@@ -166,100 +162,45 @@ export default function Home() {
           <TabsContent value="extractedData" className="mt-2 flex flex-col flex-1 min-h-0">
             {isProcessingFile && (
               <Card>
-                <CardHeader>
-                  <CardTitle>Processing File...</CardTitle>
-                  <CardDescription>Extracting data, please wait.</CardDescription>
-                </CardHeader>
+                <CardHeader><CardTitle>Processing File...</CardTitle><CardDescription>Extracting data, please wait.</CardDescription></CardHeader>
                 <CardContent className="p-6 space-y-4">
-                    <div className="flex items-center space-x-2">
-                        <Skeleton className="h-8 w-8 rounded-full" />
-                        <Skeleton className="h-6 w-48" />
-                    </div>
-                    <Skeleton className="h-10 w-full" />
-                    <Skeleton className="h-20 w-full" />
-                    <Skeleton className="h-4 w-full mt-4" />
-                    <Skeleton className="h-4 w-3/4 mt-2" />
-                </CardContent>
-              </Card>
-            )}
-            {!isProcessingFile && isFileUploaded && rawData.length > 0 && (
-              <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
-                <InteractiveFilters
-                    rawData={rawData}
-                    allHeaders={allHeaders}
-                    filters={filters}
-                    setFilters={setFilters}
-                />
-                <div className="flex-1 min-h-0">
-                  <DataTable data={processedData} columns={currentTableColumns} grandTotalRow={grandTotalRow} />
-                </div>
-              </div>
-            )}
-            {!isProcessingFile && isFileUploaded && rawData.length === 0 && (
-                 <Card>
-                    <CardContent className="p-6 text-center text-muted-foreground">
-                        <p>No data found in the uploaded file, or filters resulted in no data.</p>
-                        <p>Please try uploading a different file or adjusting your filters.</p>
-                    </CardContent>
-                </Card>
-            )}
-             {!isProcessingFile && !isFileUploaded && (
-                 <Card>
-                    <CardContent className="p-6 text-center text-muted-foreground">
-                        <p>Please upload an Excel file to view data.</p>
-                    </CardContent>
-                </Card>
-            )}
-          </TabsContent>
-
-          <TabsContent value="exportSections" className="mt-2 flex flex-col flex-1 min-h-0">
-             {isProcessingFile && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Processing File...</CardTitle>
-                  <CardDescription>Please wait until processing is complete to access export options.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 space-y-4">
-                    <div className="flex items-center space-x-2">
-                        <Skeleton className="h-8 w-8 rounded-full" />
-                        <Skeleton className="h-6 w-48" />
-                    </div>
-                    <Skeleton className="h-10 w-full" />
-                    <Skeleton className="h-20 w-full" />
+                    <div className="flex items-center space-x-2"><Skeleton className="h-8 w-8 rounded-full" /><Skeleton className="h-6 w-48" /></div>
+                    <Skeleton className="h-10 w-full" /><Skeleton className="h-20 w-full" /><Skeleton className="h-4 w-full mt-4" /><Skeleton className="h-4 w-3/4 mt-2" />
                 </CardContent>
               </Card>
             )}
             {!isProcessingFile && isFileUploaded && (
               <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
-                 <InteractiveFilters
+                <InteractiveFilters
                     rawData={rawData}
                     allHeaders={allHeaders}
-                    filters={filters}
-                    setFilters={setFilters}
+                    appliedFilters={filters}
+                    onApplyFilters={handleApplyFiltersClick}
                 />
-                {sortedDataForExportTab.length > 0 ? (
-                  <div className="flex-1 min-h-0">
-                    <Card>
-                    <CardHeader>
-                        <CardTitle>Data Sorted by Section Name</CardTitle>
-                        <CardDescription>
-                        This table shows the data from the 'Extracted Data' tab (filtered and potentially grouped/summarized), sorted by section name (if available in the current view).
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <DataTable data={sortedDataForExportTab} columns={currentTableColumns} />
+                {!hasAppliedFilters && rawData.length > 0 && (
+                  <Card className="flex-1">
+                    <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
+                      <p>Please configure your filters and click "Apply Filters" to view the data.</p>
                     </CardContent>
-                    </Card>
+                  </Card>
+                )}
+                {hasAppliedFilters && rawData.length > 0 && processedData.length > 0 && (
+                  <div className="flex-1 min-h-0">
+                    <DataTable data={processedData} columns={currentTableColumns} grandTotalRow={grandTotalRow} />
                   </div>
-                ) : rawData.length > 0 ? (
-                     <Card>
-                        <CardContent className="p-6 text-center text-muted-foreground">
-                            <p>No data matches the current filters for the Export Sections view, or the data from 'Extracted Data' is empty.</p>
-                        </CardContent>
-                    </Card>
-                ) : (
-                    <Card>
-                        <CardContent className="p-6 text-center text-muted-foreground">
+                )}
+                {hasAppliedFilters && rawData.length > 0 && processedData.length === 0 && (
+                  <Card className="flex-1">
+                    <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
+                      <p>Your filter selection resulted in no data.</p>
+                      <p>Please try adjusting your filters or upload a new file.</p>
+                    </CardContent>
+                  </Card>
+                )}
+                {/* Covers case where uploaded file was empty from the start */}
+                {rawData.length === 0 && (
+                     <Card className="flex-1">
+                        <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
                             <p>No data found in the uploaded file.</p>
                             <p>Please try uploading a different file.</p>
                         </CardContent>
@@ -268,11 +209,59 @@ export default function Home() {
               </div>
             )}
             {!isProcessingFile && !isFileUploaded && (
-                 <Card>
-                    <CardContent className="p-6 text-center text-muted-foreground">
-                        <p>Please upload an Excel file first to enable export options.</p>
+                 <Card><CardContent className="p-6 text-center text-muted-foreground"><p>Please upload an Excel file to view data.</p></CardContent></Card>
+            )}
+          </TabsContent>
+
+          <TabsContent value="exportSections" className="mt-2 flex flex-col flex-1 min-h-0">
+             {isProcessingFile && (
+              <Card>
+                <CardHeader><CardTitle>Processing File...</CardTitle><CardDescription>Please wait until processing is complete.</CardDescription></CardHeader>
+                <CardContent className="p-6 space-y-4"><div className="flex items-center space-x-2"><Skeleton className="h-8 w-8 rounded-full" /><Skeleton className="h-6 w-48" /></div><Skeleton className="h-10 w-full" /><Skeleton className="h-20 w-full" /></CardContent>
+              </Card>
+            )}
+            {!isProcessingFile && isFileUploaded && (
+              <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
+                 <InteractiveFilters
+                    rawData={rawData}
+                    allHeaders={allHeaders}
+                    appliedFilters={filters}
+                    onApplyFilters={handleApplyFiltersClick}
+                />
+                {!hasAppliedFilters && rawData.length > 0 && (
+                  <Card className="flex-1">
+                    <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
+                      <p>Please configure your filters and click "Apply Filters" to view the data for export.</p>
                     </CardContent>
-                </Card>
+                  </Card>
+                )}
+                {hasAppliedFilters && sortedDataForExportTab.length > 0 && (
+                  <div className="flex-1 min-h-0">
+                    <Card>
+                    <CardHeader><CardTitle>Data Sorted by Section Name</CardTitle><CardDescription>This table shows filtered and processed data, sorted by section name (if available).</CardDescription></CardHeader>
+                    <CardContent><DataTable data={sortedDataForExportTab} columns={currentTableColumns} /></CardContent>
+                    </Card>
+                  </div>
+                )}
+                {hasAppliedFilters && rawData.length > 0 && sortedDataForExportTab.length === 0 && (
+                     <Card className="flex-1">
+                        <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
+                            <p>No data matches the current filters for the Export Sections view.</p>
+                        </CardContent>
+                    </Card>
+                )}
+                {/* Covers case where uploaded file was empty */}
+                {rawData.length === 0 && (
+                    <Card className="flex-1">
+                        <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
+                            <p>No data found in the uploaded file.</p>
+                        </CardContent>
+                    </Card>
+                )}
+              </div>
+            )}
+            {!isProcessingFile && !isFileUploaded && (
+                 <Card><CardContent className="p-6 text-center text-muted-foreground"><p>Please upload an Excel file first.</p></CardContent></Card>
             )}
           </TabsContent>
         </Tabs>
@@ -286,4 +275,3 @@ export default function Home() {
     </main>
   );
 }
-
