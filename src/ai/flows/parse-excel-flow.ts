@@ -32,19 +32,41 @@ export type ParseExcelOutput = z.infer<typeof ParseExcelOutputSchema>;
 
 
 export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcelOutput> {
+  console.log(`[parseExcelFlow] Received request for file: ${input.originalFileName}`);
   try {
     if (!input.excelFileBase64) {
+      console.warn("[parseExcelFlow] No Excel file content provided.");
       return { parsedData: [], headers: [], error: "No Excel file content provided." };
     }
-    const fileBuffer = Buffer.from(input.excelFileBase64, 'base64');
+
+    let fileBuffer: Buffer;
+    try {
+      fileBuffer = Buffer.from(input.excelFileBase64, 'base64');
+      console.log(`[parseExcelFlow] File buffer size for ${input.originalFileName}: ${fileBuffer.length} bytes.`);
+      // Heuristic: If buffer is very large (e.g., > 10MB raw, base64 would be ~13MB string), parsing might be too slow or result in too large JSON.
+      // Next.js default body parser limit is 1MB for API routes, server actions might have different/configurable limits.
+      // A 10MB buffer could result in a much larger JSON.
+      if (fileBuffer.length > 10 * 1024 * 1024) { // 10MB
+        console.warn(`[parseExcelFlow] File buffer for ${input.originalFileName} is very large: ${fileBuffer.length} bytes. This might lead to performance issues or exceed server limits.`);
+      }
+    } catch (bufferError: any) {
+      console.error(`[parseExcelFlow] Error creating buffer from base64 for ${input.originalFileName}:`, bufferError);
+      return { 
+        parsedData: [], 
+        headers: [], 
+        error: `Server error creating buffer from file content: ${bufferError.message || 'Unknown buffer error'}` 
+      };
+    }
     
     if (fileBuffer.length === 0) {
+        console.warn(`[parseExcelFlow] Provided Excel file content for ${input.originalFileName} is empty after base64 decoding.`);
         return { parsedData: [], headers: [], error: "Provided Excel file content is empty."};
     }
 
     const workbook = XLSX.read(fileBuffer, { type: 'buffer', cellStyles: false, bookVBA: false });
 
     if (!workbook || workbook.SheetNames.length === 0) {
+      console.warn(`[parseExcelFlow] Could not read the Excel workbook or it contains no sheets for ${input.originalFileName}.`);
       return { parsedData: [], headers: [], error: "Could not read the Excel workbook or it contains no sheets." };
     }
     
@@ -52,6 +74,7 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
     const worksheet = workbook.Sheets[sheetName];
 
     if (!worksheet) {
+      console.warn(`[parseExcelFlow] Could not read the sheet named '${sheetName}' for ${input.originalFileName}.`);
       return { parsedData: [], headers: [], error: `Could not read the sheet named '${sheetName}'.` };
     }
     
@@ -60,11 +83,16 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
       defval: "", 
       blankrows: false, 
     });
+    
+    console.log(`[parseExcelFlow] Parsed ${jsonData.length} raw rows from ${input.originalFileName}.`);
 
-    if (jsonData.length === 0 && fileBuffer.length > 500) { // Check if jsonData is empty for a non-trivial file size
+
+    if (jsonData.length === 0 && fileBuffer.length > 500) { 
+      console.warn(`[parseExcelFlow] Excel file ${input.originalFileName} appears to have content, but no data could be extracted. The sheet might be empty or in an unsupported format.`);
       return { parsedData: [], headers: [], error: "Excel file appears to have content, but no data could be extracted. The sheet might be empty or in an unsupported format." };
     }
      if (jsonData.length === 0) {
+      console.warn(`[parseExcelFlow] Excel file ${input.originalFileName} is empty or contains no readable data rows after parsing.`);
       return { parsedData: [], headers: [], error: "Excel file is empty or contains no readable data rows after parsing." };
     }
     
@@ -80,6 +108,7 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
     }
 
     if (headerRowIndex === -1) {
+        console.warn(`[parseExcelFlow] No valid header row found in the Excel sheet for ${input.originalFileName}.`);
         return { parsedData: [], headers: [], error: "No valid header row found in the Excel sheet."};
     }
 
@@ -97,12 +126,10 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
             }
         } else {
             let count = 0;
-            // Check if currentCandidateName (which is baseName initially) exists
             if (actualHeaders.includes(currentCandidateName)) {
-                count = 1; // Start suffixing with _1
+                count = 1; 
                 currentCandidateName = `${baseName}_${count}`;
             }
-            // Ensure the suffixed name is unique
             while (actualHeaders.includes(currentCandidateName)) {
                 count++;
                 currentCandidateName = `${baseName}_${count}`;
@@ -119,24 +146,43 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
       return rowObject;
     }).filter(row => Object.values(row).some(val => val !== undefined && String(val).trim() !== "")); 
 
+    console.log(`[parseExcelFlow] Processed ${parsedData.length} data rows with ${actualHeaders.length} headers for ${input.originalFileName}.`);
+
     if (parsedData.length === 0 && actualHeaders.length > 0) {
         // This case is handled on client with a specific toast.
+        console.log(`[parseExcelFlow] File ${input.originalFileName} contains headers but no data rows after filtering empty rows.`);
         return { parsedData: [], headers: actualHeaders };
     }
     
+    // Potentially large data check:
+    const responsePayloadSize = JSON.stringify({ parsedData, headers: actualHeaders }).length;
+    console.log(`[parseExcelFlow] Estimated response payload size for ${input.originalFileName}: ${responsePayloadSize} bytes.`);
+    if (responsePayloadSize > 4 * 1024 * 1024) { // 4MB, a common server limit for JSON payloads
+        console.warn(`[parseExcelFlow] Response payload for ${input.originalFileName} is very large: ${responsePayloadSize} bytes. This might exceed server limits and cause 'unexpected response'.`);
+        // Consider returning an error or a subset of data if this is a recurring issue.
+        // For now, we'll still attempt to return it.
+    }
+
+
     return { parsedData, headers: actualHeaders };
 
-  } catch (err) {
-    console.error(`Error processing Excel file (${input.originalFileName}):`, err);
-    let errorMessage = "An unknown error occurred during server-side Excel processing.";
+  } catch (err: any) {
+    console.error(`[parseExcelFlow] Critical error during Excel processing for file (${input.originalFileName}):`, err);
+    let errorMessage = "An critical error occurred on the server during Excel processing.";
     if (err instanceof Error) {
         errorMessage = err.message;
+    } else if (typeof err === 'string') {
+        errorMessage = err;
+    } else if (err && typeof err.message === 'string') {
+        errorMessage = err.message;
     }
-    // More specific error for known xlsx issues if possible
-    if (errorMessage.includes("Corrupted zip")) {
+    
+    if (errorMessage.includes("Corrupted zip") || (err && typeof err.code === 'string' && err.code === 'Z_DATA_ERROR')) {
         errorMessage = "The Excel file appears to be corrupted or is not a valid .xlsx/.xls file.";
     } else if (errorMessage.includes("Cell Styles")) {
         errorMessage = "Error processing cell styles in the Excel file. Try saving without complex styling.";
+    } else if (err.name === 'RangeError' && errorMessage.toLowerCase().includes('buffer')) {
+        errorMessage = "Error related to buffer size or memory allocation while processing the Excel file. The file might be too large or malformed.";
     }
     
     return { parsedData: [], headers: [], error: errorMessage };
@@ -157,3 +203,5 @@ const parseExcelServerFlow = ai.defineFlow(
 );
 */
 
+
+    
