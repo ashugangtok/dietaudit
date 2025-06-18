@@ -88,14 +88,14 @@ export default function Home() {
         // Try the old UOM pivot if its columns are present
         const canApplySpecialUOMPivot =
             SPECIAL_PIVOT_UOM_ROW_GROUPINGS.every(col => headers.includes(col as string)) &&
-            headers.includes(SPECIAL_PIVOT_UOM_COLUMN_FIELD) &&
-            headers.includes(SPECIAL_PIVOT_UOM_VALUE_FIELD);
+            headers.includes(SPECIAL_PIVOT_UOM_COLUMN_FIELD as string) &&
+            headers.includes(SPECIAL_PIVOT_UOM_VALUE_FIELD as string);
 
         if (canApplySpecialUOMPivot) {
             const uomPivotGroupings: GroupingOption[] = SPECIAL_PIVOT_UOM_ROW_GROUPINGS.map(col => ({ column: col as string }));
             setGroupings(uomPivotGroupings);
 
-            const uomPivotSummaries: SummarizationOption[] = [{ column: SPECIAL_PIVOT_UOM_VALUE_FIELD, type: 'sum' }];
+            const uomPivotSummaries: SummarizationOption[] = [{ column: SPECIAL_PIVOT_UOM_VALUE_FIELD as string, type: 'sum' }];
             setSummaries(uomPivotSummaries);
 
             toast({
@@ -286,3 +286,4 @@ export default function Home() {
     </main>
   );
 }
+

@@ -99,3 +99,4 @@ export const DEFAULT_IMAGE_PIVOT_SUMMARIES: SummarizationOption[] = [
 // Column to be available in InteractiveFilters as per image
 export const DEFAULT_IMAGE_PIVOT_FILTER_COLUMNS: (keyof DietDataRow)[] = ['class_name'];
 export const PIVOT_DEFAULT_FILTERS: (keyof DietDataRow)[] = [];
+

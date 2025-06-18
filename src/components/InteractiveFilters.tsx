@@ -166,3 +166,4 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
 };
 
 export default InteractiveFilters;
+
