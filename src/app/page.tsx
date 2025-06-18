@@ -31,6 +31,7 @@ interface ExportSectionData {
 interface ExportEnclosureData {
   enclosureName: string;
   consumingSpecies: string[];
+  animalCount?: number;
   ingredientsData: DietDataRow[];
 }
 
@@ -59,8 +60,8 @@ export default function Home() {
     setIsProcessingFile(false);
     setIsFileUploaded(true);
     setActiveTab("extractedData");
-    setFilters([]);
-    setHasAppliedFilters(false);
+    setFilters([]); // Clear any previous user-defined filters
+    setHasAppliedFilters(false); // Reset this flag
 
     const requiredDefaultPivotCols = [
         ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => col as string),
@@ -127,32 +128,43 @@ export default function Home() {
       return [];
     }
 
-    const sections: Record<string, Record<string, { consumingSpecies: Set<string>; ingredients: DietDataRow[] }>> = {};
+    const sections: Record<string, Record<string, { consumingSpecies: Set<string>; ingredients: DietDataRow[], animalCountMap: Map<string, number> }>> = {};
 
     for (const row of filteredData) {
       const sectionName = String(row.section_name || 'Uncategorized Section');
       const enclosureName = String(row.user_enclosure_name || 'Uncategorized Enclosure');
       const commonName = String(row.common_name || '');
+      const animalNum = Number(row.total_animal);
 
       if (!sections[sectionName]) {
         sections[sectionName] = {};
       }
       if (!sections[sectionName][enclosureName]) {
-        sections[sectionName][enclosureName] = { consumingSpecies: new Set(), ingredients: [] };
+        sections[sectionName][enclosureName] = { consumingSpecies: new Set(), ingredients: [], animalCountMap: new Map() };
       }
       if (commonName) {
         sections[sectionName][enclosureName].consumingSpecies.add(commonName);
+        if (!isNaN(animalNum) && animalNum > 0) {
+            sections[sectionName][enclosureName].animalCountMap.set(commonName, animalNum);
+        }
       }
       sections[sectionName][enclosureName].ingredients.push(row);
     }
 
     return Object.entries(sections).map(([sectionName, enclosures]) => ({
       sectionName,
-      enclosures: Object.entries(enclosures).map(([enclosureName, data]) => ({
-        enclosureName,
-        consumingSpecies: Array.from(data.consumingSpecies).sort(),
-        ingredientsData: data.ingredients,
-      })).sort((a, b) => a.enclosureName.localeCompare(b.enclosureName)),
+      enclosures: Object.entries(enclosures).map(([enclosureName, data]) => {
+        let totalAnimalCount = 0;
+        for (const count of data.animalCountMap.values()) {
+            totalAnimalCount += count;
+        }
+        return {
+          enclosureName,
+          consumingSpecies: Array.from(data.consumingSpecies).sort(),
+          animalCount: totalAnimalCount > 0 ? totalAnimalCount : undefined,
+          ingredientsData: data.ingredients,
+        };
+      }).sort((a, b) => a.enclosureName.localeCompare(b.enclosureName)),
     })).sort((a,b) => a.sectionName.localeCompare(b.sectionName));
   }, [filteredData, hasAppliedFilters]);
 
@@ -287,6 +299,11 @@ export default function Home() {
                                   {enclosure.consumingSpecies.length > 0 && (
                                     <p className="text-sm text-muted-foreground mt-1">
                                       <span className="font-medium">Consuming Species:</span> {enclosure.consumingSpecies.join(', ')}
+                                    </p>
+                                  )}
+                                  {enclosure.animalCount !== undefined && (
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                      <span className="font-medium">Animal Count:</span> {enclosure.animalCount}
                                     </p>
                                   )}
                                 </div>
