@@ -13,7 +13,8 @@ interface InteractiveFiltersProps {
   rawData: DietDataRow[];
   allHeaders: string[];
   appliedFilters: FilterOption[]; 
-  onApplyFilters: (filters: FilterOption[]) => void; 
+  onApplyFilters: (filters: FilterOption[]) => void;
+  disabled?: boolean;
 }
 
 const FILTERABLE_COLUMNS = [
@@ -27,10 +28,11 @@ const FILTERABLE_COLUMNS = [
 ];
 
 const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
-  rawData,
-  allHeaders,
+  rawData, // rawData is now the fully parsed data, available after "Apply Filters"
+  allHeaders, // allHeaders are available after "Apply Filters"
   appliedFilters, 
   onApplyFilters,
+  disabled = false,
 }) => {
   const [pendingDropdownFilters, setPendingDropdownFilters] = useState<Record<string, string>>({});
 
@@ -48,22 +50,27 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
     setPendingDropdownFilters(initialDropdowns);
   }, [appliedFilters]);
 
+
   const uniqueValues = useMemo(() => {
     const uVals: Record<string, string[]> = {};
-    FILTERABLE_COLUMNS.forEach(({ key }) => {
-      if (allHeaders.includes(key)) {
-        const values = [...new Set(rawData.map(row => String(row[key] || '')).filter(val => val.trim() !== ''))].sort();
-        uVals[key] = values;
-      }
-    });
+    if (allHeaders.length > 0 && rawData.length > 0) { // Only compute if headers and rawData are populated
+        FILTERABLE_COLUMNS.forEach(({ key }) => {
+            if (allHeaders.includes(key)) {
+                const values = [...new Set(rawData.map(row => String(row[key] || '')).filter(val => val.trim() !== ''))].sort();
+                uVals[key] = values;
+            }
+        });
+    }
     return uVals;
   }, [rawData, allHeaders]);
+
 
   const handlePendingDropdownChange = (column: string, value: string) => {
     setPendingDropdownFilters(prev => ({ ...prev, [column]: value }));
   };
 
   const handleApplyFiltersInternal = useCallback(() => {
+    if (disabled) return;
     const newFilters: FilterOption[] = [];
     Object.entries(pendingDropdownFilters).forEach(([column, value]) => {
       if (value !== 'all' && FILTERABLE_COLUMNS.some(fc => fc.key === column)) {
@@ -71,7 +78,7 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
       }
     });
     onApplyFilters(newFilters);
-  }, [pendingDropdownFilters, onApplyFilters]);
+  }, [pendingDropdownFilters, onApplyFilters, disabled]);
 
 
   return (
@@ -82,23 +89,47 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
         </h3>
       </div>
       
+      {allHeaders.length === 0 && !disabled && (
+         <p className="text-sm text-muted-foreground">
+            Select a file and click "Apply Filters" once to populate filter options based on your data.
+          </p>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {FILTERABLE_COLUMNS.map(({ key, label, placeholder }) => {
-          if (!allHeaders.includes(key) && !uniqueValues[key]?.length) return null;
+          // Only render if headers are available, or always render but disable if no headers/uniqueValues
+          if (allHeaders.length === 0 && !Object.keys(uniqueValues).includes(key)) {
+            // Render a disabled-looking placeholder if headers aren't ready
+             return (
+                <div key={key} className="space-y-1">
+                  <Label htmlFor={`filter-${key}`} className="text-sm font-medium text-muted-foreground/70">{label}</Label>
+                  <Select disabled={true}>
+                    <SelectTrigger id={`filter-${key}`}>
+                      <SelectValue placeholder={`Loading ${label} options...`} />
+                    </SelectTrigger>
+                    <SelectContent />
+                  </Select>
+                </div>
+            );
+          }
+
+          const currentUniqueValues = uniqueValues[key];
+          const hasOptions = currentUniqueValues && currentUniqueValues.length > 0;
+
           return (
             <div key={key} className="space-y-1">
               <Label htmlFor={`filter-${key}`} className="text-sm font-medium">{label}</Label>
               <Select
                 value={pendingDropdownFilters[key] || 'all'}
                 onValueChange={(value) => handlePendingDropdownChange(key, value)}
-                disabled={!uniqueValues[key] || uniqueValues[key].length === 0}
+                disabled={disabled || !hasOptions}
               >
                 <SelectTrigger id={`filter-${key}`}>
-                  <SelectValue placeholder={uniqueValues[key] && uniqueValues[key].length > 0 ? placeholder : `No ${label} data`} />
+                  <SelectValue placeholder={hasOptions ? placeholder : `No ${label} data`} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{placeholder}</SelectItem>
-                  {uniqueValues[key]?.map(val => (
+                  {currentUniqueValues?.map(val => (
                     <SelectItem key={val} value={val}>{val}</SelectItem>
                   ))}
                 </SelectContent>
@@ -109,7 +140,7 @@ const InteractiveFilters: React.FC<InteractiveFiltersProps> = ({
       </div>
 
       <div className="flex justify-end pt-4">
-        <Button onClick={handleApplyFiltersInternal} size="lg">
+        <Button onClick={handleApplyFiltersInternal} size="lg" disabled={disabled}>
           <CheckSquare className="mr-2 h-5 w-5" /> Apply Filters
         </Button>
       </div>
