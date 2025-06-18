@@ -32,17 +32,19 @@ export default function Home() {
   const { processedData, columns: currentTableColumns, grandTotalRow, filteredData } = useTableProcessor({ rawData, groupings, summaries, filters, allHeaders });
 
   const sortedDataForExportTab = useMemo(() => {
-    if (!filteredData || filteredData.length === 0) {
+    if (!processedData || processedData.length === 0) {
       return [];
     }
-    return [...filteredData].sort((a, b) => {
+    // Sort the processedData by section_name.
+    // If section_name is not a direct column (e.g., due to grouping), this sort may not be effective.
+    return [...processedData].sort((a, b) => {
       const sectionA = String(a.section_name || '').toLowerCase();
       const sectionB = String(b.section_name || '').toLowerCase();
       if (sectionA < sectionB) return -1;
       if (sectionA > sectionB) return 1;
       return 0;
     });
-  }, [filteredData]);
+  }, [processedData]);
 
   const handleDataParsed = useCallback(async (data: DietDataRow[], headers: string[]) => {
     setRawData(data);
@@ -198,10 +200,12 @@ export default function Home() {
                 <Card>
                   <CardHeader>
                     <CardTitle>Data Sorted by Section Name</CardTitle>
-                    <CardDescription>This table shows the filtered data, sorted by section name. All original columns are included.</CardDescription>
+                    <CardDescription>
+                      This table shows the data from the 'Extracted Data' tab (potentially grouped and summarized), sorted by section name.
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <DataTable data={sortedDataForExportTab} columns={allHeaders} />
+                    <DataTable data={sortedDataForExportTab} columns={currentTableColumns} />
                   </CardContent>
                 </Card>
               </div>
@@ -209,7 +213,8 @@ export default function Home() {
             {!isProcessingFile && isFileUploaded && sortedDataForExportTab.length === 0 && rawData.length > 0 && (
                  <Card>
                     <CardContent className="p-6 text-center text-muted-foreground">
-                        <p>No data matches the current filters for the Export Sections view, or data is missing the 'section_name' field.</p>
+                        <p>No data matches the current filters for the Export Sections view, or the data from 'Extracted Data' is empty.</p>
+                         <p>If 'Extracted Data' has content, check if 'section_name' is available for sorting.</p>
                     </CardContent>
                 </Card>
             )}
