@@ -55,7 +55,7 @@ export function calculateProcessedTableData(
   shouldProcessData: boolean
 ): ProcessedTableData {
 
-  const internalFilteredDataResult = useMemo(() => {
+  const internalFilteredDataResult = (() => {
     if (!shouldProcessData || !filtersToApply.length) return rawDataToProcess;
     
     return rawDataToProcess.filter(row => {
@@ -110,9 +110,9 @@ export function calculateProcessedTableData(
         }
       });
     });
-  }, [rawDataToProcess, filtersToApply, shouldProcessData]);
+  })();
 
-  const isSpecialPivotModeActive = useMemo(() => {
+  const isSpecialPivotModeActive = (() => {
     if (!shouldProcessData) return false;
 
     if (summariesToApply.length === 1 && summariesToApply[0].column === SPECIAL_PIVOT_UOM_VALUE_FIELD && summariesToApply[0].type === 'sum') {
@@ -126,9 +126,9 @@ export function calculateProcessedTableData(
              allHeadersForData.includes(SPECIAL_PIVOT_UOM_VALUE_FIELD);
     }
     return false;
-  }, [summariesToApply, groupingsToApply, allHeadersForData, shouldProcessData]);
+  })();
 
-  const processedDataAndColumnsResult = useMemo((): { data: DietDataRow[], dynamicColumns: string[], grandTotalRow?: DietDataRow } => {
+  const processedDataAndColumnsResult = ((): { data: DietDataRow[], dynamicColumns: string[], grandTotalRow?: DietDataRow } => {
     if (!shouldProcessData) {
       return { data: [], dynamicColumns: allHeadersForData.length > 0 ? allHeadersForData : [], grandTotalRow: undefined };
     }
@@ -307,21 +307,24 @@ export function calculateProcessedTableData(
         const newRow = { ...row };
          if (row.note === PIVOT_SUBTOTAL_MARKER) {
              groupingColNames.forEach(gCol => {
-                if (newRow[gCol] === PIVOT_BLANK_MARKER && rowIndex > 0) {
+                // Ensure the actual grouping value is present, not PIVOT_BLANK_MARKER
+                 if (newRow[gCol] === PIVOT_BLANK_MARKER && rowIndex > 0) {
                     let prevVal = PIVOT_BLANK_MARKER;
+                    // Find the last actual value for this grouping column
                     for (let k = rowIndex -1; k >=0; k--) {
                         if (dataToProcess[k][gCol] !== PIVOT_BLANK_MARKER) {
                             prevVal = dataToProcess[k][gCol];
                             break;
                         }
                     }
-                    newRow[gCol] = prevVal;
+                    newRow[gCol] = prevVal; // Use the actual value for the subtotal row label
                 }
             });
             lastNonSubtotalRowKeyValues = groupingColNames.map(col => newRow[col]);
             return newRow;
         }
 
+        // For regular data rows (not subtotals)
         if (rowIndex === 0 || (dataToProcess[rowIndex-1]?.note === PIVOT_SUBTOTAL_MARKER && row.note !== PIVOT_SUBTOTAL_MARKER)) {
             lastNonSubtotalRowKeyValues = groupingColNames.map(col => row[col]);
             return row;
@@ -414,7 +417,7 @@ export function calculateProcessedTableData(
         }
     }
     return { data: dataToProcess, dynamicColumns, grandTotalRow };
-  }, [shouldProcessData, internalFilteredDataResult, groupingsToApply, summariesToApply, allHeadersForData, isSpecialPivotModeActive]);
+  })();
 
   return {
     processedData: processedDataAndColumnsResult.data,
@@ -433,9 +436,8 @@ export function useTableProcessor({
   allHeaders,
   hasAppliedFilters,
 }: UseTableProcessorProps): ProcessedTableData {
-    // The main call to the processing logic, wrapped with useMemo for the hook itself
-    // to avoid re-calculating unless its direct dependencies change.
     return useMemo(() => {
         return calculateProcessedTableData(rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters);
     }, [rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters]);
 }
+
