@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { UploadCloud, Loader2 } from 'lucide-react';
 
 interface FileUploadProps {
-  onFileSelected: (base64Content: string, fileName: string) => void;
+  onFileSelected: (base64Content: string, fileName: string) => Promise<void>; // Changed to Promise<void>
   onProcessing: (isProcessing: boolean) => void;
   disabled?: boolean;
 }
@@ -18,7 +18,7 @@ interface FileUploadProps {
 const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, disabled }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileNameDisplay, setFileNameDisplay] = useState<string>("No file chosen");
-  const [isReadingFile, setIsReadingFile] = useState(false);
+  const [isReadingFileLocally, setIsReadingFileLocally] = useState(false); // For local FileReader only
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -61,27 +61,29 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
       return;
     }
 
-    setIsReadingFile(true);
-    onProcessing(true); // Inform parent component that reading has started
+    setIsReadingFileLocally(true);
+    onProcessing(true); // Inform parent: overall processing (including server parse) starts
 
     try {
       const reader = new FileReader();
       reader.readAsDataURL(selectedFile);
+      
       reader.onload = async (e) => {
         try {
           const base64String = e.target?.result as string;
           const actualBase64 = base64String.substring(base64String.indexOf(',') + 1);
-          onFileSelected(actualBase64, selectedFile.name);
+          // onFileSelected is now async and handles the server parsing
+          await onFileSelected(actualBase64, selectedFile.name); 
         } catch (readError) {
-          console.error("Error processing file after read:", readError);
+          console.error("Error processing file after read or in onFileSelected:", readError);
           toast({
             variant: "destructive",
             title: "Error Processing File Data",
             description: readError instanceof Error ? readError.message : "An unknown error occurred while preparing file data.",
           });
         } finally {
-          setIsReadingFile(false);
-          onProcessing(false); // Inform parent component that reading has finished
+          setIsReadingFileLocally(false);
+          // onProcessing(false) is now handled by the parent component (page.tsx) after parseExcelFlow completes
         }
       };
       reader.onerror = (error) => {
@@ -91,8 +93,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
           title: "File Read Error",
           description: "Could not read the selected file.",
         });
-        setIsReadingFile(false);
-        onProcessing(false);
+        setIsReadingFileLocally(false);
+        onProcessing(false); // FileReader error, so parent processing stops
       };
     } catch (error) {
       console.error("Error setting up file read:", error);
@@ -101,15 +103,15 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
         title: "Setup Error",
         description: "An unexpected error occurred before reading the file.",
       });
-      setIsReadingFile(false);
-      onProcessing(false);
+      setIsReadingFileLocally(false);
+      onProcessing(false); // Setup error, so parent processing stops
     }
   };
 
   return (
     <div className="space-y-4">
       <div className="flex items-center space-x-2">
-        <Button onClick={triggerFileInput} variant="outline" className="cursor-pointer" disabled={isReadingFile || disabled}>
+        <Button onClick={triggerFileInput} variant="outline" className="cursor-pointer" disabled={isReadingFileLocally || disabled}>
           <UploadCloud className="mr-2 h-4 w-4" /> Choose File
         </Button>
         <Input 
@@ -120,25 +122,27 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
           onChange={handleFileChange}
           className="hidden" 
           aria-describedby="file-upload-help"
-          disabled={isReadingFile || disabled}
+          disabled={isReadingFileLocally || disabled}
         />
         <span className="text-sm text-muted-foreground truncate" style={{maxWidth: '200px'}}>{fileNameDisplay}</span>
       </div>
        <p id="file-upload-help" className="text-sm text-muted-foreground">
           Please upload an Excel file (.xlsx or .xls).
         </p>
-      <Button onClick={handleFileReadAndPassUp} disabled={!selectedFile || isReadingFile || disabled} className="w-full sm:w-auto">
-        {isReadingFile ? (
+      <Button onClick={handleFileReadAndPassUp} disabled={!selectedFile || isReadingFileLocally || disabled} className="w-full sm:w-auto">
+        {(disabled && !isReadingFileLocally && !selectedFile ) ? ( // Show loader if parent is loading (disabled=true) but no file selected yet for this component AND local reading isn't happening
+           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        ) : isReadingFileLocally ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         ) : (
           <UploadCloud className="mr-2 h-4 w-4" />
         )}
-        {isReadingFile ? "Reading File..." : "Confirm File Selection"}
+        {isReadingFileLocally ? "Reading File..." : (disabled && !isReadingFileLocally && !selectedFile) ? "Processing..." : "Confirm & Process File"}
       </Button>
-      {isReadingFile && ( // This progress is for file reading, not server processing
+      {isReadingFileLocally && ( 
         <div className="space-y-2 pt-2">
           <Progress value={50} className="w-full" /> 
-          <p className="text-sm text-muted-foreground text-center">Reading file, please wait...</p>
+          <p className="text-sm text-muted-foreground text-center">Reading file locally, please wait...</p>
         </div>
       )}
     </div>
@@ -146,3 +150,5 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
 };
 
 export default FileUpload;
+
+    
