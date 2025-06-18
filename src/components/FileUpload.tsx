@@ -1,3 +1,4 @@
+
 "use client";
 
 import type React from 'react';
@@ -8,41 +9,11 @@ import { useToast } from '@/hooks/use-toast';
 import type { DietDataRow } from '@/types';
 import { UploadCloud } from 'lucide-react';
 import { parseExcelFlow } from '@/ai/flows/parse-excel-flow';
-import { initializeApp, type FirebaseApp } from 'firebase/app';
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 interface FileUploadProps {
   onDataParsed: (data: DietDataRow[], headers: string[]) => void;
   onProcessing: (isProcessing: boolean) => void;
 }
-
-const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB limit
-
-// IMPORTANT: Replace with your Firebase project configuration
-// Ensure these are set up, potentially via environment variables
-// e.g., process.env.NEXT_PUBLIC_FIREBASE_API_KEY
-const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-};
-
-let firebaseApp: FirebaseApp | null = null;
-try {
-  if (firebaseConfig.projectId) { // Check if projectId is available
-    firebaseApp = initializeApp(firebaseConfig);
-  } else {
-    console.warn("Firebase projectId is not configured. File uploads to Firebase Storage will not work.");
-  }
-} catch (error) {
-  console.error("Error initializing Firebase App for FileUpload:", error);
-  // Prevent further errors if firebaseApp is not initialized
-  firebaseApp = null; 
-}
-
 
 const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -54,21 +25,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       const file = event.target.files[0];
-
-      if (file.size > MAX_FILE_SIZE_BYTES) {
-        toast({
-          variant: "destructive",
-          title: "File Too Large",
-          description: `Please upload a file smaller than ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.`,
-        });
-        setSelectedFile(null);
-        setFileName("No file chosen");
-        if(fileInputRef.current) {
-            fileInputRef.current.value = ''; 
-        }
-        return;
-      }
-
+      // Basic type check
       if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || file.type === 'application/vnd.ms-excel' || file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
         setSelectedFile(file);
         setFileName(file.name);
@@ -104,78 +61,81 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
       return;
     }
 
-    if (!firebaseApp) {
-      toast({
-        variant: "destructive",
-        title: "Firebase Not Configured",
-        description: "Firebase is not properly configured. Cannot upload file to Storage.",
-      });
-      console.error("Firebase app is not initialized in FileUpload. Cannot proceed with storage upload.");
-      return;
-    }
-    
     setIsCurrentlyProcessing(true);
     onProcessing(true); 
-    
+
     try {
-      const storage = getStorage(firebaseApp);
-      // Create a unique file path, e.g., excel-uploads/some-random-id/original-file-name.xlsx
-      const uniqueId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      const filePath = `excel-uploads/${uniqueId}/${selectedFile.name}`;
-      const fileStorageRef = storageRef(storage, filePath);
+      const reader = new FileReader();
+      reader.readAsDataURL(selectedFile);
+      reader.onload = async (e) => {
+        try {
+          const base64String = e.target?.result as string;
+          const actualBase64 = base64String.substring(base64String.indexOf(',') + 1);
 
-      toast({
-        title: "Uploading File...",
-        description: "Your file is being uploaded to secure storage.",
-      });
-
-      await uploadBytes(fileStorageRef, selectedFile);
-      
-      // No need for downloadURL if sending path directly to backend.
-      // const downloadURL = await getDownloadURL(fileStorageRef); 
-
-      toast({
-        title: "Processing File...",
-        description: "File uploaded. Now extracting data on the server.",
-      });
-
-      const result = await parseExcelFlow({ storageFilePath: filePath, originalFileName: selectedFile.name });
-
-      if (result.error) {
-        throw new Error(result.error);
-      }
-
-      if (result.parsedData.length === 0 && result.headers.length > 0) {
           toast({
-              variant: "default",
-              title: "File Contains Only Headers",
-              description: "The Excel file seems to contain only headers and no data rows.",
+            title: "Processing File...",
+            description: "Extracting data on the server. This may take a moment for large files.",
           });
-      } else if (result.parsedData.length === 0 && result.headers.length === 0 ) {
-           toast({
-              variant: "destructive",
-              title: "No Data Extracted",
-              description: "Could not extract any data or headers from the file. It might be empty or corrupted.",
-          });
-      } else {
-          toast({
-            title: "File Processed Successfully",
-            description: `${result.parsedData.length} rows of data loaded.`,
-          });
-      }
-      onDataParsed(result.parsedData, result.headers);
+          
+          const result = await parseExcelFlow({ excelFileBase64: actualBase64, originalFileName: selectedFile.name });
 
+          if (result.error) {
+            throw new Error(result.error);
+          }
+          
+          if (result.parsedData.length === 0 && result.headers.length > 0) {
+              toast({
+                  variant: "default",
+                  title: "File Contains Only Headers",
+                  description: "The Excel file seems to contain only headers and no data rows.",
+              });
+          } else if (result.parsedData.length === 0 && result.headers.length === 0 ) {
+               toast({
+                  variant: "destructive",
+                  title: "No Data Extracted",
+                  description: "Could not extract any data or headers from the file. It might be empty or corrupted.",
+              });
+          } else {
+              toast({
+                title: "File Processed Successfully",
+                description: `${result.parsedData.length} rows of data loaded.`,
+              });
+          }
+          onDataParsed(result.parsedData, result.headers);
+        } catch (processError) {
+          console.error("Error during server-side processing:", processError);
+          toast({
+            variant: "destructive",
+            title: "Error During Processing",
+            description: processError instanceof Error ? processError.message : "An unknown error occurred on the server.",
+          });
+          onDataParsed([], []);
+        } finally {
+          setIsCurrentlyProcessing(false);
+          onProcessing(false); 
+        }
+      };
+      reader.onerror = (error) => {
+        console.error("Error reading file:", error);
+        toast({
+          variant: "destructive",
+          title: "File Read Error",
+          description: "Could not read the selected file.",
+        });
+        setIsCurrentlyProcessing(false);
+        onProcessing(false);
+        onDataParsed([], []);
+      };
     } catch (error) {
-      console.error("Error during file upload or processing:", error);
+      console.error("Error setting up file read:", error);
       toast({
         variant: "destructive",
-        title: "Error During Upload/Processing",
-        description: error instanceof Error ? error.message : "An unknown error occurred. Please check console for details.",
+        title: "Setup Error",
+        description: "An unexpected error occurred before processing the file.",
       });
-      onDataParsed([], []); 
-    } finally {
       setIsCurrentlyProcessing(false);
-      onProcessing(false); 
+      onProcessing(false);
+      onDataParsed([], []);
     }
   };
 
@@ -197,14 +157,11 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataParsed, onProcessing }) =
         <span className="text-sm text-muted-foreground truncate" style={{maxWidth: '200px'}}>{fileName}</span>
       </div>
        <p id="file-upload-help" className="text-sm text-muted-foreground">
-          Please upload an Excel file (.xlsx or .xls). Max file size: ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.
+          Please upload an Excel file (.xlsx or .xls).
         </p>
-      <Button onClick={handleFileUpload} disabled={!selectedFile || isCurrentlyProcessing || !firebaseApp} className="w-full sm:w-auto">
+      <Button onClick={handleFileUpload} disabled={!selectedFile || isCurrentlyProcessing} className="w-full sm:w-auto">
         <UploadCloud className="mr-2 h-4 w-4" /> Upload and Process
       </Button>
-      {!firebaseApp && (
-        <p className="text-xs text-destructive">Firebase is not configured. File upload is disabled.</p>
-      )}
     </div>
   );
 };
