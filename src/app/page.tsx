@@ -3,7 +3,7 @@
 
 import type React from 'react';
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { Leaf, FileSpreadsheet, AlertCircle, ListChecks, TableIcon, Download, Loader2 } from 'lucide-react';
+import { Leaf, FileSpreadsheet, AlertCircle, ListChecks, TableIcon, Download, Loader2, BarChartHorizontalBig } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,7 +42,7 @@ export default function Home() {
   const [hasAppliedFilters, setHasAppliedFilters] = useState(false); 
 
   const [isLoading, setIsLoading] = useState(false); 
-  const [isFileSelected, setIsFileSelected] = useState(false); // True if a file is selected, but not necessarily parsed by server yet
+  const [isFileSelected, setIsFileSelected] = useState(false); 
 
   const { toast } = useToast();
 
@@ -57,7 +57,7 @@ export default function Home() {
 
 
   const handleFileSelectedCallback = useCallback((base64Content: string, fileName: string) => {
-    setIsLoading(true); // Indicates start of some processing (file reading locally is done by FileUpload)
+    setIsLoading(true); 
     setRawFileBase64(base64Content);
     const cleanFileName = fileName.replace(/\.(xlsx|xls)$/i, '');
     setRawFileName(cleanFileName);
@@ -66,14 +66,14 @@ export default function Home() {
     setAllHeaders([]);
     setFilters([]);
     setHasAppliedFilters(false);
-    setIsFileSelected(true); // Mark file as selected
+    setIsFileSelected(true); 
     setActiveTab("extractedData"); 
 
     toast({
         title: "File Selected",
         description: `"${cleanFileName}" is ready. Configure and apply filters to process and view data.`,
     });
-    setIsLoading(false); // Done with this selection step
+    setIsLoading(false); 
   }, [toast]);
 
 
@@ -86,14 +86,12 @@ export default function Home() {
     setIsLoading(true); 
     
     try {
-        // Parse the file now
         const result = await parseExcelFlow({ excelFileBase64: rawFileBase64, originalFileName: rawFileName });
 
         if (result.error) {
             toast({ variant: "destructive", title: "File Parsing Error", description: result.error });
             setRawData([]);
             setAllHeaders([]);
-            // isFileSelected remains true, user can try applying filters again (which re-parses) or upload new file
             setIsLoading(false);
             return;
         }
@@ -101,7 +99,6 @@ export default function Home() {
         setRawData(result.parsedData);
         setAllHeaders(result.headers);
 
-        // Logic to set default pivots based on headers (moved here from file selection)
         const requiredDefaultPivotCols = [
             ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => col as string),
             ...DEFAULT_IMAGE_PIVOT_SUMMARIES.map(s => s.column)
@@ -179,7 +176,7 @@ export default function Home() {
 
   const year = new Date().getFullYear();
 
-  const renderContentForDataTabs = (isExportTab: boolean) => {
+  const renderContentForDataTabs = (isExportTab: boolean, isComparisonTab: boolean = false) => {
     if (isLoading) {
       return (
         <Card>
@@ -198,22 +195,20 @@ export default function Home() {
       );
     }
 
-    // File is selected, but filters (and thus parsing) haven't been applied by the user yet
     if (isFileSelected && !hasAppliedFilters) {
       return (
         <Card className="flex-1">
           <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
             <FileSpreadsheet className="h-12 w-12 text-primary/50 mb-4" />
             <p>File "<strong>{rawFileName || 'selected file'}</strong>" is selected.</p>
-            <p>Please configure and click "Apply Filters" to process and view the data table.</p>
-            <p className="text-xs mt-2">(Filter options will populate after initial processing via 'Apply Filters'.)</p>
+            <p>Please configure and click "Apply Filters" to process and view the data.</p>
+             {isComparisonTab && <p className="text-xs mt-2">(Comparison tools will be available after processing.)</p>}
+            {!isComparisonTab && <p className="text-xs mt-2">(Filter options will populate after initial processing via 'Apply Filters'.)</p>}
           </CardContent>
         </Card>
       );
     }
     
-    // hasAppliedFilters is true from here AND isFileSelected is true (meaning parsing was attempted/successful)
-
     if (rawData.length === 0 && allHeaders.length > 0) { 
          return (
              <Card className="flex-1">
@@ -226,7 +221,7 @@ export default function Home() {
         );
     }
     
-    if (rawData.length === 0 && allHeaders.length === 0 && hasAppliedFilters) { // Parsed, but no data/headers
+    if (rawData.length === 0 && allHeaders.length === 0 && hasAppliedFilters) { 
          return (
              <Card className="flex-1">
                 <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
@@ -251,6 +246,21 @@ export default function Home() {
         );
     }
     
+    if (isComparisonTab) {
+        return (
+            <Card className="flex-1">
+                <CardHeader>
+                    <CardTitle>Comparison Tools</CardTitle>
+                    <CardDescription>Select datasets or parameters to compare.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-muted-foreground">Comparison functionality will be implemented here.</p>
+                    {/* Placeholder for comparison UI elements */}
+                </CardContent>
+            </Card>
+        );
+    }
+
     if (isExportTab) {
       return (
         <>
@@ -346,7 +356,7 @@ export default function Home() {
           </ScrollArea>
         </>
       );
-    } else {
+    } else { // View Data Tab
       return (
         <div className="flex-1 min-h-0">
           <DataTable data={processedData} columns={currentTableColumns} grandTotalRow={grandTotalRow} />
@@ -367,10 +377,11 @@ export default function Home() {
       </header>
       <div className="px-4 py-2 border-b flex-1 min-h-0 flex flex-col">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full h-full flex flex-col">
-          <TabsList className="bg-muted p-1 rounded-md grid grid-cols-3">
+          <TabsList className="bg-muted p-1 rounded-md grid grid-cols-4">
             <TabsTrigger value="uploadExcel" className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><FileSpreadsheet className="h-4 w-4"/>Upload Excel</TabsTrigger>
             <TabsTrigger value="extractedData" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><TableIcon className="h-4 w-4" />View Data</TabsTrigger>
             <TabsTrigger value="exportSections" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><ListChecks className="h-4 w-4"/>Export by Section</TabsTrigger>
+            <TabsTrigger value="comparison" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><BarChartHorizontalBig className="h-4 w-4"/>Comparison</TabsTrigger>
           </TabsList>
 
           <TabsContent value="uploadExcel" className="mt-2 flex-1 overflow-y-auto">
@@ -423,6 +434,19 @@ export default function Home() {
                     disabled={isLoading || !isFileSelected}
                 />
                 {renderContentForDataTabs(true)}
+              </div>
+          </TabsContent>
+
+          <TabsContent value="comparison" className="mt-2 flex flex-col flex-1 min-h-0">
+             <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
+                 <InteractiveFilters
+                    rawData={rawData}
+                    allHeaders={allHeaders}
+                    appliedFilters={filters}
+                    onApplyFilters={handleApplyFiltersCallback}
+                    disabled={isLoading || !isFileSelected}
+                />
+                {renderContentForDataTabs(false, true)}
               </div>
           </TabsContent>
         </Tabs>
