@@ -20,12 +20,12 @@ import { PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER } from '@/types';
 
 interface DataTableProps {
   data: DietDataRow[];
-  columns: string[]; // These are the currentTableColumns (grouping + summary)
+  columns: string[]; 
   grandTotalRow?: DietDataRow;
   isLoading?: boolean;
   isComparisonMode?: boolean;
   comparisonColumn?: string | null;
-  actualQuantities?: Record<string, string>; // Key: "contentBasedKey_comparisonColumn"
+  actualQuantities?: Record<string, string>; 
   onActualQuantityChange?: (contentBasedKey: string, comparisonColumn: string, value: string) => void;
   groupingColumns?: string[];
 }
@@ -70,15 +70,17 @@ const DataTable: React.FC<DataTableProps> = ({
   }
 
   const effectiveDisplayColumns = useMemo(() => {
+    let colsToDisplay = [...columns];
     if (isComparisonMode && comparisonColumn && columns.includes(comparisonColumn)) {
-      const newColumns = [...columns];
-      const plannedColIndex = newColumns.indexOf(comparisonColumn);
+      const plannedColIndex = colsToDisplay.indexOf(comparisonColumn);
       if (plannedColIndex !== -1) {
-        newColumns.splice(plannedColIndex + 1, 0, `Actual ${comparisonColumn}`, `Difference ${comparisonColumn}`);
+        colsToDisplay.splice(plannedColIndex + 1, 0, `Actual ${comparisonColumn}`, `Difference ${comparisonColumn}`);
       }
-      return newColumns.filter(col => col !== 'note');
     }
-    return columns.filter(col => col !== 'note');
+     // Filter out 'base_uom_name_first' if it exists, as its data is merged.
+    // This is more of a safeguard; it should ideally be filtered out in useTableProcessor.
+    colsToDisplay = colsToDisplay.filter(col => col !== 'note' && col !== 'base_uom_name_first');
+    return colsToDisplay;
   }, [columns, isComparisonMode, comparisonColumn]);
 
   if (!data.length && !grandTotalRow && !isComparisonMode) {
@@ -104,22 +106,26 @@ const DataTable: React.FC<DataTableProps> = ({
         <TableCaption>Dietary Data Overview {isComparisonMode ? "(Comparison Mode)" : ""}</TableCaption>
         <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
           <TableRow>
-            {effectiveDisplayColumns.map((column) => (
-              <TableHead key={column} className="font-semibold whitespace-nowrap">{column.replace(/_/g, ' ')}</TableHead>
-            ))}
+            {effectiveDisplayColumns.map((column) => {
+              let headerText = column.replace(/_/g, ' ');
+              if (column.startsWith('total_animal_')) {
+                 headerText = 'Total Animal';
+              }
+              // Capitalize first letter of each word
+              headerText = headerText.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+              
+              return (<TableHead key={column} className="font-semibold whitespace-nowrap">{headerText}</TableHead>);
+            })}
           </TableRow>
         </TableHeader>
         <TableBody>
           {data.map((row, rowIndex) => {
-            // Semantic key based on row content (used for actualQuantities)
-            const contentBasedKey = isComparisonMode ? generateRowKey(row, columns) : `row_content_${rowIndex}`;
-
-            // React key for the TableRow element (must be unique in the map)
+            const contentBasedKey = generateRowKey(row, columns); 
             const tableRowReactKey = `${contentBasedKey}_react_map_${rowIndex}`;
 
             return (
               <TableRow
-                  key={tableRowReactKey} // Use this for React's key
+                  key={tableRowReactKey}
                   className={row.note === PIVOT_SUBTOTAL_MARKER ? "bg-secondary/70 font-semibold" : ""}
                   data-testid={`data-row-${rowIndex}`}
               >
@@ -128,20 +134,21 @@ const DataTable: React.FC<DataTableProps> = ({
                   const originalColumnName = column.startsWith("Actual ") ? column.substring(7) : (column.startsWith("Difference ") ? column.substring(11) : column);
 
                   if (isComparisonMode && comparisonColumn && column === `Actual ${comparisonColumn}`) {
-                    const actualKey = `${contentBasedKey}_${comparisonColumn}`; // Use contentBasedKey here
+                    const actualKey = `${contentBasedKey}_${comparisonColumn}`;
                     cellContent = (
                       <Input
                         type="number"
                         value={actualQuantities[actualKey] || ''}
-                        onChange={(e) => onActualQuantityChange?.(contentBasedKey, comparisonColumn, e.target.value)} // Use contentBasedKey here
+                        onChange={(e) => onActualQuantityChange?.(contentBasedKey, comparisonColumn, e.target.value)}
                         className="h-8 text-right w-24"
                         placeholder="Actual"
                         disabled={row.note === PIVOT_SUBTOTAL_MARKER}
                       />
                     );
                   } else if (isComparisonMode && comparisonColumn && column === `Difference ${comparisonColumn}`) {
-                    const plannedValue = parseFloat(String(row[comparisonColumn] ?? '0'));
-                    const actualValueStr = actualQuantities[`${contentBasedKey}_${comparisonColumn}`] || ''; // Use contentBasedKey here
+                    const plannedValueStr = String(row[comparisonColumn] ?? '0');
+                    const plannedValue = parseFloat(plannedValueStr); // Handles "69 Piece" -> 69
+                    const actualValueStr = actualQuantities[`${contentBasedKey}_${comparisonColumn}`] || '';
                     const actualValue = parseFloat(actualValueStr);
                     let difference: string | number = '';
                     let differenceStyle: React.CSSProperties = {};
@@ -158,8 +165,11 @@ const DataTable: React.FC<DataTableProps> = ({
                     if (cellValue === PIVOT_BLANK_MARKER) {
                       cellContent = '';
                     } else if (typeof cellValue === 'number') {
+                      // For non-comparison mode, ingredient_qty_sum might be a string like "69 Piece"
+                      // This part handles other numeric columns or comparison mode planned values if they are numbers
                       cellContent = Number.isInteger(cellValue) ? String(cellValue) : cellValue.toFixed(2);
                     } else {
+                      // This will display "69 Piece" as is for non-comparison mode ingredient_qty_sum
                       cellContent = (cellValue === undefined || cellValue === null ? '' : String(cellValue));
                     }
                   }
@@ -194,7 +204,7 @@ const DataTable: React.FC<DataTableProps> = ({
                     let hasActuals = false;
                     data.forEach(dRow => {
                         if (dRow.note !== PIVOT_SUBTOTAL_MARKER) {
-                            const rowContentKey = generateRowKey(dRow, columns); // Use semantic key for matching
+                            const rowContentKey = generateRowKey(dRow, columns);
                             const actualValStr = actualQuantities[`${rowContentKey}_${comparisonColumn}`];
                             if (actualValStr !== undefined && actualValStr !== '') {
                                 const actualValNum = parseFloat(actualValStr);
@@ -207,12 +217,13 @@ const DataTable: React.FC<DataTableProps> = ({
                     });
                     displayCellValue = hasActuals ? parseFloat(totalActual.toFixed(4)).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : "";
                 } else if (isComparisonMode && comparisonColumn && column === `Difference ${comparisonColumn}`) {
-                    const plannedTotal = parseFloat(String(grandTotalRow[comparisonColumn] ?? '0'));
+                    const plannedTotalStr = String(grandTotalRow[comparisonColumn] ?? '0'); // Might be string like "69 Piece" from comparisonEffect
+                    const plannedTotal = parseFloat(plannedTotalStr); // parseFloat handles "69 Piece" correctly
                     let actualTotal = 0;
                     let hasActualsForDiff = false;
                      data.forEach(dRow => {
                          if (dRow.note !== PIVOT_SUBTOTAL_MARKER) {
-                            const rowContentKey = generateRowKey(dRow, columns); // Use semantic key for matching
+                            const rowContentKey = generateRowKey(dRow, columns);
                             const actualValStr = actualQuantities[`${rowContentKey}_${comparisonColumn}`];
                             if (actualValStr !== undefined && actualValStr !== '') {
                                 const actualValNum = parseFloat(actualValStr);
@@ -243,7 +254,8 @@ const DataTable: React.FC<DataTableProps> = ({
                          }
                     } else if (typeof rawCellValue === 'number') {
                       const numVal = rawCellValue as number;
-                      displayCellValue = Number.isInteger(numVal) ? String(numVal) : numVal.toFixed(2);
+                      // For grand total ingredient_qty_sum, it remains numeric from useTableProcessor
+                      displayCellValue = numVal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
                     } else if (rawCellValue === undefined || rawCellValue === null) {
                        displayCellValue = "";
                     } else {
