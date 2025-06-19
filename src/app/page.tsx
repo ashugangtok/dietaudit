@@ -20,6 +20,7 @@ import {
 } from '@/types';
 import FileUpload from '@/components/FileUpload';
 import DataTable from '@/components/DataTable';
+import ComparisonTable from '@/components/ComparisonTable';
 import InteractiveFilters from '@/components/InteractiveFilters';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import DietWiseLogo from '@/components/DietWiseLogo';
@@ -233,7 +234,7 @@ export default function Home() {
         );
     }
 
-    if (processedData.length === 0 && rawData.length > 0 && hasAppliedFilters ) { 
+    if (processedData.length === 0 && rawData.length > 0 && hasAppliedFilters && !isComparisonTab ) { 
        return (
           <Card className="flex-1">
             <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
@@ -245,19 +246,25 @@ export default function Home() {
           </Card>
         );
     }
+     if (filteredData.length === 0 && rawData.length > 0 && hasAppliedFilters && isComparisonTab) {
+        return (
+          <Card className="flex-1">
+            <CardHeader>
+                <CardTitle>Comparison - No Data Matches Filters</CardTitle>
+                <CardDescription>Adjust your filters to see data for comparison.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
+                <AlertCircle className="h-12 w-12 text-destructive/50 mb-4" />
+              <p>Your filter selection for "<strong>{rawFileName}</strong>" resulted in no data to compare.</p>
+              <p>Please try adjusting your filters.</p>
+            </CardContent>
+          </Card>
+        );
+    }
     
     if (isComparisonTab) {
         return (
-            <Card className="flex-1">
-                <CardHeader>
-                    <CardTitle>Comparison Tools</CardTitle>
-                    <CardDescription>Select datasets or parameters to compare.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <p className="text-muted-foreground">Comparison functionality will be implemented here.</p>
-                    {/* Placeholder for comparison UI elements */}
-                </CardContent>
-            </Card>
+            <ComparisonTable filteredData={filteredData} allHeaders={allHeaders} />
         );
     }
 
