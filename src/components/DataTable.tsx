@@ -25,43 +25,40 @@ interface DataTableProps {
   isLoading?: boolean;
   isComparisonMode?: boolean;
   comparisonColumn?: string | null;
-  actualQuantities?: Record<string, string>; // Key: "rowKey_columnKey"
-  onActualQuantityChange?: (rowKey: string, columnKey: string, value: string) => void;
-  groupingColumns?: string[]; // Still needed for subtotal styling and context
+  actualQuantities?: Record<string, string>; // Key: "contentBasedKey_comparisonColumn"
+  onActualQuantityChange?: (contentBasedKey: string, comparisonColumn: string, value: string) => void;
+  groupingColumns?: string[];
 }
 
-// Updated generateRowKey function: uses all relevant columns that define the row's uniqueness.
 const generateRowKey = (row: DietDataRow, allRelevantColumns: string[]): string => {
   const keyValues: string[] = [];
   for (const col of allRelevantColumns) {
-    // These columns are dynamically added for comparison UI and are not part of the base row identity.
-    // 'note' is also metadata.
     if (col.startsWith("Actual ") || col.startsWith("Difference ") || col === 'note') {
       continue;
     }
     const val = row[col];
     if (val === PIVOT_BLANK_MARKER) {
-      keyValues.push(PIVOT_BLANK_MARKER); // The marker itself is a unique string
+      keyValues.push(PIVOT_BLANK_MARKER);
     } else if (val === undefined || val === null) {
-      keyValues.push("___NULL_OR_UNDEFINED___"); // A unique placeholder for actual null/undefined
+      keyValues.push("___NULL_OR_UNDEFINED___");
     } else {
-      keyValues.push(String(val)); // For numbers, strings (including empty string), booleans
+      keyValues.push(String(val));
     }
   }
   return keyValues.join('||');
 };
 
 
-const DataTable: React.FC<DataTableProps> = ({ 
-  data, 
-  columns, // This is currentTableColumns from page.tsx
-  grandTotalRow, 
+const DataTable: React.FC<DataTableProps> = ({
+  data,
+  columns,
+  grandTotalRow,
   isLoading,
   isComparisonMode = false,
   comparisonColumn,
   actualQuantities = {},
   onActualQuantityChange,
-  groupingColumns = [] // Retained for potential other uses, e.g., subtotal logic if it were more complex
+  groupingColumns = []
 }) => {
   if (isLoading) {
     return (
@@ -98,8 +95,8 @@ const DataTable: React.FC<DataTableProps> = ({
       </div>
     );
   }
-  
-  const dietNameColumnKey = 'diet_name'; 
+
+  const dietNameColumnKey = 'diet_name';
 
   return (
     <ScrollArea className="whitespace-nowrap rounded-md border h-full">
@@ -114,25 +111,29 @@ const DataTable: React.FC<DataTableProps> = ({
         </TableHeader>
         <TableBody>
           {data.map((row, rowIndex) => {
-            // Use 'columns' (currentTableColumns) for generating the key
-            const rowKey = isComparisonMode ? generateRowKey(row, columns) : String(rowIndex);
+            // Semantic key based on row content (used for actualQuantities)
+            const contentBasedKey = isComparisonMode ? generateRowKey(row, columns) : `row_content_${rowIndex}`;
+
+            // React key for the TableRow element (must be unique in the map)
+            const tableRowReactKey = `${contentBasedKey}_react_map_${rowIndex}`;
+
             return (
-              <TableRow 
-                  key={rowKey} 
+              <TableRow
+                  key={tableRowReactKey} // Use this for React's key
                   className={row.note === PIVOT_SUBTOTAL_MARKER ? "bg-secondary/70 font-semibold" : ""}
                   data-testid={`data-row-${rowIndex}`}
               >
                 {effectiveDisplayColumns.map((column) => {
                   let cellContent: React.ReactNode;
                   const originalColumnName = column.startsWith("Actual ") ? column.substring(7) : (column.startsWith("Difference ") ? column.substring(11) : column);
-                  
+
                   if (isComparisonMode && comparisonColumn && column === `Actual ${comparisonColumn}`) {
-                    const actualKey = `${rowKey}_${comparisonColumn}`;
+                    const actualKey = `${contentBasedKey}_${comparisonColumn}`; // Use contentBasedKey here
                     cellContent = (
                       <Input
                         type="number"
                         value={actualQuantities[actualKey] || ''}
-                        onChange={(e) => onActualQuantityChange?.(rowKey, comparisonColumn, e.target.value)}
+                        onChange={(e) => onActualQuantityChange?.(contentBasedKey, comparisonColumn, e.target.value)} // Use contentBasedKey here
                         className="h-8 text-right w-24"
                         placeholder="Actual"
                         disabled={row.note === PIVOT_SUBTOTAL_MARKER}
@@ -140,7 +141,7 @@ const DataTable: React.FC<DataTableProps> = ({
                     );
                   } else if (isComparisonMode && comparisonColumn && column === `Difference ${comparisonColumn}`) {
                     const plannedValue = parseFloat(String(row[comparisonColumn] ?? '0'));
-                    const actualValueStr = actualQuantities[`${rowKey}_${comparisonColumn}`] || '';
+                    const actualValueStr = actualQuantities[`${contentBasedKey}_${comparisonColumn}`] || ''; // Use contentBasedKey here
                     const actualValue = parseFloat(actualValueStr);
                     let difference: string | number = '';
                     let differenceStyle: React.CSSProperties = {};
@@ -162,7 +163,7 @@ const DataTable: React.FC<DataTableProps> = ({
                       cellContent = (cellValue === undefined || cellValue === null ? '' : String(cellValue));
                     }
                   }
-                  
+
                   if (originalColumnName === dietNameColumnKey && typeof cellContent === 'string' && cellContent.includes('\n')) {
                     return (
                       <TableCell key={column} className="whitespace-nowrap">
@@ -193,9 +194,8 @@ const DataTable: React.FC<DataTableProps> = ({
                     let hasActuals = false;
                     data.forEach(dRow => {
                         if (dRow.note !== PIVOT_SUBTOTAL_MARKER) {
-                            // Use 'columns' (currentTableColumns) for generating the key here as well
-                            const rKey = generateRowKey(dRow, columns);
-                            const actualValStr = actualQuantities[`${rKey}_${comparisonColumn}`];
+                            const rowContentKey = generateRowKey(dRow, columns); // Use semantic key for matching
+                            const actualValStr = actualQuantities[`${rowContentKey}_${comparisonColumn}`];
                             if (actualValStr !== undefined && actualValStr !== '') {
                                 const actualValNum = parseFloat(actualValStr);
                                 if (!isNaN(actualValNum)) {
@@ -212,9 +212,8 @@ const DataTable: React.FC<DataTableProps> = ({
                     let hasActualsForDiff = false;
                      data.forEach(dRow => {
                          if (dRow.note !== PIVOT_SUBTOTAL_MARKER) {
-                            // Use 'columns' (currentTableColumns) for generating the key here as well
-                            const rKey = generateRowKey(dRow, columns);
-                            const actualValStr = actualQuantities[`${rKey}_${comparisonColumn}`];
+                            const rowContentKey = generateRowKey(dRow, columns); // Use semantic key for matching
+                            const actualValStr = actualQuantities[`${rowContentKey}_${comparisonColumn}`];
                             if (actualValStr !== undefined && actualValStr !== '') {
                                 const actualValNum = parseFloat(actualValStr);
                                 if (!isNaN(actualValNum)) {
@@ -240,7 +239,7 @@ const DataTable: React.FC<DataTableProps> = ({
                          } else if (grandTotalRow.note === "Grand Total" && (rawCellValue === undefined || rawCellValue === PIVOT_BLANK_MARKER || rawCellValue === null)){
                              displayCellValue = "Grand Total";
                          } else {
-                             displayCellValue = String(rawCellValue ?? ''); 
+                             displayCellValue = String(rawCellValue ?? '');
                          }
                     } else if (typeof rawCellValue === 'number') {
                       const numVal = rawCellValue as number;
