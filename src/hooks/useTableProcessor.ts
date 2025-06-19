@@ -75,10 +75,6 @@ export function calculateProcessedTableData(
               return minCheck && maxCheck;
             }
             return true;
-          // Time of Day filter logic removed as UI is removed.
-          // case 'timeOfDay':
-          //   // ...
-          //   return true;
           default:
             return true;
         }
@@ -204,6 +200,8 @@ export function calculateProcessedTableData(
       return { data: dataToProcess, dynamicColumns, grandTotalRow };
     }
 
+
+    // Default pivot mode (not special UOM)
     const groupingColNames = groupingsToApply.map(g => g.column);
     const summaryColDetails = summariesToApply.map(s => ({
         name: `${s.column}_${s.type}`, 
@@ -223,6 +221,30 @@ export function calculateProcessedTableData(
         });
 
         const result: DietDataRow[] = [];
+        
+        const dietNameColumnKey = 'diet_name';
+        const commonNameColumnKey = 'common_name';
+        const dietNameGroupIndex = groupingColNames.indexOf(dietNameColumnKey);
+        const speciesPerDietContext = new Map<string, Set<string>>();
+
+        // Pre-calculate species counts only if diet_name is a grouping col and common_name exists
+        if (dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey)) {
+            internalFilteredDataResult.forEach(rawRow => {
+                let contextKey = '';
+                // Create a key from all grouping columns up to AND INCLUDING diet_name
+                for (let i = 0; i <= dietNameGroupIndex; i++) {
+                    contextKey += (getColumnValueInternal(rawRow, groupingColNames[i]) || '') + '||';
+                }
+                const speciesName = getColumnValueInternal(rawRow, commonNameColumnKey);
+                if (typeof speciesName === 'string' && speciesName.trim() !== '') {
+                    if (!speciesPerDietContext.has(contextKey)) {
+                        speciesPerDietContext.set(contextKey, new Set());
+                    }
+                    speciesPerDietContext.get(contextKey)!.add(speciesName.trim());
+                }
+            });
+        }
+        
         grouped.forEach((groupRows) => {
             const representativeRow: DietDataRow = {};
             const firstRowInGroup = groupRows[0];
@@ -230,6 +252,26 @@ export function calculateProcessedTableData(
             groupingColNames.forEach(gCol => {
                 representativeRow[gCol] = getColumnValueInternal(firstRowInGroup, gCol);
             });
+
+            // Modify diet_name if applicable to include species count
+            if (dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey)) {
+                let representativeDietContextKey = '';
+                 // Use value from representativeRow (which is from firstRowInGroup for these grouping cols)
+                for (let i = 0; i <= dietNameGroupIndex; i++) {
+                    representativeDietContextKey += (representativeRow[groupingColNames[i]] || '') + '||';
+                }
+                
+                const speciesSet = speciesPerDietContext.get(representativeDietContextKey);
+                const speciesCount = speciesSet ? speciesSet.size : 0;
+                
+                const originalDietName = representativeRow[dietNameColumnKey];
+                if (speciesCount > 0 && 
+                    originalDietName !== undefined && 
+                    originalDietName !== PIVOT_BLANK_MARKER && 
+                    String(originalDietName).trim() !== '') {
+                    representativeRow[dietNameColumnKey] = `${originalDietName} (${speciesCount} Species)`;
+                }
+            }
 
             summaryColDetails.forEach(summary => {
                 const values = groupRows.map(row => getColumnValueInternal(row, summary.originalColumn));
@@ -303,13 +345,13 @@ export function calculateProcessedTableData(
                 for (let i = 0; i < groupingColNames.length; i++) {
                     const gCol = groupingColNames[i];
                     
-                    const currentValue = getColumnValueInternal(newRow, gCol);
+                    const currentValue = getColumnValueInternal(newRow, gCol); // Use newRow to get potentially modified diet_name
                     if (rowIndex > 0 && !resetSubsequentKeys && currentValue === lastKeyValues[i] && gCol !== 'ingredient_name') { 
                         newRow[gCol] = PIVOT_BLANK_MARKER;
                     } else {
-                        newRow[gCol] = currentValue; 
-                        lastKeyValues[i] = currentValue;
-                        if (currentValue !== lastKeyValues[i] || i ===0 ) { // If this key changed or it's the first key
+                        // newRow[gCol] = currentValue; // This is already set or modified
+                        lastKeyValues[i] = currentValue; // Store the actual value (possibly modified) for future comparisons
+                        if (currentValue !== lastKeyValues[i] || i ===0 ) { 
                            resetSubsequentKeys = true; 
                            for (let j = i + 1; j < groupingColNames.length; j++) {
                                lastKeyValues[j] = undefined; 
@@ -317,9 +359,68 @@ export function calculateProcessedTableData(
                         }
                     }
                 }
+                // Update lastKeyValues with all current (potentially modified and non-blanked) values from newRow for the next iteration.
+                // This must happen AFTER blanking decisions for the current row.
+                for (let i = 0; i < groupingColNames.length; i++) {
+                    // If newRow[gCol] was NOT blanked, it's the new lastKeyValues[i].
+                    // If it WAS blanked, the previous lastKeyValues[i] (from a non-blanked row) should persist for comparison.
+                    // This logic is tricky. The existing blanking logic:
+                    // lastKeyValues stores the *actual non-blanked value* from the *previous significant row*.
+                    // The 'currentValue' is the actual value from the current row before any blanking attempt.
+                    // If 'currentValue' matches 'lastKeyValues[i]', then blank newRow[gCol].
+                    // If it doesn't match, newRow[gCol] keeps 'currentValue', and 'lastKeyValues[i]' becomes 'currentValue'.
+                    
+                    // The previous blanking logic was:
+                    // lastKeyValues = rowKeyColumns.map(col => row[col]); // for rowIndex === 0
+                    // ...
+                    // if (sameAsLast && currentRowKeyValues[i] === lastRowKeyValues[i]) {
+                    //      newRow[rowKeyColumns[i]] = PIVOT_BLANK_MARKER;
+                    // } else {
+                    //      sameAsLast = false;
+                    // }
+                    // lastRowKeyValues = currentRowKeyValues; // This was the key for correct blanking context
+
+                    // Corrected blanking logic for current context:
+                    // (The loop for blanking should re-evaluate lastKeyValues based on *non-blanked* values)
+                }
+                return newRow;
+            });
+
+            // Refined Blanking Logic (applied after sorting and species count modification)
+            let lastActualKeyValues: (string | number | undefined)[] = new Array(groupingColNames.length).fill(undefined);
+            const tempProcessedData = [...dataToProcess]; // Operate on a copy for this step
+
+            dataToProcess = tempProcessedData.map((row, rowIndex) => {
+                const newRow = { ...row };
+                if (rowIndex === 0) {
+                    groupingColNames.forEach((gCol, i) => {
+                        lastActualKeyValues[i] = newRow[gCol]; // newRow[gCol] has the modified diet name
+                    });
+                    return newRow;
+                }
+
+                let baseGroupChanged = false;
+                for (let i = 0; i < groupingColNames.length; i++) {
+                    const gCol = groupingColNames[i];
+                    const currentValue = newRow[gCol]; // This is the potentially modified diet_name
+
+                    if (baseGroupChanged) { // If a higher-level group changed, this and subsequent are displayed
+                        lastActualKeyValues[i] = currentValue;
+                        continue; 
+                    }
+
+                    if (currentValue === lastActualKeyValues[i] && gCol !== 'ingredient_name') {
+                        newRow[gCol] = PIVOT_BLANK_MARKER;
+                    } else {
+                        lastActualKeyValues[i] = currentValue;
+                        baseGroupChanged = true; // This group col changed, so subsequent ones should not be blanked based on old parent.
+                    }
+                }
                 return newRow;
             });
         }
+
+
     } else if (summariesToApply.length > 0 && internalFilteredDataResult.length > 0) {
         const summaryRow: DietDataRow = { note: "Overall Summary" };
         summaryColDetails.forEach(summary => {
@@ -407,9 +508,15 @@ export function calculateProcessedTableData(
     dynamicColumns = dynamicColumns.filter(col => col !== 'note');
     if (grandTotalRow && !Object.keys(grandTotalRow).some(k => k !== 'note' && grandTotalRow[k] === 'Grand Total')) {
         const firstColForGT = dynamicColumns.length > 0 ? dynamicColumns[0] : (groupingColNames.length > 0 ? groupingColNames[0] : (summaryColNames.length > 0 ? summaryColNames[0] : undefined));
-        if (firstColForGT) {
-            const gtValue = grandTotalRow[firstColForGT];
-            grandTotalRow[firstColForGT] = 'Grand Total' + ((gtValue !== undefined && gtValue !== PIVOT_BLANK_MARKER && String(gtValue).trim() !== '') ? ` (${gtValue})` : '');
+        if (firstColForGT && grandTotalRow[firstColForGT] !== PIVOT_BLANK_MARKER) { // Check if it's not already a blank marker
+             const gtValue = grandTotalRow[firstColForGT];
+             // Ensure it's not already labeled "Grand Total" from a summary-only view
+             if (!String(gtValue).toLowerCase().startsWith("grand total")) {
+                grandTotalRow[firstColForGT] = 'Grand Total' + ((gtValue !== undefined && gtValue !== PIVOT_BLANK_MARKER && String(gtValue).trim() !== '') ? ` (${gtValue})` : '');
+             }
+        } else if (firstColForGT && grandTotalRow[firstColForGT] === PIVOT_BLANK_MARKER && groupingColNames.length === 0) {
+            // If it's a summary-only view and the first column was blanked, still show "Grand Total"
+             grandTotalRow[firstColForGT] = "Grand Total";
         }
     }
 
@@ -438,3 +545,4 @@ export function useTableProcessor({
         return calculateProcessedTableData(rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters);
     }, [rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters]);
 }
+
