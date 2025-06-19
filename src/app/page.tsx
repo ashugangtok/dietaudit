@@ -114,7 +114,7 @@ export default function Home() {
           const val = sRow[k];
           return (val === undefined || val === null || String(val).trim() === '') ? EMPTY_KEY_PART : String(val).trim().toLowerCase();
         });
-        if (keyParts.every(part => part !== EMPTY_KEY_PART)) { // Only proceed if all key parts are present
+        if (keyParts.every(part => part !== EMPTY_KEY_PART)) { 
             const key = keyParts.join('||');
             const count = parseFloat(String(sRow['actual_animal_count'] ?? '0'));
             if (!isNaN(count)) {
@@ -149,13 +149,13 @@ export default function Home() {
     const dataWithUOMAppended = baseDataForComparison.map(row => {
         const newRow = { ...row }; 
         const uomColKey = 'base_uom_name_first'; 
-        const ingredientSumColKey = tempComparisonTableCols.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
+        const ingredientQtySumColKey = tempComparisonTableCols.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
         
-        if (ingredientSumColKey && typeof newRow[ingredientSumColKey] === 'number' && 
+        if (ingredientQtySumColKey && typeof newRow[ingredientQtySumColKey] === 'number' && 
             newRow[uomColKey] && typeof newRow[uomColKey] === 'string' && String(newRow[uomColKey]).trim() !== '') {
-            const qty = newRow[ingredientSumColKey] as number;
+            const qty = newRow[ingredientQtySumColKey] as number;
             const uom = String(newRow[uomColKey]).trim();
-            newRow[ingredientSumColKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom}`;
+            newRow[ingredientQtySumColKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom}`;
         }
         return newRow;
     });
@@ -175,7 +175,7 @@ export default function Home() {
       
       const ingredientSumKeyGT = tempComparisonTableCols.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
       if (ingredientSumKeyGT && grandTotalRow[ingredientSumKeyGT] !== undefined && typeof grandTotalRow[ingredientSumKeyGT] === 'number') {
-        newGrandTotal[ingredientSumKeyGT] = grandTotalRow[ingredientSumKeyGT]; // Keep as number for sum
+        newGrandTotal[ingredientSumKeyGT] = grandTotalRow[ingredientSumKeyGT]; 
       }
 
       setGrandTotalForComparisonTable(newGrandTotal);
@@ -353,20 +353,19 @@ export default function Home() {
         
         const dataForPdf = dataForComparisonTable.map(row => {
             const pdfRow = { ...row };
-            // IMPORTANT: Use `currentTableColumns` for generating the key, as these are the original columns
-            // of the pivot table before comparison-specific display formatting (like UoM concatenation).
-            // `dataForComparisonTable` rows' `selectedComparisonColumn` might be a string like "69 KG".
             const rowContentKey = generateRowKeyForPdf(row, currentTableColumns); 
 
-            // For planned value, we need to parse it back from the potentially formatted string in dataForComparisonTable
             let plannedValueNum: number | undefined;
-            const plannedValueFromTable = row[selectedComparisonColumn!];
+            const plannedValueFromTable = row[selectedComparisonColumn!]; // This is "Qty UOM" string
             if (typeof plannedValueFromTable === 'string') {
-                plannedValueNum = parseFloat(plannedValueFromTable); // "69 KG" -> 69
-            } else if (typeof plannedValueFromTable === 'number') {
+                plannedValueNum = parseFloat(plannedValueFromTable); 
+            } else if (typeof plannedValueFromTable === 'number') { // Should not happen for comparison tab display
                 plannedValueNum = plannedValueFromTable;
             }
             plannedValueNum = isNaN(plannedValueNum!) ? 0 : plannedValueNum;
+            // For PDF, we want the planned value to be the formatted string "Qty UOM"
+            pdfRow[selectedComparisonColumn!] = String(plannedValueFromTable ?? '');
+
 
             const actualValueStr = actualComparisonQuantities[`${rowContentKey}_${selectedComparisonColumn!}`] || '';
             const actualValueNum = parseFloat(actualValueStr);
@@ -393,11 +392,20 @@ export default function Home() {
             grandTotalForPdf = { ...grandTotalForComparisonTable };
             
             let plannedTotalNum: number | undefined;
-            const plannedTotalFromGt = grandTotalForComparisonTable[selectedComparisonColumn!];
-             if (typeof plannedTotalFromGt === 'string') { // Should be a number from effect hook
-                plannedTotalNum = parseFloat(plannedTotalFromGt);
-            } else if (typeof plannedTotalFromGt === 'number') {
+            // grandTotalForComparisonTable[selectedComparisonColumn!] is numeric for comparison GT
+            const plannedTotalFromGt = grandTotalForComparisonTable[selectedComparisonColumn!]; 
+             if (typeof plannedTotalFromGt === 'number') {
                 plannedTotalNum = plannedTotalFromGt;
+                // For PDF display, format grand total planned Qty with UoM if possible
+                const uomForGrandTotal = String(grandTotalForComparisonTable['base_uom_name_first'] || '').trim();
+                if (uomForGrandTotal) {
+                    grandTotalForPdf[selectedComparisonColumn!] = `${plannedTotalNum.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uomForGrandTotal}`;
+                } else {
+                    grandTotalForPdf[selectedComparisonColumn!] = plannedTotalNum.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4});
+                }
+            } else { // Should be number, but fallback
+                plannedTotalNum = parseFloat(String(plannedTotalFromGt));
+                grandTotalForPdf[selectedComparisonColumn!] = String(plannedTotalFromGt ?? '');
             }
             plannedTotalNum = isNaN(plannedTotalNum!) ? 0 : plannedTotalNum;
 
@@ -434,14 +442,43 @@ export default function Home() {
         return;
     }
 
-    // Existing logic for "Export by Section" tab
-    const dataToExport = processedData;
+    // View Data & Export by Section Tabs PDF
+    const dataToExport = processedData; // This is the original processedData from useTableProcessor
     const columnsToExport = currentTableColumns;
     const grandTotalToExport = grandTotalRow;
     const titleSuffix = "Full Diet Report";
 
     if (dataToExport.length > 0 && columnsToExport.length > 0 && hasAppliedFilters) {
-      exportToPdf(dataToExport, columnsToExport, `${titleSuffix} - ${rawFileName}`, `${rawFileName}_full_report`, grandTotalToExport);
+      const ingredientQtySumKey = columnsToExport.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
+      const baseUomNameFirstKey = 'base_uom_name_first';
+
+      const pdfReadyData = dataToExport.map(row => {
+          const newRow = { ...row };
+          if (ingredientQtySumKey && typeof newRow[ingredientQtySumKey] === 'number' && 
+              newRow[baseUomNameFirstKey] && typeof newRow[baseUomNameFirstKey] === 'string' && 
+              String(newRow[baseUomNameFirstKey]).trim() !== '') {
+              const qty = newRow[ingredientQtySumKey] as number;
+              const uom = String(newRow[baseUomNameFirstKey]).trim();
+              newRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uom}`;
+          }
+          delete newRow[baseUomNameFirstKey]; // Remove UoM column if it was part of row data
+          return newRow;
+      });
+      
+      let pdfReadyGrandTotal: DietDataRow | undefined = undefined;
+      if (grandTotalToExport) {
+          pdfReadyGrandTotal = { ...grandTotalToExport };
+          if (ingredientQtySumKey && typeof pdfReadyGrandTotal[ingredientQtySumKey] === 'number' &&
+              pdfReadyGrandTotal[baseUomNameFirstKey] && typeof pdfReadyGrandTotal[baseUomNameFirstKey] === 'string' &&
+              String(pdfReadyGrandTotal[baseUomNameFirstKey]).trim() !== '') {
+                const qty = pdfReadyGrandTotal[ingredientQtySumKey] as number;
+                const uom = String(pdfReadyGrandTotal[baseUomNameFirstKey]).trim();
+                pdfReadyGrandTotal[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uom}`;
+          }
+          delete pdfReadyGrandTotal[baseUomNameFirstKey];
+      }
+
+      exportToPdf(pdfReadyData, columnsToExport, `${titleSuffix} - ${rawFileName}`, `${rawFileName}_full_report`, pdfReadyGrandTotal);
       toast({ title: "PDF Download Started", description: `Your Full Diet report PDF is being generated.` });
     } else {
       toast({ variant: "destructive", title: "No Data", description: "No data available to export. Apply filters to view data first." });
@@ -451,7 +488,36 @@ export default function Home() {
 
   const handleDownloadSectionPdf = (sectionName: string, sectionTableData: ProcessedTableData) => {
      if (sectionTableData.processedData.length > 0 && sectionTableData.columns.length > 0 && hasAppliedFilters) {
-      exportToPdf(sectionTableData.processedData, sectionTableData.columns, `Section Report: ${sectionName}`, `${rawFileName}_section_${sectionName.replace(/\s+/g, '_')}`, sectionTableData.grandTotalRow);
+        const ingredientQtySumKey = sectionTableData.columns.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
+        const baseUomNameFirstKey = 'base_uom_name_first'; // Assuming this key exists on rows from calculateProcessedTableData
+
+        const pdfReadySectionData = sectionTableData.processedData.map(row => {
+            const newRow = { ...row };
+            if (ingredientQtySumKey && typeof newRow[ingredientQtySumKey] === 'number' &&
+                newRow[baseUomNameFirstKey] && typeof newRow[baseUomNameFirstKey] === 'string' &&
+                String(newRow[baseUomNameFirstKey]).trim() !== '') {
+                const qty = newRow[ingredientQtySumKey] as number;
+                const uom = String(newRow[baseUomNameFirstKey]).trim();
+                newRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uom}`;
+            }
+            delete newRow[baseUomNameFirstKey];
+            return newRow;
+        });
+
+        let pdfReadySectionGrandTotal: DietDataRow | undefined = undefined;
+        if (sectionTableData.grandTotalRow) {
+            pdfReadySectionGrandTotal = { ...sectionTableData.grandTotalRow };
+             if (ingredientQtySumKey && typeof pdfReadySectionGrandTotal[ingredientQtySumKey] === 'number' &&
+                pdfReadySectionGrandTotal[baseUomNameFirstKey] && typeof pdfReadySectionGrandTotal[baseUomNameFirstKey] === 'string' &&
+                String(pdfReadySectionGrandTotal[baseUomNameFirstKey]).trim() !== '') {
+                  const qty = pdfReadySectionGrandTotal[ingredientQtySumKey] as number;
+                  const uom = String(pdfReadySectionGrandTotal[baseUomNameFirstKey]).trim();
+                  pdfReadySectionGrandTotal[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uom}`;
+            }
+            delete pdfReadySectionGrandTotal[baseUomNameFirstKey];
+        }
+
+      exportToPdf(pdfReadySectionData, sectionTableData.columns, `Section Report: ${sectionName}`, `${rawFileName}_section_${sectionName.replace(/\s+/g, '_')}`, pdfReadySectionGrandTotal);
       toast({ title: "PDF Download Started", description: `PDF for section ${sectionName} is being generated.` });
     } else {
       toast({ variant: "destructive", title: "No Data", description: `No data available to export for section ${sectionName}. Ensure filters are applied.` });
@@ -756,10 +822,10 @@ export default function Home() {
             columns={currentDisplayColumns} 
             grandTotalRow={currentGrandTotal} 
             groupingColumns={groupings.map(g => g.column)}
-            isComparisonMode={isComparisonTab && !!selectedComparisonColumn}
-            comparisonColumn={isComparisonTab ? selectedComparisonColumn : null}
-            actualQuantities={isComparisonTab ? actualComparisonQuantities : {}}
-            onActualQuantityChange={isComparisonTab ? handleActualQuantityChange : undefined}
+            isComparisonMode={isComparisonTab && !!selectedComparisonColumn} // False for View Data tab
+            comparisonColumn={null} // Not applicable
+            actualQuantities={{}} // Not applicable
+            onActualQuantityChange={undefined} // Not applicable
           />
         </div>
       );
@@ -869,5 +935,6 @@ export default function Home() {
 
 
     
+
 
 

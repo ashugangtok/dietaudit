@@ -77,8 +77,6 @@ const DataTable: React.FC<DataTableProps> = ({
         colsToDisplay.splice(plannedColIndex + 1, 0, `Actual ${comparisonColumn}`, `Difference ${comparisonColumn}`);
       }
     }
-     // Filter out 'base_uom_name_first' if it exists, as its data is merged.
-    // This is more of a safeguard; it should ideally be filtered out in useTableProcessor.
     colsToDisplay = colsToDisplay.filter(col => col !== 'note' && col !== 'base_uom_name_first');
     return colsToDisplay;
   }, [columns, isComparisonMode, comparisonColumn]);
@@ -99,6 +97,9 @@ const DataTable: React.FC<DataTableProps> = ({
   }
 
   const dietNameColumnKey = 'diet_name';
+  const ingredientQtySumKey = columns.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum')) || 'ingredient_qty_sum'; // Fallback
+  const baseUomNameFirstKey = 'base_uom_name_first';
+
 
   return (
     <ScrollArea className="whitespace-nowrap rounded-md border h-full">
@@ -111,7 +112,6 @@ const DataTable: React.FC<DataTableProps> = ({
               if (column.startsWith('total_animal_')) {
                  headerText = 'Total Animal';
               }
-              // Capitalize first letter of each word
               headerText = headerText.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
               
               return (<TableHead key={column} className="font-semibold whitespace-nowrap">{headerText}</TableHead>);
@@ -146,8 +146,8 @@ const DataTable: React.FC<DataTableProps> = ({
                       />
                     );
                   } else if (isComparisonMode && comparisonColumn && column === `Difference ${comparisonColumn}`) {
-                    const plannedValueStr = String(row[comparisonColumn] ?? '0');
-                    const plannedValue = parseFloat(plannedValueStr); // Handles "69 Piece" -> 69
+                    const plannedValueStr = String(row[comparisonColumn] ?? '0'); // Comparison tab value is already formatted "Qty UOM"
+                    const plannedValue = parseFloat(plannedValueStr); 
                     const actualValueStr = actualQuantities[`${contentBasedKey}_${comparisonColumn}`] || '';
                     const actualValue = parseFloat(actualValueStr);
                     let difference: string | number = '';
@@ -164,12 +164,17 @@ const DataTable: React.FC<DataTableProps> = ({
                     const cellValue = row[originalColumnName];
                     if (cellValue === PIVOT_BLANK_MARKER) {
                       cellContent = '';
+                    } else if (!isComparisonMode && originalColumnName === ingredientQtySumKey && typeof cellValue === 'number') {
+                        // For View Data / Export Section tabs: combine numeric qty with UoM from row object
+                        const uom = row[baseUomNameFirstKey];
+                        if (uom && typeof uom === 'string' && uom.trim() !== '') {
+                            cellContent = `${cellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                        } else {
+                            cellContent = cellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
+                        }
                     } else if (typeof cellValue === 'number') {
-                      // For non-comparison mode, ingredient_qty_sum might be a string like "69 Piece"
-                      // This part handles other numeric columns or comparison mode planned values if they are numbers
                       cellContent = Number.isInteger(cellValue) ? String(cellValue) : cellValue.toFixed(2);
                     } else {
-                      // This will display "69 Piece" as is for non-comparison mode ingredient_qty_sum
                       cellContent = (cellValue === undefined || cellValue === null ? '' : String(cellValue));
                     }
                   }
@@ -217,8 +222,9 @@ const DataTable: React.FC<DataTableProps> = ({
                     });
                     displayCellValue = hasActuals ? parseFloat(totalActual.toFixed(4)).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : "";
                 } else if (isComparisonMode && comparisonColumn && column === `Difference ${comparisonColumn}`) {
-                    const plannedTotalStr = String(grandTotalRow[comparisonColumn] ?? '0'); // Might be string like "69 Piece" from comparisonEffect
-                    const plannedTotal = parseFloat(plannedTotalStr); // parseFloat handles "69 Piece" correctly
+                    const plannedTotalFromGt = grandTotalRow[comparisonColumn]; // This is numeric from page.tsx for comparison GT
+                    const plannedTotal = typeof plannedTotalFromGt === 'number' ? plannedTotalFromGt : parseFloat(String(plannedTotalFromGt ?? '0'));
+                    
                     let actualTotal = 0;
                     let hasActualsForDiff = false;
                      data.forEach(dRow => {
@@ -252,9 +258,16 @@ const DataTable: React.FC<DataTableProps> = ({
                          } else {
                              displayCellValue = String(rawCellValue ?? '');
                          }
+                    } else if (!isComparisonMode && originalColumnName === ingredientQtySumKey && typeof rawCellValue === 'number') {
+                        // For View Data / Export Section tabs Grand Total: combine numeric qty with UoM
+                        const uom = grandTotalRow[baseUomNameFirstKey]; // UoM might not be meaningful for GT, but attempt
+                        if (uom && typeof uom === 'string' && uom.trim() !== '') {
+                             displayCellValue = `${rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                        } else {
+                             displayCellValue = rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
+                        }
                     } else if (typeof rawCellValue === 'number') {
                       const numVal = rawCellValue as number;
-                      // For grand total ingredient_qty_sum, it remains numeric from useTableProcessor
                       displayCellValue = numVal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
                     } else if (rawCellValue === undefined || rawCellValue === null) {
                        displayCellValue = "";
@@ -279,3 +292,4 @@ const DataTable: React.FC<DataTableProps> = ({
 };
 
 export default DataTable;
+
