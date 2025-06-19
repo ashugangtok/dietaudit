@@ -225,8 +225,9 @@ export function calculateProcessedTableData(
         const dietNameColumnKey = 'diet_name';
         const commonNameColumnKey = 'common_name';
         const dietNameGroupIndex = groupingColNames.indexOf(dietNameColumnKey);
+        
+        // Pre-calculate species counts for diets
         const speciesPerDietContext = new Map<string, Set<string>>();
-
         if (dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey)) {
             internalFilteredDataResult.forEach(rawRow => {
                 let contextKey = '';
@@ -247,30 +248,12 @@ export function calculateProcessedTableData(
             const representativeRow: DietDataRow = {};
             const firstRowInGroup = groupRows[0];
 
+            // 1. Populate representativeRow with original grouping column values
             groupingColNames.forEach(gCol => {
                 representativeRow[gCol] = getColumnValueInternal(firstRowInGroup, gCol);
             });
 
-            if (dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey)) {
-                let representativeDietContextKey = '';
-                for (let i = 0; i <= dietNameGroupIndex; i++) {
-                    representativeDietContextKey += (representativeRow[groupingColNames[i]] || '') + '||';
-                }
-                
-                const speciesSet = speciesPerDietContext.get(representativeDietContextKey);
-                const speciesCount = speciesSet ? speciesSet.size : 0;
-                const originalDietNameValue = representativeRow[dietNameColumnKey];
-                
-                if (speciesCount > 0 && 
-                    originalDietNameValue !== undefined && 
-                    originalDietNameValue !== PIVOT_BLANK_MARKER && 
-                    String(originalDietNameValue).trim() !== '') {
-                    
-                    const speciesList = Array.from(speciesSet!).sort().join('\n');
-                    representativeRow[dietNameColumnKey] = `${originalDietNameValue} (${speciesCount} Species:\n${speciesList})`;
-                }
-            }
-
+            // 2. Calculate all summaries for the current group and store them in representativeRow
             summaryColDetails.forEach(summary => {
                 const values = groupRows.map(row => getColumnValueInternal(row, summary.originalColumn));
                 let summaryValue: string | number = '';
@@ -279,23 +262,12 @@ export function calculateProcessedTableData(
 
                 if (numericValues.length > 0) {
                     switch (summary.type) {
-                        case 'sum':
-                            summaryValue = numericValues.reduce((acc, val) => acc + val, 0);
-                            break;
-                        case 'average':
-                            summaryValue = numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length;
-                            break;
-                        case 'count': 
-                            summaryValue = numericValues.length;
-                            break;
-                        case 'first':
-                            summaryValue = numericValues[0];
-                            break;
-                        case 'max':
-                            summaryValue = Math.max(...numericValues);
-                            break;
-                        default:
-                            summaryValue = ''; 
+                        case 'sum': summaryValue = numericValues.reduce((acc, val) => acc + val, 0); break;
+                        case 'average': summaryValue = numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length; break;
+                        case 'count': summaryValue = numericValues.length; break;
+                        case 'first': summaryValue = numericValues[0]; break;
+                        case 'max': summaryValue = Math.max(...numericValues); break;
+                        default: summaryValue = ''; 
                     }
                      if (typeof summaryValue === 'number' && (summary.type === 'sum' || summary.type === 'average')) {
                         summaryValue = parseFloat(summaryValue.toFixed(4)); 
@@ -308,6 +280,62 @@ export function calculateProcessedTableData(
                 }
                 representativeRow[summary.name] = summaryValue;
             });
+            
+            // 3. Diet name modification logic
+            if (dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey)) {
+                let representativeDietContextKey = '';
+                for (let i = 0; i <= dietNameGroupIndex; i++) {
+                    // Uses original grouping values from representativeRow
+                    representativeDietContextKey += (representativeRow[groupingColNames[i]] || '') + '||';
+                }
+                
+                const speciesSet = speciesPerDietContext.get(representativeDietContextKey);
+                if (speciesSet && speciesSet.size > 0) {
+                    const originalDietNameValue = representativeRow[dietNameColumnKey]; // This is still original
+                    if (originalDietNameValue !== undefined && 
+                        originalDietNameValue !== PIVOT_BLANK_MARKER && 
+                        String(originalDietNameValue).trim() !== '') {
+                        
+                        const speciesCount = speciesSet.size;
+                        const speciesList = Array.from(speciesSet).sort().join('\n');
+                        representativeRow[dietNameColumnKey] = `${String(originalDietNameValue).trim()} (${speciesCount} Species:\n${speciesList})`;
+                    }
+                }
+            }
+
+            // 4. Common name modification logic (after diet name modification)
+            if (groupingColNames.includes(commonNameColumnKey)) {
+                const originalCommonNameInRow = representativeRow[commonNameColumnKey]; 
+                
+                let totalAnimalCountForDisplay: number | string | undefined = undefined;
+                const totalAnimalSumKey = 'total_animal_sum';
+                const totalAnimalAvgKey = 'total_animal_average';
+
+                if (representativeRow[totalAnimalSumKey] !== undefined && (typeof representativeRow[totalAnimalSumKey] === 'number' || (typeof representativeRow[totalAnimalSumKey] === 'string' && String(representativeRow[totalAnimalSumKey]).trim() !== '' && !isNaN(parseFloat(representativeRow[totalAnimalSumKey] as string))))) {
+                    totalAnimalCountForDisplay = representativeRow[totalAnimalSumKey];
+                } else if (representativeRow[totalAnimalAvgKey] !== undefined && (typeof representativeRow[totalAnimalAvgKey] === 'number' || (typeof representativeRow[totalAnimalAvgKey] === 'string' && String(representativeRow[totalAnimalAvgKey]).trim() !== '' && !isNaN(parseFloat(representativeRow[totalAnimalAvgKey] as string))))) {
+                    totalAnimalCountForDisplay = representativeRow[totalAnimalAvgKey];
+                }
+                
+                // Ensure originalCommonNameInRow is a 'real' name and not already modified by diet logic (if common_name was diet_name)
+                // and totalAnimalCountForDisplay is a valid, non-empty number/string.
+                if (originalCommonNameInRow !== undefined && 
+                    originalCommonNameInRow !== PIVOT_BLANK_MARKER && 
+                    String(originalCommonNameInRow).trim() !== '' &&
+                    !String(originalCommonNameInRow).includes(' Species:\n') && 
+                    totalAnimalCountForDisplay !== undefined && 
+                    String(totalAnimalCountForDisplay).trim() !== '') {
+                    
+                    const numericTotalAnimal = typeof totalAnimalCountForDisplay === 'string' 
+                                                ? parseFloat(totalAnimalCountForDisplay) 
+                                                : totalAnimalCountForDisplay;
+
+                    // Ensure numericTotalAnimal is a valid number before appending
+                    if (typeof numericTotalAnimal === 'number' && !isNaN(numericTotalAnimal)) {
+                         representativeRow[commonNameColumnKey] = `${String(originalCommonNameInRow).trim()} (${numericTotalAnimal})`;
+                    }
+                }
+            }
             result.push(representativeRow);
         });
         
@@ -447,9 +475,14 @@ export function calculateProcessedTableData(
             grandTotalRow![summary.name] = totalValue;
         });
         if (groupingColNames.length === 0 && summaryColNames.length > 0 && grandTotalRow) {
-            grandTotalRow[summaryColNames[0]] = `Grand Total (${(grandTotalRow[summaryColNames[0]] !== undefined && grandTotalRow[summaryColNames[0]] !== '') ? grandTotalRow[summaryColNames[0]] : ''})`;
-            if (summaryColDetails.find(s => s.name === summaryColNames[0])?.originalColumn && (grandTotalRow[summaryColNames[0]] === undefined || String(grandTotalRow[summaryColNames[0]]).trim() === "" || grandTotalRow[summaryColNames[0]] === "Grand Total ()")) {
-                 grandTotalRow[summaryColNames[0]] = `Grand Total (${summaryColDetails.find(s => s.name === summaryColNames[0])?.originalColumn.replace(/_/g, ' ')})`;
+            const firstSummaryColName = summaryColNames[0];
+            const originalGrandTotalValue = grandTotalRow[firstSummaryColName];
+            const summaryColForGT = summaryColDetails.find(s => s.name === firstSummaryColName)?.originalColumn.replace(/_/g, ' ') || firstSummaryColName;
+
+            if (originalGrandTotalValue !== undefined && String(originalGrandTotalValue).trim() !== '') {
+                 grandTotalRow[firstSummaryColName] = `Grand Total (${summaryColForGT}: ${originalGrandTotalValue})`;
+            } else {
+                 grandTotalRow[firstSummaryColName] = `Grand Total (${summaryColForGT})`;
             }
         }
     }
