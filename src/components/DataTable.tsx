@@ -20,35 +20,48 @@ import { PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER } from '@/types';
 
 interface DataTableProps {
   data: DietDataRow[];
-  columns: string[];
+  columns: string[]; // These are the currentTableColumns (grouping + summary)
   grandTotalRow?: DietDataRow;
   isLoading?: boolean;
   isComparisonMode?: boolean;
   comparisonColumn?: string | null;
   actualQuantities?: Record<string, string>; // Key: "rowKey_columnKey"
   onActualQuantityChange?: (rowKey: string, columnKey: string, value: string) => void;
-  groupingColumns?: string[]; // Needed to generate stable row keys
+  groupingColumns?: string[]; // Still needed for subtotal styling and context
 }
 
-const generateRowKey = (row: DietDataRow, groupingCols: string[]): string => {
-  if (!groupingCols || groupingCols.length === 0) {
-    // Fallback if no grouping columns defined, though this should ideally not happen for grouped data
-    return Object.values(row).slice(0, 5).join('||'); // Use first few values
+// Updated generateRowKey function: uses all relevant columns that define the row's uniqueness.
+const generateRowKey = (row: DietDataRow, allRelevantColumns: string[]): string => {
+  const keyValues: string[] = [];
+  for (const col of allRelevantColumns) {
+    // These columns are dynamically added for comparison UI and are not part of the base row identity.
+    // 'note' is also metadata.
+    if (col.startsWith("Actual ") || col.startsWith("Difference ") || col === 'note') {
+      continue;
+    }
+    const val = row[col];
+    if (val === PIVOT_BLANK_MARKER) {
+      keyValues.push(PIVOT_BLANK_MARKER); // The marker itself is a unique string
+    } else if (val === undefined || val === null) {
+      keyValues.push("___NULL_OR_UNDEFINED___"); // A unique placeholder for actual null/undefined
+    } else {
+      keyValues.push(String(val)); // For numbers, strings (including empty string), booleans
+    }
   }
-  return groupingCols.map(col => String(row[col] ?? '')).join('||');
+  return keyValues.join('||');
 };
 
 
 const DataTable: React.FC<DataTableProps> = ({ 
   data, 
-  columns, 
+  columns, // This is currentTableColumns from page.tsx
   grandTotalRow, 
   isLoading,
   isComparisonMode = false,
   comparisonColumn,
   actualQuantities = {},
   onActualQuantityChange,
-  groupingColumns = []
+  groupingColumns = [] // Retained for potential other uses, e.g., subtotal logic if it were more complex
 }) => {
   if (isLoading) {
     return (
@@ -71,7 +84,7 @@ const DataTable: React.FC<DataTableProps> = ({
     return columns.filter(col => col !== 'note');
   }, [columns, isComparisonMode, comparisonColumn]);
 
-  if (!data.length && !grandTotalRow && !isComparisonMode) { // Adjusted condition for comparison mode
+  if (!data.length && !grandTotalRow && !isComparisonMode) {
     return (
       <div className="text-center p-8 border rounded-lg shadow-sm bg-card">
         <p className="text-muted-foreground">No data to display. Upload a file or adjust filters.</p>
@@ -101,7 +114,8 @@ const DataTable: React.FC<DataTableProps> = ({
         </TableHeader>
         <TableBody>
           {data.map((row, rowIndex) => {
-            const rowKey = isComparisonMode ? generateRowKey(row, groupingColumns) : String(rowIndex);
+            // Use 'columns' (currentTableColumns) for generating the key
+            const rowKey = isComparisonMode ? generateRowKey(row, columns) : String(rowIndex);
             return (
               <TableRow 
                   key={rowKey} 
@@ -179,7 +193,8 @@ const DataTable: React.FC<DataTableProps> = ({
                     let hasActuals = false;
                     data.forEach(dRow => {
                         if (dRow.note !== PIVOT_SUBTOTAL_MARKER) {
-                            const rKey = generateRowKey(dRow, groupingColumns);
+                            // Use 'columns' (currentTableColumns) for generating the key here as well
+                            const rKey = generateRowKey(dRow, columns);
                             const actualValStr = actualQuantities[`${rKey}_${comparisonColumn}`];
                             if (actualValStr !== undefined && actualValStr !== '') {
                                 const actualValNum = parseFloat(actualValStr);
@@ -197,7 +212,8 @@ const DataTable: React.FC<DataTableProps> = ({
                     let hasActualsForDiff = false;
                      data.forEach(dRow => {
                          if (dRow.note !== PIVOT_SUBTOTAL_MARKER) {
-                            const rKey = generateRowKey(dRow, groupingColumns);
+                            // Use 'columns' (currentTableColumns) for generating the key here as well
+                            const rKey = generateRowKey(dRow, columns);
                             const actualValStr = actualQuantities[`${rKey}_${comparisonColumn}`];
                             if (actualValStr !== undefined && actualValStr !== '') {
                                 const actualValNum = parseFloat(actualValStr);
@@ -252,4 +268,3 @@ const DataTable: React.FC<DataTableProps> = ({
 };
 
 export default DataTable;
-
