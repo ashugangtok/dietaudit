@@ -45,7 +45,7 @@ export const exportToPdf = (
       }
       if (typeof cellValue === 'number') {
         if (!Number.isInteger(cellValue) || (String(cellValue).split('.')[1] || '').length > 2) {
-            return cellValue.toFixed(4); // Increased precision for PDF if needed for differences
+            return cellValue.toFixed(4); 
         }
         return String(cellValue);
       }
@@ -107,21 +107,26 @@ export const exportToPdf = (
     showFoot: 'lastPage', 
     showHead: 'everyPage', 
     didParseCell: function (data) {
-      // Check if this is the 'Difference' column for Comparison PDF
-      // The header text is already beautified, e.g., "Difference Ingredient Qty Sum"
-      const headerText = String(data.column.header || '').trim();
-      if (headerText.startsWith("Difference ")) {
-        const cellValue = data.cell.raw;
-        if (cellValue !== null && cellValue !== undefined && String(cellValue).trim() !== '') {
-          // Remove commas for correct parsing, then parse
-          const numericValue = parseFloat(String(cellValue).replace(/,/g, ''));
-          if (!isNaN(numericValue)) {
-            if (numericValue < 0) {
-              data.cell.styles.textColor = [220, 53, 69]; // Red for negative
-            } else if (numericValue > 0) {
-              data.cell.styles.textColor = [0, 123, 255]; // Blue for positive
+      const columnKey = String(data.column.dataKey || '').trim();
+
+      if (columnKey.startsWith("Difference ")) {
+        const cellRawValue = data.cell.raw;
+        
+        if (cellRawValue !== null && cellRawValue !== undefined) {
+          const cellStringValue = String(cellRawValue).trim();
+          if (cellStringValue !== '') {
+            // Robust parsing: remove characters that are not digits, decimal, or minus.
+            const cleanedStringValue = cellStringValue.replace(/[^\d.-]/g, '');
+            const numericValue = parseFloat(cleanedStringValue);
+
+            if (!isNaN(numericValue)) {
+              if (numericValue < 0) {
+                data.cell.styles.textColor = [220, 53, 69]; // Red for negative
+              } else if (numericValue > 0) {
+                data.cell.styles.textColor = [0, 123, 255]; // Blue for positive
+              }
+              // No specific color for 0 (uses default)
             }
-            // No specific color for 0, it will use default
           }
         }
       }
