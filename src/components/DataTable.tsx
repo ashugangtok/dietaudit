@@ -42,7 +42,7 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
   }
   
   const displayColumns = columns.filter(col => col !== 'note');
-  const dietNameColumnKey = 'diet_name'; // Assuming this is the key for the diet name column
+  const dietNameColumnKey = 'diet_name'; 
 
   return (
     <ScrollArea className="whitespace-nowrap rounded-md border h-full">
@@ -77,7 +77,7 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
                 if (column === dietNameColumnKey && typeof cellContent === 'string' && cellContent.includes('\n')) {
                   return (
                     <TableCell key={column} className="whitespace-nowrap">
-                      <div style={{ whiteSpace: 'pre-line' }}>{cellContent}</div>
+                      <div style={{ whiteSpace: 'pre' }}>{cellContent}</div>
                     </TableCell>
                   );
                 }
@@ -101,15 +101,12 @@ const DataTable: React.FC<DataTableProps> = ({ data, columns, grandTotalRow, isL
                 if (rawCellValue === PIVOT_BLANK_MARKER) {
                     displayCellValue = "";
                 } else if (colIndex === 0 && (rawCellValue === undefined || rawCellValue === null || String(rawCellValue).trim().toLowerCase() === "grand total")) {
-                    // This specific check for "Grand Total" string is for the very first cell of GT row.
-                    // If it's already "Grand Total" from the processor, use it. Otherwise, if it's blank/undefined, set it.
-                    displayCellValue = "Grand Total";
-                     if (grandTotalRow.note === "Grand Total" && grandTotalRow[column] === "Grand Total"){
+                    if (grandTotalRow.note === "Grand Total" && grandTotalRow[column] === "Grand Total"){
                          displayCellValue = "Grand Total";
                      } else if (grandTotalRow.note === "Grand Total" && (rawCellValue === undefined || rawCellValue === PIVOT_BLANK_MARKER || rawCellValue === null)){
                          displayCellValue = "Grand Total";
                      } else {
-                         displayCellValue = String(rawCellValue); // Use what processor provided if it's not a blank marker
+                         displayCellValue = String(rawCellValue); 
                      }
 
                 } else if (typeof rawCellValue === 'number') {
