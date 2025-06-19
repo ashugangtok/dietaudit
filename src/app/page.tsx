@@ -17,7 +17,8 @@ import {
     SPECIAL_PIVOT_UOM_COLUMN_FIELD,
     SPECIAL_PIVOT_UOM_VALUE_FIELD,
     PIVOT_BLANK_MARKER,
-    NUMERIC_COLUMNS
+    NUMERIC_COLUMNS,
+    PIVOT_SUBTOTAL_MARKER
 } from '@/types';
 import FileUpload from '@/components/FileUpload';
 import DataTable from '@/components/DataTable';
@@ -92,9 +93,8 @@ export default function Home() {
     }
   }, [currentTableColumns, activeTab, processedData, selectedComparisonColumn]);
 
-  // Effect to merge processedData with parsedActualSpeciesData for the comparison tab
   useEffect(() => {
-    if (activeTab !== "comparison" || !hasAppliedFilters) {
+    if (activeTab !== "comparison") {
         setDataForComparisonTable((processedData || []).map(row => ({ ...row })));
         setGrandTotalForComparisonTable(grandTotalRow ? { ...grandTotalRow } : undefined);
         setComparisonTableColumns(currentTableColumns ? [...currentTableColumns] : []);
@@ -102,7 +102,7 @@ export default function Home() {
     }
     
     let baseDataForComparison = (processedData || []).map(row => ({ ...row }));
-    let tempComparisonTableCols = [...(currentTableColumns || [])];
+    let tempComparisonTableCols = currentTableColumns ? [...currentTableColumns] : [];
 
     if (parsedActualSpeciesData && parsedActualSpeciesData.length > 0) {
       const speciesLookupKeys = ['site_name', 'section_name', 'user_enclosure_name', 'common_name'];
@@ -114,7 +114,7 @@ export default function Home() {
           const val = sRow[k];
           return (val === undefined || val === null || String(val).trim() === '') ? EMPTY_KEY_PART : String(val).trim().toLowerCase();
         });
-        if (keyParts.every(part => part !== EMPTY_KEY_PART)) {
+        if (keyParts.every(part => part !== EMPTY_KEY_PART)) { // Only proceed if all key parts are present
             const key = keyParts.join('||');
             const count = parseFloat(String(sRow['actual_animal_count'] ?? '0'));
             if (!isNaN(count)) {
@@ -175,7 +175,7 @@ export default function Home() {
       
       const ingredientSumKeyGT = tempComparisonTableCols.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
       if (ingredientSumKeyGT && grandTotalRow[ingredientSumKeyGT] !== undefined && typeof grandTotalRow[ingredientSumKeyGT] === 'number') {
-        newGrandTotal[ingredientSumKeyGT] = grandTotalRow[ingredientSumKeyGT];
+        newGrandTotal[ingredientSumKeyGT] = grandTotalRow[ingredientSumKeyGT]; // Keep as number for sum
       }
 
       setGrandTotalForComparisonTable(newGrandTotal);
@@ -319,19 +319,135 @@ export default function Home() {
     }
   }, [isFileSelected, rawFileBase64, rawFileName, toast]);
 
+  const generateRowKeyForPdf = (row: DietDataRow, relevantColumns: string[]): string => {
+    const keyValues: string[] = [];
+    for (const col of relevantColumns) {
+      if (col.startsWith("Actual ") || col.startsWith("Difference ") || col === 'note') {
+        continue;
+      }
+      const val = row[col];
+      if (val === PIVOT_BLANK_MARKER) {
+        keyValues.push(PIVOT_BLANK_MARKER);
+      } else if (val === undefined || val === null) {
+        keyValues.push("___NULL_OR_UNDEFINED___");
+      } else {
+        keyValues.push(String(val));
+      }
+    }
+    return keyValues.join('||');
+  };
+
   const handleDownloadAllPdf = () => {
-    const dataToExport = activeTab === "comparison" ? dataForComparisonTable : processedData;
-    const columnsToExport = activeTab === "comparison" ? comparisonTableColumns : currentTableColumns;
-    const grandTotalToExport = activeTab === "comparison" ? grandTotalForComparisonTable : grandTotalRow;
-    const titleSuffix = activeTab === "comparison" ? "Comparison Report" : "Full Diet Report";
+    if (activeTab === "comparison") {
+        if (!selectedComparisonColumn) {
+            toast({ variant: "destructive", title: "Cannot Export", description: "Please select an ingredient quantity column for comparison before exporting." });
+            return;
+        }
+        if (!hasAppliedFilters || dataForComparisonTable.length === 0) {
+            toast({ variant: "destructive", title: "No Data", description: "No data available to export for comparison. Apply filters and select a comparison column first." });
+            return;
+        }
+
+        const titleSuffix = "Comparison Report";
+        const fileNameSuffix = "comparison_report";
+        
+        const dataForPdf = dataForComparisonTable.map(row => {
+            const pdfRow = { ...row };
+            // IMPORTANT: Use `currentTableColumns` for generating the key, as these are the original columns
+            // of the pivot table before comparison-specific display formatting (like UoM concatenation).
+            // `dataForComparisonTable` rows' `selectedComparisonColumn` might be a string like "69 KG".
+            const rowContentKey = generateRowKeyForPdf(row, currentTableColumns); 
+
+            // For planned value, we need to parse it back from the potentially formatted string in dataForComparisonTable
+            let plannedValueNum: number | undefined;
+            const plannedValueFromTable = row[selectedComparisonColumn!];
+            if (typeof plannedValueFromTable === 'string') {
+                plannedValueNum = parseFloat(plannedValueFromTable); // "69 KG" -> 69
+            } else if (typeof plannedValueFromTable === 'number') {
+                plannedValueNum = plannedValueFromTable;
+            }
+            plannedValueNum = isNaN(plannedValueNum!) ? 0 : plannedValueNum;
+
+            const actualValueStr = actualComparisonQuantities[`${rowContentKey}_${selectedComparisonColumn!}`] || '';
+            const actualValueNum = parseFloat(actualValueStr);
+            
+            pdfRow[`Actual ${selectedComparisonColumn!}`] = actualValueStr !== '' && !isNaN(actualValueNum) ? actualValueNum.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : '';
+            
+            if (actualValueStr !== '' && !isNaN(actualValueNum) && plannedValueNum !== undefined && !isNaN(plannedValueNum)) {
+                const diffNum = actualValueNum - plannedValueNum;
+                pdfRow[`Difference ${selectedComparisonColumn!}`] = parseFloat(diffNum.toFixed(4)).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
+            } else {
+                pdfRow[`Difference ${selectedComparisonColumn!}`] = '';
+            }
+            return pdfRow;
+        });
+
+        const columnsForPdf = [...comparisonTableColumns];
+        const plannedColIndex = columnsForPdf.indexOf(selectedComparisonColumn!);
+        if (plannedColIndex !== -1) {
+            columnsForPdf.splice(plannedColIndex + 1, 0, `Actual ${selectedComparisonColumn!}`, `Difference ${selectedComparisonColumn!}`);
+        }
+        
+        let grandTotalForPdf: DietDataRow | undefined = undefined;
+        if (grandTotalForComparisonTable) {
+            grandTotalForPdf = { ...grandTotalForComparisonTable };
+            
+            let plannedTotalNum: number | undefined;
+            const plannedTotalFromGt = grandTotalForComparisonTable[selectedComparisonColumn!];
+             if (typeof plannedTotalFromGt === 'string') { // Should be a number from effect hook
+                plannedTotalNum = parseFloat(plannedTotalFromGt);
+            } else if (typeof plannedTotalFromGt === 'number') {
+                plannedTotalNum = plannedTotalFromGt;
+            }
+            plannedTotalNum = isNaN(plannedTotalNum!) ? 0 : plannedTotalNum;
+
+
+            let totalActualNum = 0;
+            let hasActualsForGt = false;
+            
+            dataForComparisonTable.forEach(dRow => {
+                if (dRow.note !== PIVOT_SUBTOTAL_MARKER) {
+                    const rowContentKeyGt = generateRowKeyForPdf(dRow, currentTableColumns);
+                    const actualValStrGt = actualComparisonQuantities[`${rowContentKeyGt}_${selectedComparisonColumn!}`];
+                    if (actualValStrGt !== undefined && actualValStrGt !== '') {
+                        const actualValNumGt = parseFloat(actualValStrGt);
+                        if (!isNaN(actualValNumGt)) {
+                            totalActualNum += actualValNumGt;
+                            hasActualsForGt = true;
+                        }
+                    }
+                }
+            });
+
+            grandTotalForPdf[`Actual ${selectedComparisonColumn!}`] = hasActualsForGt ? parseFloat(totalActualNum.toFixed(4)).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : "";
+            
+            if (hasActualsForGt && plannedTotalNum !== undefined && !isNaN(plannedTotalNum)) {
+                const diffGt = totalActualNum - plannedTotalNum;
+                grandTotalForPdf[`Difference ${selectedComparisonColumn!}`] = parseFloat(diffGt.toFixed(4)).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
+            } else {
+                grandTotalForPdf[`Difference ${selectedComparisonColumn!}`] = "";
+            }
+        }
+
+        exportToPdf(dataForPdf, columnsForPdf, `${titleSuffix} - ${rawFileName}`, `${rawFileName}_${fileNameSuffix}`, grandTotalForPdf);
+        toast({ title: "PDF Download Started", description: `Your Comparison report PDF is being generated.` });
+        return;
+    }
+
+    // Existing logic for "Export by Section" tab
+    const dataToExport = processedData;
+    const columnsToExport = currentTableColumns;
+    const grandTotalToExport = grandTotalRow;
+    const titleSuffix = "Full Diet Report";
 
     if (dataToExport.length > 0 && columnsToExport.length > 0 && hasAppliedFilters) {
-      exportToPdf(dataToExport, columnsToExport, `${titleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab}_report`, grandTotalToExport);
-      toast({ title: "PDF Download Started", description: `Your ${activeTab} report PDF is being generated.` });
+      exportToPdf(dataToExport, columnsToExport, `${titleSuffix} - ${rawFileName}`, `${rawFileName}_full_report`, grandTotalToExport);
+      toast({ title: "PDF Download Started", description: `Your Full Diet report PDF is being generated.` });
     } else {
       toast({ variant: "destructive", title: "No Data", description: "No data available to export. Apply filters to view data first." });
     }
   };
+
 
   const handleDownloadSectionPdf = (sectionName: string, sectionTableData: ProcessedTableData) => {
      if (sectionTableData.processedData.length > 0 && sectionTableData.columns.length > 0 && hasAppliedFilters) {
@@ -461,6 +577,12 @@ export default function Home() {
     if (isComparisonTab) {
         return (
           <div className="flex flex-col flex-1 min-h-0 space-y-4">
+            <div className="flex justify-end">
+                <Button onClick={handleDownloadAllPdf} size="sm" disabled={isLoading || isLoadingActualSpeciesFile || dataForComparisonTable.length === 0 || !hasAppliedFilters || !selectedComparisonColumn}>
+                    {isLoading || isLoadingActualSpeciesFile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                    Download Comparison PDF
+                </Button>
+            </div>
             <Card className="p-4">
                 <CardTitle className="text-lg mb-2">Actual Species Count Upload</CardTitle>
                 <CardDescription className="mb-4">Upload an Excel file with actual species counts. Expected columns: site_name, section_name, user_enclosure_name, common_name, actual_animal_count (case-sensitive, underscore-separated).</CardDescription>
@@ -486,7 +608,7 @@ export default function Home() {
                 <Select
                   value={selectedComparisonColumn || ""}
                   onValueChange={(value) => setSelectedComparisonColumn(value === "none" ? null : value)}
-                  disabled={numericColumnsForComparison.length === 0}
+                  disabled={numericColumnsForComparison.length === 0 || isLoadingActualSpeciesFile}
                 >
                   <SelectTrigger id="comparison-column-select" className="min-w-[200px] max-w-xs">
                     <SelectValue placeholder="Choose column for comparison" />
@@ -747,4 +869,5 @@ export default function Home() {
 
 
     
+
 
