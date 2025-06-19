@@ -27,7 +27,6 @@ export const exportToPdf = (
     if (colKey.startsWith('total_animal_')) {
       headerText = 'Total Animal';
     } else {
-        // General beautification for other column keys
         headerText = colKey
           .replace(/_sum$|_average$|_count$|_first$|_max$/i, (match) => ` (${match.substring(1).charAt(0).toUpperCase() + match.substring(2)})`)
           .replace(/_/g, ' ')
@@ -44,11 +43,9 @@ export const exportToPdf = (
       if (cellValue === PIVOT_BLANK_MARKER) {
         return '';
       }
-      // For PDF, if it's a number (like in grand total for ingredient_qty_sum, or other numeric summaries)
-      // format it. If it's already a string (like "69 Piece"), use it as is.
       if (typeof cellValue === 'number') {
         if (!Number.isInteger(cellValue) || (String(cellValue).split('.')[1] || '').length > 2) {
-            return cellValue.toFixed(2); // Keep precision for PDF
+            return cellValue.toFixed(4); // Increased precision for PDF if needed for differences
         }
         return String(cellValue);
       }
@@ -72,7 +69,6 @@ export const exportToPdf = (
         if (cellValue === PIVOT_BLANK_MARKER) return '';
         if (typeof cellValue === 'number') {
             const numVal = cellValue as number;
-            // For grand total ingredient_qty_sum, it remains numeric. Format it.
             return numVal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
         }
         return (cellValue === undefined || cellValue === null ? '' : String(cellValue));
@@ -110,6 +106,26 @@ export const exportToPdf = (
     rowPageBreak: 'avoid',
     showFoot: 'lastPage', 
     showHead: 'everyPage', 
+    didParseCell: function (data) {
+      // Check if this is the 'Difference' column for Comparison PDF
+      // The header text is already beautified, e.g., "Difference Ingredient Qty Sum"
+      const headerText = String(data.column.header || '').trim();
+      if (headerText.startsWith("Difference ")) {
+        const cellValue = data.cell.raw;
+        if (cellValue !== null && cellValue !== undefined && String(cellValue).trim() !== '') {
+          // Remove commas for correct parsing, then parse
+          const numericValue = parseFloat(String(cellValue).replace(/,/g, ''));
+          if (!isNaN(numericValue)) {
+            if (numericValue < 0) {
+              data.cell.styles.textColor = [220, 53, 69]; // Red for negative
+            } else if (numericValue > 0) {
+              data.cell.styles.textColor = [0, 123, 255]; // Blue for positive
+            }
+            // No specific color for 0, it will use default
+          }
+        }
+      }
+    },
     didDrawPage: (data) => {
         doc.setFontSize(8);
         doc.text("Page " + doc.internal.getNumberOfPages(), doc.internal.pageSize.width - 50, doc.internal.pageSize.height - 20);
@@ -118,3 +134,4 @@ export const exportToPdf = (
 
   doc.save(`${fileName}.pdf`);
 };
+
