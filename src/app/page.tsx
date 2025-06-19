@@ -3,7 +3,7 @@
 
 import type React from 'react';
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { Leaf, FileSpreadsheet, AlertCircle, ListChecks, TableIcon, Download, Loader2, BarChartHorizontalBig } from 'lucide-react';
+import { Leaf, FileSpreadsheet, AlertCircle, ListChecks, TableIcon, Download, Loader2, BarChartHorizontalBig, Columns } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,16 +16,18 @@ import {
     SPECIAL_PIVOT_UOM_ROW_GROUPINGS,
     SPECIAL_PIVOT_UOM_COLUMN_FIELD,
     SPECIAL_PIVOT_UOM_VALUE_FIELD,
-    PIVOT_BLANK_MARKER
+    PIVOT_BLANK_MARKER,
+    NUMERIC_COLUMNS
 } from '@/types';
 import FileUpload from '@/components/FileUpload';
 import DataTable from '@/components/DataTable';
-import ComparisonTable from '@/components/ComparisonTable';
 import InteractiveFilters from '@/components/InteractiveFilters';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import DietWiseLogo from '@/components/DietWiseLogo';
 import { exportToPdf } from '@/lib/pdfUtils';
 import { parseExcelFlow } from '@/ai/flows/parse-excel-flow';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 
 
 export default function Home() {
@@ -45,6 +47,10 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false); 
   const [isFileSelected, setIsFileSelected] = useState(false); 
 
+  const [actualComparisonQuantities, setActualComparisonQuantities] = useState<Record<string, string>>({});
+  const [selectedComparisonColumn, setSelectedComparisonColumn] = useState<string | null>(null);
+
+
   const { toast } = useToast();
 
   const { processedData, columns: currentTableColumns, grandTotalRow, filteredData } = useTableProcessor({ rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters });
@@ -53,8 +59,24 @@ export default function Home() {
     if (!isFileSelected || rawData.length === 0) {
         setHasAppliedFilters(false);
         setFilters([]); 
+        setActualComparisonQuantities({});
+        setSelectedComparisonColumn(null);
     }
   }, [isFileSelected, rawData]);
+
+  useEffect(() => {
+    if (currentTableColumns.length > 0 && activeTab === "comparison") {
+      const firstNumericSummaryCol = currentTableColumns.find(col => 
+        (typeof processedData[0]?.[col] === 'number' && col.includes('_sum')) || 
+        (typeof processedData[0]?.[col] === 'number' && NUMERIC_COLUMNS.includes(col as keyof DietDataRow) )
+      );
+      if (firstNumericSummaryCol && !selectedComparisonColumn) {
+        setSelectedComparisonColumn(firstNumericSummaryCol);
+      } else if (!firstNumericSummaryCol && selectedComparisonColumn) {
+        setSelectedComparisonColumn(null); // Reset if no suitable column
+      }
+    }
+  }, [currentTableColumns, activeTab, processedData, selectedComparisonColumn]);
 
 
   const handleFileSelectedCallback = useCallback((base64Content: string, fileName: string) => {
@@ -69,6 +91,8 @@ export default function Home() {
     setHasAppliedFilters(false);
     setIsFileSelected(true); 
     setActiveTab("extractedData"); 
+    setActualComparisonQuantities({});
+    setSelectedComparisonColumn(null);
 
     toast({
         title: "File Selected",
@@ -85,6 +109,7 @@ export default function Home() {
     }
     
     setIsLoading(true); 
+    setActualComparisonQuantities({}); // Reset actuals on new filter application
     
     try {
         const result = await parseExcelFlow({ excelFileBase64: rawFileBase64, originalFileName: rawFileName });
@@ -93,6 +118,7 @@ export default function Home() {
             toast({ variant: "destructive", title: "File Parsing Error", description: result.error });
             setRawData([]);
             setAllHeaders([]);
+            setSelectedComparisonColumn(null);
             setIsLoading(false);
             return;
         }
@@ -134,6 +160,7 @@ export default function Home() {
         
         setFilters(newFilters); 
         setHasAppliedFilters(true);
+        // setSelectedComparisonColumn will be set by useEffect based on new currentTableColumns
 
         if (result.parsedData.length === 0 && result.headers.length > 0) {
             toast({ variant: "default", title: "File Parsed: Contains Only Headers", description: "The Excel file seems to contain only headers and no data rows. Filters applied."});
@@ -151,6 +178,7 @@ export default function Home() {
         toast({ variant: "destructive", title: "Processing Error", description: "An unexpected error occurred while parsing or filtering the file." });
         setRawData([]);
         setAllHeaders([]);
+        setSelectedComparisonColumn(null);
     } finally {
         setIsLoading(false);
     }
@@ -174,8 +202,30 @@ export default function Home() {
     }
   };
 
+  const handleActualQuantityChange = useCallback((rowKey: string, columnKey: string, value: string) => {
+    setActualComparisonQuantities(prev => ({
+      ...prev,
+      [`${rowKey}_${columnKey}`]: value,
+    }));
+  }, []);
 
   const year = new Date().getFullYear();
+
+  const numericColumnsForComparison = useMemo(() => {
+    if (!processedData.length || !currentTableColumns.length) return [];
+    return currentTableColumns.filter(col => {
+        // Check the type of the first data row's cell for this column
+        const firstRowValue = processedData[0][col];
+        if (typeof firstRowValue === 'number') return true;
+        // Check grand total if data is empty but grand total exists
+        if (processedData.length === 0 && grandTotalRow && typeof grandTotalRow[col] === 'number') return true;
+        // Fallback for summary columns by name if actual data type check fails
+        if (col.includes('_sum') || col.includes('_average') || col.includes('_count')) return true;
+        if (NUMERIC_COLUMNS.includes(col as keyof DietDataRow)) return true; // original numeric cols
+        return false;
+    });
+  }, [processedData, currentTableColumns, grandTotalRow]);
+
 
   const renderContentForDataTabs = (isExportTab: boolean, isComparisonTab: boolean = false) => {
     if (isLoading) {
@@ -264,7 +314,54 @@ export default function Home() {
     
     if (isComparisonTab) {
         return (
-            <ComparisonTable filteredData={filteredData} allHeaders={allHeaders} />
+          <div className="flex flex-col flex-1 min-h-0 space-y-4">
+            <Card className="p-4">
+              <div className="flex items-center gap-4">
+                <Label htmlFor="comparison-column-select" className="text-sm font-medium whitespace-nowrap">
+                  Select Planned Quantity Column:
+                </Label>
+                <Select
+                  value={selectedComparisonColumn || ""}
+                  onValueChange={(value) => setSelectedComparisonColumn(value === "none" ? null : value)}
+                  disabled={numericColumnsForComparison.length === 0}
+                >
+                  <SelectTrigger id="comparison-column-select" className="min-w-[200px] max-w-xs">
+                    <SelectValue placeholder="Choose column for comparison" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {numericColumnsForComparison.length > 0 ? (
+                      numericColumnsForComparison.map(col => (
+                        <SelectItem key={col} value={col}>{col.replace(/_/g, ' ')}</SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="none" disabled>No numeric columns available</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            </Card>
+            {selectedComparisonColumn ? (
+              <div className="flex-1 min-h-0">
+                <DataTable 
+                  data={processedData} 
+                  columns={currentTableColumns} 
+                  grandTotalRow={grandTotalRow}
+                  isComparisonMode={true}
+                  comparisonColumn={selectedComparisonColumn}
+                  actualQuantities={actualComparisonQuantities}
+                  onActualQuantityChange={handleActualQuantityChange}
+                  groupingColumns={groupings.map(g => g.column)}
+                />
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="p-6 text-center text-muted-foreground">
+                  <Columns className="h-12 w-12 text-primary/50 mx-auto mb-4" />
+                  <p>Please select a numeric column from the dropdown above to enable comparison.</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         );
     }
 
@@ -335,7 +432,7 @@ export default function Home() {
                       </CardHeader>
                       <CardContent className="min-h-0 pt-0">
                          <div style={{ height: 'auto', maxHeight: '600px', overflowY: 'auto' }}> 
-                          <DataTable data={sectionTableData.processedData} columns={sectionTableData.columns} grandTotalRow={sectionTableData.grandTotalRow}/>
+                          <DataTable data={sectionTableData.processedData} columns={sectionTableData.columns} grandTotalRow={sectionTableData.grandTotalRow} groupingColumns={groupings.map(g => g.column)}/>
                          </div>
                       </CardContent>
                     </Card>
@@ -366,7 +463,7 @@ export default function Home() {
     } else { // View Data Tab
       return (
         <div className="flex-1 min-h-0">
-          <DataTable data={processedData} columns={currentTableColumns} grandTotalRow={grandTotalRow} />
+          <DataTable data={processedData} columns={currentTableColumns} grandTotalRow={grandTotalRow} groupingColumns={groupings.map(g => g.column)} />
         </div>
       );
     }
