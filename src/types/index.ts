@@ -27,6 +27,9 @@ export interface DietDataRow {
   ingredient_qty?: number;
   base_uom_name?: string;
   note?: string; // For subtotals, special notes, or markers
+  actual_animal_count?: number; // Added for species count comparison
+  planned_animal_count?: number; // Added for species count comparison
+  animal_count_difference?: number; // Added for species count comparison
 }
 
 export interface GroupingOption {
@@ -41,7 +44,7 @@ export interface SummarizationOption {
 export interface FilterOption {
   column: string;
   value: string | number | string[] | number[]; 
-  type: 'equals' | 'contains' | 'in' | 'range_number' | 'range_date';
+  type: 'equals' | 'contains' | 'in' | 'range_number';
 }
 
 export interface AISuggestions {
@@ -56,10 +59,10 @@ export const EXPECTED_HEADERS: (keyof DietDataRow)[] = [
   "total_animal", "date", "diet_id", "diet_name", "diet_no",
   "meal_start_time", "meal_end_time", "ingredient_name", "type", "type_name",
   "meal_time", "preparation_type_name", "cut_size_name", "ingredient_qty",
-  "base_uom_name"
+  "base_uom_name", "actual_animal_count"
 ];
 
-export const NUMERIC_COLUMNS: (keyof DietDataRow)[] = ["total_animal", "ingredient_qty"];
+export const NUMERIC_COLUMNS: (keyof DietDataRow)[] = ["total_animal", "ingredient_qty", "actual_animal_count"];
 export const DATE_COLUMNS: (keyof DietDataRow)[] = ["date"]; 
 
 export const PIVOT_BLANK_MARKER = '__PIVOT_BLANK__';

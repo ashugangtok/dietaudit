@@ -3,7 +3,7 @@
 
 import type React from 'react';
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { Leaf, FileSpreadsheet, AlertCircle, ListChecks, TableIcon, Download, Loader2, BarChartHorizontalBig, Columns } from 'lucide-react';
+import { Leaf, FileSpreadsheet, AlertCircle, ListChecks, TableIcon, Download, Loader2, BarChartHorizontalBig, Columns, Users } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,7 @@ import { exportToPdf } from '@/lib/pdfUtils';
 import { parseExcelFlow } from '@/ai/flows/parse-excel-flow';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
 
 
 export default function Home() {
@@ -47,8 +48,20 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false); 
   const [isFileSelected, setIsFileSelected] = useState(false); 
 
+  // For Comparison Tab - Ingredient Quantity Comparison
   const [actualComparisonQuantities, setActualComparisonQuantities] = useState<Record<string, string>>({});
   const [selectedComparisonColumn, setSelectedComparisonColumn] = useState<string | null>(null);
+
+  // For Comparison Tab - Actual Species Count File
+  const [parsedActualSpeciesData, setParsedActualSpeciesData] = useState<DietDataRow[]>([]);
+  const [isLoadingActualSpeciesFile, setIsLoadingActualSpeciesFile] = useState<boolean>(false);
+  const [actualSpeciesFileName, setActualSpeciesFileName] = useState<string>("species_counts");
+
+
+  // Data and columns for the comparison table, potentially merged with actual species counts
+  const [dataForComparisonTable, setDataForComparisonTable] = useState<DietDataRow[]>([]);
+  const [grandTotalForComparisonTable, setGrandTotalForComparisonTable] = useState<DietDataRow | undefined>();
+  const [comparisonTableColumns, setComparisonTableColumns] = useState<string[]>([]);
 
 
   const { toast } = useToast();
@@ -61,6 +74,7 @@ export default function Home() {
         setFilters([]); 
         setActualComparisonQuantities({});
         setSelectedComparisonColumn(null);
+        setParsedActualSpeciesData([]);
     }
   }, [isFileSelected, rawData]);
 
@@ -78,6 +92,132 @@ export default function Home() {
     }
   }, [currentTableColumns, activeTab, processedData, selectedComparisonColumn]);
 
+  // Effect to merge processedData with parsedActualSpeciesData for the comparison tab
+  useEffect(() => {
+    if (activeTab !== "comparison" || !hasAppliedFilters) {
+        // If not in comparison tab or filters not applied, reset comparison-specific data
+        // This prevents stale data from previous views if the main data changes
+        setDataForComparisonTable(processedData || []);
+        setGrandTotalForComparisonTable(grandTotalRow);
+        setComparisonTableColumns(currentTableColumns || []);
+        return;
+    }
+    
+    // Default to base processed data if no actual species data is loaded
+    if (!parsedActualSpeciesData || parsedActualSpeciesData.length === 0) {
+      setDataForComparisonTable(processedData || []);
+      setGrandTotalForComparisonTable(grandTotalRow);
+      setComparisonTableColumns(currentTableColumns || []);
+      return;
+    }
+
+    const speciesLookupKeys = ['site_name', 'section_name', 'user_enclosure_name', 'common_name'];
+    const actualSpeciesMap = new Map<string, number>();
+
+    parsedActualSpeciesData.forEach(sRow => {
+      const keyParts = speciesLookupKeys.map(k => String(sRow[k] ?? '').trim().toLowerCase());
+      if (keyParts.every(part => part !== '')) { // Ensure all key parts are present
+        const key = keyParts.join('||');
+        const count = parseFloat(String(sRow['actual_animal_count'] ?? '0'));
+        if (!isNaN(count)) {
+          actualSpeciesMap.set(key, (actualSpeciesMap.get(key) || 0) + count);
+        }
+      }
+    });
+
+    let currentContext: Record<string, any> = {};
+    const mergedData = (processedData || []).map(pRow => {
+      const newRow = { ...pRow };
+
+      groupings.forEach(g => {
+        const groupCol = g.column;
+        if (pRow[groupCol] !== PIVOT_BLANK_MARKER && pRow[groupCol] !== undefined) {
+          currentContext[groupCol] = pRow[groupCol];
+        }
+      });
+      
+      const lookupKeyParts = speciesLookupKeys.map(k => String(currentContext[k] ?? '').trim().toLowerCase());
+      let actualAnimalCount: number | undefined = undefined;
+      if (lookupKeyParts.every(part => part !== '')) {
+         const lookupKey = lookupKeyParts.join('||');
+         actualAnimalCount = actualSpeciesMap.get(lookupKey);
+      }
+      
+      const plannedKeyCandidates = ['total_animal_sum', 'total_animal_average', 'total_animal'];
+      let plannedCountValue: number | undefined = undefined;
+      for (const cand of plannedKeyCandidates) {
+          if (pRow[cand] !== undefined && pRow[cand] !== PIVOT_BLANK_MARKER) {
+              const parsed = parseFloat(String(pRow[cand]));
+              if (!isNaN(parsed)) {
+                  plannedCountValue = parsed;
+                  break;
+              }
+          }
+      }
+      newRow.planned_animal_count = plannedCountValue;
+
+      if (actualAnimalCount !== undefined) {
+        newRow.actual_animal_count = actualAnimalCount;
+        if (plannedCountValue !== undefined) {
+           newRow.animal_count_difference = actualAnimalCount - plannedCountValue;
+        }
+      }
+      return newRow;
+    });
+    setDataForComparisonTable(mergedData);
+
+    let newComparisonTableColumns = [...(currentTableColumns || [])];
+    const animalColumns = ['planned_animal_count', 'actual_animal_count', 'animal_count_difference'];
+    animalColumns.forEach(ac => {
+      if (!newComparisonTableColumns.includes(ac)) {
+        // Try to insert after common_name or group_name, or at a reasonable position
+        const commonNameIndex = newComparisonTableColumns.indexOf('common_name');
+        const groupNameIndex = newComparisonTableColumns.indexOf('group_name');
+        let insertAtIndex = newComparisonTableColumns.length; // default to end
+        if (commonNameIndex !== -1) insertAtIndex = commonNameIndex + 1;
+        else if (groupNameIndex !== -1) insertAtIndex = groupNameIndex + 1;
+        
+        // Ensure not to insert duplicates and manage order
+        if (ac === 'planned_animal_count' && !newComparisonTableColumns.includes(ac)) newComparisonTableColumns.splice(insertAtIndex, 0, ac);
+        if (ac === 'actual_animal_count' && !newComparisonTableColumns.includes(ac)) newComparisonTableColumns.splice(insertAtIndex + (newComparisonTableColumns.includes('planned_animal_count') ? 1:0), 0, ac);
+        if (ac === 'animal_count_difference' && !newComparisonTableColumns.includes(ac)) newComparisonTableColumns.splice(insertAtIndex + (newComparisonTableColumns.includes('planned_animal_count') ? 1:0) + (newComparisonTableColumns.includes('actual_animal_count') ? 1:0) , 0, ac);
+      }
+    });
+    // Deduplicate columns just in case
+    newComparisonTableColumns = [...new Set(newComparisonTableColumns)];
+    setComparisonTableColumns(newComparisonTableColumns);
+
+
+    if (grandTotalRow) {
+      const newGrandTotal = { ...grandTotalRow };
+      const plannedTotalKeyCandidates = ['total_animal_sum', 'total_animal_average', 'total_animal'];
+      let grandPlannedValue: number | undefined;
+       for (const cand of plannedTotalKeyCandidates) {
+          if (grandTotalRow[cand] !== undefined && grandTotalRow[cand] !== PIVOT_BLANK_MARKER) {
+              const parsed = parseFloat(String(grandTotalRow[cand]));
+              if (!isNaN(parsed)) {
+                  grandPlannedValue = parsed;
+                  break;
+              }
+          }
+      }
+      newGrandTotal.planned_animal_count = grandPlannedValue;
+      
+      newGrandTotal.actual_animal_count = mergedData.reduce((sum, row) => {
+          const actual = row.actual_animal_count;
+          return sum + (typeof actual === 'number' && !isNaN(actual) ? actual : 0);
+      },0);
+
+      if (newGrandTotal.actual_animal_count !== undefined && newGrandTotal.planned_animal_count !== undefined) {
+        newGrandTotal.animal_count_difference = newGrandTotal.actual_animal_count - newGrandTotal.planned_animal_count;
+      }
+      setGrandTotalForComparisonTable(newGrandTotal);
+    } else {
+      setGrandTotalForComparisonTable(undefined);
+    }
+
+  }, [processedData, grandTotalRow, parsedActualSpeciesData, activeTab, hasAppliedFilters, groupings, currentTableColumns]);
+
 
   const handleFileSelectedCallback = useCallback((base64Content: string, fileName: string) => {
     setIsLoading(true); 
@@ -93,12 +233,37 @@ export default function Home() {
     setActiveTab("extractedData"); 
     setActualComparisonQuantities({});
     setSelectedComparisonColumn(null);
+    setParsedActualSpeciesData([]); // Clear previous species data
 
     toast({
         title: "File Selected",
         description: `"${cleanFileName}" is ready. Configure and apply filters to process and view data.`,
     });
     setIsLoading(false); 
+  }, [toast]);
+
+  const handleActualSpeciesFileSelectedCallback = useCallback(async (base64Content: string, fileName: string) => {
+    setIsLoadingActualSpeciesFile(true);
+    setActualSpeciesFileName(fileName.replace(/\.(xlsx|xls)$/i, ''));
+    try {
+        const result = await parseExcelFlow({ excelFileBase64: base64Content, originalFileName: fileName });
+        if (result.error) {
+            toast({ variant: "destructive", title: "Species File Parsing Error", description: result.error });
+            setParsedActualSpeciesData([]);
+        } else {
+            setParsedActualSpeciesData(result.parsedData);
+            toast({
+                title: "Actual Species File Processed",
+                description: `"${fileName}" processed. Its data will be used in the Comparison tab.`,
+            });
+        }
+    } catch (error) {
+        console.error("Error parsing actual species file:", error);
+        toast({ variant: "destructive", title: "Species File Processing Error", description: "An unexpected error occurred." });
+        setParsedActualSpeciesData([]);
+    } finally {
+        setIsLoadingActualSpeciesFile(false);
+    }
   }, [toast]);
 
 
@@ -109,7 +274,7 @@ export default function Home() {
     }
     
     setIsLoading(true); 
-    setActualComparisonQuantities({}); // Reset actuals on new filter application
+    setActualComparisonQuantities({}); 
     
     try {
         const result = await parseExcelFlow({ excelFileBase64: rawFileBase64, originalFileName: rawFileName });
@@ -160,8 +325,7 @@ export default function Home() {
         
         setFilters(newFilters); 
         setHasAppliedFilters(true);
-        // setSelectedComparisonColumn will be set by useEffect based on new currentTableColumns
-
+        
         if (result.parsedData.length === 0 && result.headers.length > 0) {
             toast({ variant: "default", title: "File Parsed: Contains Only Headers", description: "The Excel file seems to contain only headers and no data rows. Filters applied."});
         } else if (result.parsedData.length === 0 && result.headers.length === 0 ) {
@@ -185,9 +349,15 @@ export default function Home() {
   }, [isFileSelected, rawFileBase64, rawFileName, toast]);
 
   const handleDownloadAllPdf = () => {
-    if (processedData.length > 0 && currentTableColumns.length > 0 && hasAppliedFilters) {
-      exportToPdf(processedData, currentTableColumns, `Full Diet Report - ${rawFileName}`, `${rawFileName}_full_report`, grandTotalRow);
-      toast({ title: "PDF Download Started", description: "Your full report PDF is being generated." });
+    // Determine which data to use based on the active tab
+    const dataToExport = activeTab === "comparison" ? dataForComparisonTable : processedData;
+    const columnsToExport = activeTab === "comparison" ? comparisonTableColumns : currentTableColumns;
+    const grandTotalToExport = activeTab === "comparison" ? grandTotalForComparisonTable : grandTotalRow;
+    const titleSuffix = activeTab === "comparison" ? "Comparison Report" : "Full Diet Report";
+
+    if (dataToExport.length > 0 && columnsToExport.length > 0 && hasAppliedFilters) {
+      exportToPdf(dataToExport, columnsToExport, `${titleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab}_report`, grandTotalToExport);
+      toast({ title: "PDF Download Started", description: `Your ${activeTab} report PDF is being generated.` });
     } else {
       toast({ variant: "destructive", title: "No Data", description: "No data available to export. Apply filters to view data first." });
     }
@@ -212,23 +382,28 @@ export default function Home() {
   const year = new Date().getFullYear();
 
   const numericColumnsForComparison = useMemo(() => {
-    if (!processedData.length || !currentTableColumns.length) return [];
-    return currentTableColumns.filter(col => {
-        // Check the type of the first data row's cell for this column
-        const firstRowValue = processedData[0][col];
+    const sourceColumns = activeTab === "comparison" ? comparisonTableColumns : currentTableColumns;
+    const sourceData = activeTab === "comparison" ? dataForComparisonTable : processedData;
+    const sourceGrandTotal = activeTab === "comparison" ? grandTotalForComparisonTable : grandTotalRow;
+
+    if (!sourceData.length || !sourceColumns.length) return [];
+    
+    return sourceColumns.filter(col => {
+        if (['planned_animal_count', 'actual_animal_count', 'animal_count_difference'].includes(col)) {
+            return false; // Exclude these from ingredient quantity comparison selector
+        }
+        const firstRowValue = sourceData[0]?.[col];
         if (typeof firstRowValue === 'number') return true;
-        // Check grand total if data is empty but grand total exists
-        if (processedData.length === 0 && grandTotalRow && typeof grandTotalRow[col] === 'number') return true;
-        // Fallback for summary columns by name if actual data type check fails
+        if (sourceData.length === 0 && sourceGrandTotal && typeof sourceGrandTotal[col] === 'number') return true;
         if (col.includes('_sum') || col.includes('_average') || col.includes('_count')) return true;
-        if (NUMERIC_COLUMNS.includes(col as keyof DietDataRow)) return true; // original numeric cols
+        if (NUMERIC_COLUMNS.includes(col as keyof DietDataRow)) return true;
         return false;
     });
-  }, [processedData, currentTableColumns, grandTotalRow]);
+  }, [processedData, currentTableColumns, grandTotalRow, activeTab, dataForComparisonTable, comparisonTableColumns, grandTotalForComparisonTable]);
 
 
   const renderContentForDataTabs = (isExportTab: boolean, isComparisonTab: boolean = false) => {
-    if (isLoading) {
+    if (isLoading || (isComparisonTab && isLoadingActualSpeciesFile)) {
       return (
         <Card>
           <CardHeader><CardTitle>Processing...</CardTitle><CardDescription>Working on your request, please wait.</CardDescription></CardHeader>
@@ -260,7 +435,7 @@ export default function Home() {
       );
     }
     
-    if (rawData.length === 0 && allHeaders.length > 0) { 
+    if (rawData.length === 0 && allHeaders.length > 0 && hasAppliedFilters) { 
          return (
              <Card className="flex-1">
                 <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
@@ -283,8 +458,13 @@ export default function Home() {
             </Card>
         );
     }
+    
+    const currentDisplayData = isComparisonTab ? dataForComparisonTable : processedData;
+    const currentDisplayColumns = isComparisonTab ? comparisonTableColumns : currentTableColumns;
+    const currentGrandTotal = isComparisonTab ? grandTotalForComparisonTable : grandTotalRow;
 
-    if (processedData.length === 0 && rawData.length > 0 && hasAppliedFilters && !isComparisonTab ) { 
+
+    if (currentDisplayData.length === 0 && rawData.length > 0 && hasAppliedFilters && !isComparisonTab ) { 
        return (
           <Card className="flex-1">
             <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
@@ -296,7 +476,7 @@ export default function Home() {
           </Card>
         );
     }
-     if (filteredData.length === 0 && rawData.length > 0 && hasAppliedFilters && isComparisonTab) {
+     if (currentDisplayData.length === 0 && rawData.length > 0 && hasAppliedFilters && isComparisonTab) {
         return (
           <Card className="flex-1">
             <CardHeader>
@@ -316,9 +496,23 @@ export default function Home() {
         return (
           <div className="flex flex-col flex-1 min-h-0 space-y-4">
             <Card className="p-4">
+                <CardTitle className="text-lg mb-2">Species Count Comparison</CardTitle>
+                <CardDescription className="mb-4">Upload an Excel file with actual species counts. Expected columns: site_name, section_name, user_enclosure_name, common_name, actual_animal_count.</CardDescription>
+                <FileUpload
+                    onFileSelected={handleActualSpeciesFileSelectedCallback}
+                    onProcessing={setIsLoadingActualSpeciesFile}
+                    disabled={isLoadingActualSpeciesFile || !hasAppliedFilters}
+                />
+                 {parsedActualSpeciesData.length > 0 && (
+                    <p className="text-sm text-green-600 mt-2">"{actualSpeciesFileName}" loaded with {parsedActualSpeciesData.length} rows. Data merged into table below.</p>
+                )}
+            </Card>
+            <Separator />
+            <Card className="p-4">
+              <CardTitle className="text-lg mb-2">Ingredient Quantity Comparison</CardTitle>
               <div className="flex items-center gap-4">
                 <Label htmlFor="comparison-column-select" className="text-sm font-medium whitespace-nowrap">
-                  Select Planned Quantity Column:
+                  Select Planned Ingredient Quantity Column:
                 </Label>
                 <Select
                   value={selectedComparisonColumn || ""}
@@ -340,14 +534,15 @@ export default function Home() {
                 </Select>
               </div>
             </Card>
-            {selectedComparisonColumn ? (
+
+            {(selectedComparisonColumn || parsedActualSpeciesData.length > 0) ? (
               <div className="flex-1 min-h-0">
                 <DataTable 
-                  data={processedData} 
-                  columns={currentTableColumns} 
-                  grandTotalRow={grandTotalRow}
+                  data={dataForComparisonTable} 
+                  columns={comparisonTableColumns} 
+                  grandTotalRow={grandTotalForComparisonTable}
                   isComparisonMode={true}
-                  comparisonColumn={selectedComparisonColumn}
+                  comparisonColumn={selectedComparisonColumn} // For ingredient qty
                   actualQuantities={actualComparisonQuantities}
                   onActualQuantityChange={handleActualQuantityChange}
                   groupingColumns={groupings.map(g => g.column)}
@@ -357,7 +552,7 @@ export default function Home() {
               <Card>
                 <CardContent className="p-6 text-center text-muted-foreground">
                   <Columns className="h-12 w-12 text-primary/50 mx-auto mb-4" />
-                  <p>Please select a numeric column from the dropdown above to enable comparison.</p>
+                  <p>Please select a numeric column for ingredient quantity comparison or upload an actual species count file.</p>
                 </CardContent>
               </Card>
             )}
@@ -365,7 +560,7 @@ export default function Home() {
         );
     }
 
-    if (isExportTab) {
+    if (isExportTab) { // "Export by Section" tab
       return (
         <>
           <div className="flex justify-end mb-2">
@@ -381,11 +576,17 @@ export default function Home() {
                   const rawDataForThisSection = rawData.filter(row => {
                     const sectionMatch = String(row.section_name || '').trim() === sectionName;
                     if (!sectionMatch) return false;
+                     // This inner filtering logic for sections must use the original rawData and current filters
+                     // not the already pivoted processedData
                      return filters.every(filter => {
-                        const rowValue = calculateProcessedTableData([row], [], [], [filter], allHeaders, true).filteredData[0]?.[filter.column];
-                         const filterValue = filter.value;
-                         const normalizedRowValue = String(rowValue ?? '').toLowerCase();
-                        if (rowValue === undefined || rowValue === null || String(rowValue).trim() === '') {
+                        // Create a temporary single-row dataset for calculateProcessedTableData to evaluate filter
+                        const tempRowArray = [row];
+                        // Get the value as it would be after potential processing for that filter column
+                        const valueAfterProcessing = calculateProcessedTableData(tempRowArray, [], [], [filter], allHeaders, true).filteredData[0]?.[filter.column];
+                        const filterValue = filter.value;
+                        const normalizedRowValue = String(valueAfterProcessing ?? '').toLowerCase();
+
+                        if (valueAfterProcessing === undefined || valueAfterProcessing === null || String(valueAfterProcessing).trim() === '') {
                              return filter.type === 'equals' && (filterValue === '' || filterValue === null);
                         }
                         switch (filter.type) {
@@ -395,7 +596,7 @@ export default function Home() {
                           case 'range_number':
                             if (Array.isArray(filterValue) && filterValue.length === 2) {
                               const [min, max] = filterValue.map(v => parseFloat(String(v)));
-                              const numericRowValue = parseFloat(String(rowValue));
+                              const numericRowValue = parseFloat(String(valueAfterProcessing));
                               if (isNaN(numericRowValue)) return false;
                               const minCheck = isNaN(min) || numericRowValue >= min;
                               const maxCheck = isNaN(max) || numericRowValue <= max;
@@ -544,11 +745,11 @@ export default function Home() {
           <TabsContent value="comparison" className="mt-2 flex flex-col flex-1 min-h-0">
              <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
                  <InteractiveFilters
-                    rawData={rawData}
+                    rawData={rawData} // These filters will apply to the main diet plan data
                     allHeaders={allHeaders}
                     appliedFilters={filters}
                     onApplyFilters={handleApplyFiltersCallback}
-                    disabled={isLoading || !isFileSelected}
+                    disabled={isLoading || !isFileSelected || isLoadingActualSpeciesFile}
                 />
                 {renderContentForDataTabs(false, true)}
               </div>
