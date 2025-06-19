@@ -28,8 +28,6 @@ export interface DietDataRow {
   base_uom_name?: string;
   note?: string; // For subtotals, special notes, or markers
   actual_animal_count?: number; // Added for species count comparison
-  planned_animal_count?: number; // Added for species count comparison
-  animal_count_difference?: number; // Added for species count comparison
 }
 
 export interface GroupingOption {
@@ -98,3 +96,6 @@ export const DEFAULT_IMAGE_PIVOT_SUMMARIES: SummarizationOption[] = [
 
 export const DEFAULT_IMAGE_PIVOT_FILTER_COLUMNS: (keyof DietDataRow)[] = ['class_name'];
 export const PIVOT_DEFAULT_FILTERS: (keyof DietDataRow)[] = [];
+
+
+    

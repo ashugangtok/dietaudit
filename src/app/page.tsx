@@ -95,15 +95,12 @@ export default function Home() {
   // Effect to merge processedData with parsedActualSpeciesData for the comparison tab
   useEffect(() => {
     if (activeTab !== "comparison" || !hasAppliedFilters) {
-        // If not in comparison tab or filters not applied, reset comparison-specific data
-        // This prevents stale data from previous views if the main data changes
         setDataForComparisonTable(processedData || []);
         setGrandTotalForComparisonTable(grandTotalRow);
         setComparisonTableColumns(currentTableColumns || []);
         return;
     }
     
-    // Default to base processed data if no actual species data is loaded
     if (!parsedActualSpeciesData || parsedActualSpeciesData.length === 0) {
       setDataForComparisonTable(processedData || []);
       setGrandTotalForComparisonTable(grandTotalRow);
@@ -116,7 +113,7 @@ export default function Home() {
 
     parsedActualSpeciesData.forEach(sRow => {
       const keyParts = speciesLookupKeys.map(k => String(sRow[k] ?? '').trim().toLowerCase());
-      if (keyParts.every(part => part !== '')) { // Ensure all key parts are present
+      if (keyParts.every(part => part !== '')) { 
         const key = keyParts.join('||');
         const count = parseFloat(String(sRow['actual_animal_count'] ?? '0'));
         if (!isNaN(count)) {
@@ -143,74 +140,38 @@ export default function Home() {
          actualAnimalCount = actualSpeciesMap.get(lookupKey);
       }
       
-      const plannedKeyCandidates = ['total_animal_sum', 'total_animal_average', 'total_animal'];
-      let plannedCountValue: number | undefined = undefined;
-      for (const cand of plannedKeyCandidates) {
-          if (pRow[cand] !== undefined && pRow[cand] !== PIVOT_BLANK_MARKER) {
-              const parsed = parseFloat(String(pRow[cand]));
-              if (!isNaN(parsed)) {
-                  plannedCountValue = parsed;
-                  break;
-              }
-          }
-      }
-      newRow.planned_animal_count = plannedCountValue;
-
       if (actualAnimalCount !== undefined) {
         newRow.actual_animal_count = actualAnimalCount;
-        if (plannedCountValue !== undefined) {
-           newRow.animal_count_difference = actualAnimalCount - plannedCountValue;
-        }
       }
       return newRow;
     });
     setDataForComparisonTable(mergedData);
 
     let newComparisonTableColumns = [...(currentTableColumns || [])];
-    const animalColumns = ['planned_animal_count', 'actual_animal_count', 'animal_count_difference'];
-    animalColumns.forEach(ac => {
-      if (!newComparisonTableColumns.includes(ac)) {
-        // Try to insert after common_name or group_name, or at a reasonable position
+    const actualAnimalCountCol = 'actual_animal_count';
+    
+    if (!newComparisonTableColumns.includes(actualAnimalCountCol)) {
         const commonNameIndex = newComparisonTableColumns.indexOf('common_name');
         const groupNameIndex = newComparisonTableColumns.indexOf('group_name');
-        let insertAtIndex = newComparisonTableColumns.length; // default to end
+        let insertAtIndex = newComparisonTableColumns.length; 
         if (commonNameIndex !== -1) insertAtIndex = commonNameIndex + 1;
         else if (groupNameIndex !== -1) insertAtIndex = groupNameIndex + 1;
         
-        // Ensure not to insert duplicates and manage order
-        if (ac === 'planned_animal_count' && !newComparisonTableColumns.includes(ac)) newComparisonTableColumns.splice(insertAtIndex, 0, ac);
-        if (ac === 'actual_animal_count' && !newComparisonTableColumns.includes(ac)) newComparisonTableColumns.splice(insertAtIndex + (newComparisonTableColumns.includes('planned_animal_count') ? 1:0), 0, ac);
-        if (ac === 'animal_count_difference' && !newComparisonTableColumns.includes(ac)) newComparisonTableColumns.splice(insertAtIndex + (newComparisonTableColumns.includes('planned_animal_count') ? 1:0) + (newComparisonTableColumns.includes('actual_animal_count') ? 1:0) , 0, ac);
-      }
-    });
-    // Deduplicate columns just in case
+        newComparisonTableColumns.splice(insertAtIndex, 0, actualAnimalCountCol);
+    }
+    
     newComparisonTableColumns = [...new Set(newComparisonTableColumns)];
     setComparisonTableColumns(newComparisonTableColumns);
 
 
     if (grandTotalRow) {
       const newGrandTotal = { ...grandTotalRow };
-      const plannedTotalKeyCandidates = ['total_animal_sum', 'total_animal_average', 'total_animal'];
-      let grandPlannedValue: number | undefined;
-       for (const cand of plannedTotalKeyCandidates) {
-          if (grandTotalRow[cand] !== undefined && grandTotalRow[cand] !== PIVOT_BLANK_MARKER) {
-              const parsed = parseFloat(String(grandTotalRow[cand]));
-              if (!isNaN(parsed)) {
-                  grandPlannedValue = parsed;
-                  break;
-              }
-          }
-      }
-      newGrandTotal.planned_animal_count = grandPlannedValue;
       
       newGrandTotal.actual_animal_count = mergedData.reduce((sum, row) => {
           const actual = row.actual_animal_count;
           return sum + (typeof actual === 'number' && !isNaN(actual) ? actual : 0);
       },0);
 
-      if (newGrandTotal.actual_animal_count !== undefined && newGrandTotal.planned_animal_count !== undefined) {
-        newGrandTotal.animal_count_difference = newGrandTotal.actual_animal_count - newGrandTotal.planned_animal_count;
-      }
       setGrandTotalForComparisonTable(newGrandTotal);
     } else {
       setGrandTotalForComparisonTable(undefined);
@@ -233,7 +194,7 @@ export default function Home() {
     setActiveTab("extractedData"); 
     setActualComparisonQuantities({});
     setSelectedComparisonColumn(null);
-    setParsedActualSpeciesData([]); // Clear previous species data
+    setParsedActualSpeciesData([]); 
 
     toast({
         title: "File Selected",
@@ -349,7 +310,6 @@ export default function Home() {
   }, [isFileSelected, rawFileBase64, rawFileName, toast]);
 
   const handleDownloadAllPdf = () => {
-    // Determine which data to use based on the active tab
     const dataToExport = activeTab === "comparison" ? dataForComparisonTable : processedData;
     const columnsToExport = activeTab === "comparison" ? comparisonTableColumns : currentTableColumns;
     const grandTotalToExport = activeTab === "comparison" ? grandTotalForComparisonTable : grandTotalRow;
@@ -389,8 +349,8 @@ export default function Home() {
     if (!sourceData.length || !sourceColumns.length) return [];
     
     return sourceColumns.filter(col => {
-        if (['planned_animal_count', 'actual_animal_count', 'animal_count_difference'].includes(col)) {
-            return false; // Exclude these from ingredient quantity comparison selector
+        if (['actual_animal_count'].includes(col)) { // Only exclude actual_animal_count now
+            return false; 
         }
         const firstRowValue = sourceData[0]?.[col];
         if (typeof firstRowValue === 'number') return true;
@@ -496,7 +456,7 @@ export default function Home() {
         return (
           <div className="flex flex-col flex-1 min-h-0 space-y-4">
             <Card className="p-4">
-                <CardTitle className="text-lg mb-2">Species Count Comparison</CardTitle>
+                <CardTitle className="text-lg mb-2">Actual Species Count Upload</CardTitle>
                 <CardDescription className="mb-4">Upload an Excel file with actual species counts. Expected columns: site_name, section_name, user_enclosure_name, common_name, actual_animal_count.</CardDescription>
                 <FileUpload
                     onFileSelected={handleActualSpeciesFileSelectedCallback}
@@ -542,7 +502,7 @@ export default function Home() {
                   columns={comparisonTableColumns} 
                   grandTotalRow={grandTotalForComparisonTable}
                   isComparisonMode={true}
-                  comparisonColumn={selectedComparisonColumn} // For ingredient qty
+                  comparisonColumn={selectedComparisonColumn} 
                   actualQuantities={actualComparisonQuantities}
                   onActualQuantityChange={handleActualQuantityChange}
                   groupingColumns={groupings.map(g => g.column)}
@@ -560,7 +520,7 @@ export default function Home() {
         );
     }
 
-    if (isExportTab) { // "Export by Section" tab
+    if (isExportTab) { 
       return (
         <>
           <div className="flex justify-end mb-2">
@@ -576,12 +536,8 @@ export default function Home() {
                   const rawDataForThisSection = rawData.filter(row => {
                     const sectionMatch = String(row.section_name || '').trim() === sectionName;
                     if (!sectionMatch) return false;
-                     // This inner filtering logic for sections must use the original rawData and current filters
-                     // not the already pivoted processedData
                      return filters.every(filter => {
-                        // Create a temporary single-row dataset for calculateProcessedTableData to evaluate filter
                         const tempRowArray = [row];
-                        // Get the value as it would be after potential processing for that filter column
                         const valueAfterProcessing = calculateProcessedTableData(tempRowArray, [], [], [filter], allHeaders, true).filteredData[0]?.[filter.column];
                         const filterValue = filter.value;
                         const normalizedRowValue = String(valueAfterProcessing ?? '').toLowerCase();
@@ -745,7 +701,7 @@ export default function Home() {
           <TabsContent value="comparison" className="mt-2 flex flex-col flex-1 min-h-0">
              <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
                  <InteractiveFilters
-                    rawData={rawData} // These filters will apply to the main diet plan data
+                    rawData={rawData} 
                     allHeaders={allHeaders}
                     appliedFilters={filters}
                     onApplyFilters={handleApplyFiltersCallback}
@@ -765,4 +721,6 @@ export default function Home() {
     </main>
   );
 }
+    
+
     
