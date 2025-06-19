@@ -109,11 +109,17 @@ export default function Home() {
     }
 
     const speciesLookupKeys = ['site_name', 'section_name', 'user_enclosure_name', 'common_name'];
+    const EMPTY_KEY_PART = '__EMPTY_CONTEXT_PART__';
     const actualSpeciesMap = new Map<string, number>();
 
     parsedActualSpeciesData.forEach(sRow => {
-      const keyParts = speciesLookupKeys.map(k => String(sRow[k] ?? '').trim().toLowerCase());
-      if (keyParts.every(part => part !== '')) { 
+      const keyParts = speciesLookupKeys.map(k => {
+        const val = sRow[k];
+        return (val === undefined || val === null || String(val).trim() === '') ? EMPTY_KEY_PART : String(val).trim().toLowerCase();
+      });
+      // Ensure all key parts for the map are actual values, not placeholders for empty.
+      // This means a row in species file must have all context fields to be mapped.
+      if (keyParts.every(part => part !== EMPTY_KEY_PART)) {
         const key = keyParts.join('||');
         const count = parseFloat(String(sRow['actual_animal_count'] ?? '0'));
         if (!isNaN(count)) {
@@ -133,9 +139,14 @@ export default function Home() {
         }
       });
       
-      const lookupKeyParts = speciesLookupKeys.map(k => String(currentContext[k] ?? '').trim().toLowerCase());
+      const lookupKeyParts = speciesLookupKeys.map(k => {
+        const val = currentContext[k];
+        return (val === undefined || val === null || String(val).trim() === '') ? EMPTY_KEY_PART : String(val).trim().toLowerCase();
+      });
+      
       let actualAnimalCount: number | undefined = undefined;
-      if (lookupKeyParts.every(part => part !== '')) {
+      // Only attempt lookup if all parts of the key from currentContext are "real" values
+      if (lookupKeyParts.every(part => part !== EMPTY_KEY_PART)) {
          const lookupKey = lookupKeyParts.join('||');
          actualAnimalCount = actualSpeciesMap.get(lookupKey);
       }
@@ -150,14 +161,28 @@ export default function Home() {
     let newComparisonTableColumns = [...(currentTableColumns || [])];
     const actualAnimalCountCol = 'actual_animal_count';
     
-    if (!newComparisonTableColumns.includes(actualAnimalCountCol)) {
+    if (parsedActualSpeciesData.length > 0 && !newComparisonTableColumns.includes(actualAnimalCountCol)) {
         const commonNameIndex = newComparisonTableColumns.indexOf('common_name');
         const groupNameIndex = newComparisonTableColumns.indexOf('group_name');
-        let insertAtIndex = newComparisonTableColumns.length; 
-        if (commonNameIndex !== -1) insertAtIndex = commonNameIndex + 1;
+        
+        let insertAtIndex = -1;
+        // Try to insert after 'total_animal_sum' or 'total_animal_average' if they exist
+        const totalAnimalSumIndex = newComparisonTableColumns.findIndex(col => col.startsWith('total_animal_sum'));
+        const totalAnimalAvgIndex = newComparisonTableColumns.findIndex(col => col.startsWith('total_animal_average'));
+        const totalAnimalIndex = newComparisonTableColumns.indexOf('total_animal');
+
+
+        if (totalAnimalSumIndex !== -1) insertAtIndex = totalAnimalSumIndex + 1;
+        else if (totalAnimalAvgIndex !== -1) insertAtIndex = totalAnimalAvgIndex + 1;
+        else if (totalAnimalIndex !== -1) insertAtIndex = totalAnimalIndex + 1;
+        else if (commonNameIndex !== -1) insertAtIndex = commonNameIndex + 1;
         else if (groupNameIndex !== -1) insertAtIndex = groupNameIndex + 1;
         
-        newComparisonTableColumns.splice(insertAtIndex, 0, actualAnimalCountCol);
+        if (insertAtIndex !== -1) {
+            newComparisonTableColumns.splice(insertAtIndex, 0, actualAnimalCountCol);
+        } else {
+            newComparisonTableColumns.push(actualAnimalCountCol); 
+        }
     }
     
     newComparisonTableColumns = [...new Set(newComparisonTableColumns)];
@@ -166,12 +191,12 @@ export default function Home() {
 
     if (grandTotalRow) {
       const newGrandTotal = { ...grandTotalRow };
-      
-      newGrandTotal.actual_animal_count = mergedData.reduce((sum, row) => {
-          const actual = row.actual_animal_count;
-          return sum + (typeof actual === 'number' && !isNaN(actual) ? actual : 0);
-      },0);
-
+      if (parsedActualSpeciesData.length > 0) {
+        newGrandTotal.actual_animal_count = mergedData.reduce((sum, row) => {
+            const actual = row.actual_animal_count;
+            return sum + (typeof actual === 'number' && !isNaN(actual) ? actual : 0);
+        },0);
+      }
       setGrandTotalForComparisonTable(newGrandTotal);
     } else {
       setGrandTotalForComparisonTable(undefined);
@@ -215,7 +240,7 @@ export default function Home() {
             setParsedActualSpeciesData(result.parsedData);
             toast({
                 title: "Actual Species File Processed",
-                description: `"${fileName}" processed. Its data will be used in the Comparison tab.`,
+                description: `"${fileName}" processed with ${result.parsedData.length} rows. Its data will be used in the Comparison tab.`,
             });
         }
     } catch (error) {
@@ -349,7 +374,7 @@ export default function Home() {
     if (!sourceData.length || !sourceColumns.length) return [];
     
     return sourceColumns.filter(col => {
-        if (['actual_animal_count'].includes(col)) { // Only exclude actual_animal_count now
+        if (['actual_animal_count'].includes(col)) { 
             return false; 
         }
         const firstRowValue = sourceData[0]?.[col];
@@ -457,14 +482,17 @@ export default function Home() {
           <div className="flex flex-col flex-1 min-h-0 space-y-4">
             <Card className="p-4">
                 <CardTitle className="text-lg mb-2">Actual Species Count Upload</CardTitle>
-                <CardDescription className="mb-4">Upload an Excel file with actual species counts. Expected columns: site_name, section_name, user_enclosure_name, common_name, actual_animal_count.</CardDescription>
+                <CardDescription className="mb-4">Upload an Excel file with actual species counts. Expected columns: site_name, section_name, user_enclosure_name, common_name, actual_animal_count (case-sensitive, underscore-separated).</CardDescription>
                 <FileUpload
                     onFileSelected={handleActualSpeciesFileSelectedCallback}
                     onProcessing={setIsLoadingActualSpeciesFile}
                     disabled={isLoadingActualSpeciesFile || !hasAppliedFilters}
                 />
                  {parsedActualSpeciesData.length > 0 && (
-                    <p className="text-sm text-green-600 mt-2">"{actualSpeciesFileName}" loaded with {parsedActualSpeciesData.length} rows. Data merged into table below.</p>
+                    <p className="text-sm text-green-600 mt-2">"{actualSpeciesFileName}" loaded with {parsedActualSpeciesData.length} rows. Data merged into table below if context matches.</p>
+                )}
+                 {parsedActualSpeciesData.length === 0 && actualSpeciesFileName !== "species_counts" && !isLoadingActualSpeciesFile && (
+                    <p className="text-sm text-orange-600 mt-2">"{actualSpeciesFileName}" loaded, but no data rows were extracted or could be mapped. Ensure file format and headers are correct.</p>
                 )}
             </Card>
             <Separator />
@@ -513,6 +541,7 @@ export default function Home() {
                 <CardContent className="p-6 text-center text-muted-foreground">
                   <Columns className="h-12 w-12 text-primary/50 mx-auto mb-4" />
                   <p>Please select a numeric column for ingredient quantity comparison or upload an actual species count file.</p>
+                   <p className="text-xs mt-1">(Actual Animal Count column will appear after species file is uploaded and processed, if context matches.)</p>
                 </CardContent>
               </Card>
             )}
