@@ -266,8 +266,8 @@ export function calculateProcessedTableData(
                     originalDietNameValue !== PIVOT_BLANK_MARKER && 
                     String(originalDietNameValue).trim() !== '') {
                     
-                    const speciesList = Array.from(speciesSet!).sort().join(', ');
-                    representativeRow[dietNameColumnKey] = `${originalDietNameValue} (${speciesCount} Species: ${speciesList})`;
+                    const speciesList = Array.from(speciesSet!).sort().join('\n');
+                    representativeRow[dietNameColumnKey] = `${originalDietNameValue} (${speciesCount} Species:\n${speciesList})`;
                 }
             }
 
