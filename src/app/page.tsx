@@ -101,74 +101,103 @@ export default function Home() {
         return;
     }
     
-    if (!parsedActualSpeciesData || parsedActualSpeciesData.length === 0) {
-      setDataForComparisonTable(processedData || []);
-      setGrandTotalForComparisonTable(grandTotalRow);
-      // Explicitly filter out total_animal summaries and actual_animal_count for comparison tab view
-      const columnsToExclude = ['actual_animal_count', 'total_animal_sum', 'total_animal_average', 'total_animal_count', 'total_animal_first', 'total_animal_max'];
-      const finalComparisonCols = (currentTableColumns || []).filter(col => !columnsToExclude.includes(col));
-      setComparisonTableColumns(finalComparisonCols);
-      
-      if (grandTotalRow) {
-          const newGrandTotal = { ...grandTotalRow };
-          columnsToExclude.forEach(colToExclude => {
-              delete newGrandTotal[colToExclude];
-          });
-          setGrandTotalForComparisonTable(newGrandTotal);
-      } else {
-          setGrandTotalForComparisonTable(undefined);
-      }
-      return;
+    let baseDataForComparison = [...(processedData || [])];
+    let tempComparisonTableCols = [...(currentTableColumns || [])];
+
+    if (parsedActualSpeciesData && parsedActualSpeciesData.length > 0) {
+      const speciesLookupKeys = ['site_name', 'section_name', 'user_enclosure_name', 'common_name'];
+      const EMPTY_KEY_PART = '__EMPTY_CONTEXT_PART__';
+      const actualSpeciesMap = new Map<string, number>();
+
+      parsedActualSpeciesData.forEach(sRow => {
+        const keyParts = speciesLookupKeys.map(k => {
+          const val = sRow[k];
+          return (val === undefined || val === null || String(val).trim() === '') ? EMPTY_KEY_PART : String(val).trim().toLowerCase();
+        });
+        if (keyParts.every(part => part !== EMPTY_KEY_PART)) {
+          const key = keyParts.join('||');
+          const count = parseFloat(String(sRow['actual_animal_count'] ?? '0'));
+          if (!isNaN(count)) {
+            actualSpeciesMap.set(key, (actualSpeciesMap.get(key) || 0) + count);
+          }
+        }
+      });
+
+      let currentContext: Record<string, any> = {};
+      baseDataForComparison = baseDataForComparison.map(pRow => {
+        const newRow = { ...pRow };
+        groupings.forEach(g => {
+          const groupCol = g.column;
+          if (pRow[groupCol] !== PIVOT_BLANK_MARKER && pRow[groupCol] !== undefined) {
+            currentContext[groupCol] = pRow[groupCol];
+          }
+        });
+        
+        const lookupKeyParts = speciesLookupKeys.map(k => {
+          const val = currentContext[k];
+          return (val === undefined || val === null || String(val).trim() === '') ? EMPTY_KEY_PART : String(val).trim().toLowerCase();
+        });
+        
+        if (lookupKeyParts.every(part => part !== EMPTY_KEY_PART)) {
+           const lookupKey = lookupKeyParts.join('||');
+           newRow.actual_animal_count = actualSpeciesMap.get(lookupKey);
+        }
+        return newRow;
+      });
     }
 
-    const speciesLookupKeys = ['site_name', 'section_name', 'user_enclosure_name', 'common_name'];
-    const EMPTY_KEY_PART = '__EMPTY_CONTEXT_PART__';
-    const actualSpeciesMap = new Map<string, number>();
+    // Calculate "Total Ingredients Required"
+    const dataWithTotalIngredients = baseDataForComparison.map(row => {
+        const newRow = { ...row };
+        let animalCountForCalc: number | undefined;
 
-    parsedActualSpeciesData.forEach(sRow => {
-      const keyParts = speciesLookupKeys.map(k => {
-        const val = sRow[k];
-        return (val === undefined || val === null || String(val).trim() === '') ? EMPTY_KEY_PART : String(val).trim().toLowerCase();
-      });
-      if (keyParts.every(part => part !== EMPTY_KEY_PART)) {
-        const key = keyParts.join('||');
-        const count = parseFloat(String(sRow['actual_animal_count'] ?? '0'));
-        if (!isNaN(count)) {
-          actualSpeciesMap.set(key, (actualSpeciesMap.get(key) || 0) + count);
+        if (newRow.actual_animal_count !== undefined && typeof newRow.actual_animal_count === 'number') {
+            animalCountForCalc = newRow.actual_animal_count;
+        } else if (newRow.total_animal_sum !== undefined && typeof newRow.total_animal_sum === 'number') {
+            animalCountForCalc = newRow.total_animal_sum;
+        } else if (newRow.total_animal_average !== undefined && typeof newRow.total_animal_average === 'number') {
+            animalCountForCalc = newRow.total_animal_average;
+        } else if (typeof newRow.common_name === 'string') {
+            const match = String(newRow.common_name).match(/\((\d+(\.\d+)?)\)$/); // Matches (Number) or (Number.Decimal)
+            if (match && match[1]) {
+                animalCountForCalc = parseFloat(match[1]);
+            }
         }
-      }
-    });
 
-    let currentContext: Record<string, any> = {};
-    const mergedData = (processedData || []).map(pRow => {
-      const newRow = { ...pRow };
-
-      groupings.forEach(g => {
-        const groupCol = g.column;
-        if (pRow[groupCol] !== PIVOT_BLANK_MARKER && pRow[groupCol] !== undefined) {
-          currentContext[groupCol] = pRow[groupCol];
+        let ingredientQtySumForCalc: number | undefined;
+        const ingredientSumCol = tempComparisonTableCols.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
+        if (ingredientSumCol && newRow[ingredientSumCol] !== undefined && typeof newRow[ingredientSumCol] === 'number') {
+            ingredientQtySumForCalc = newRow[ingredientSumCol] as number;
         }
-      });
-      
-      const lookupKeyParts = speciesLookupKeys.map(k => {
-        const val = currentContext[k];
-        return (val === undefined || val === null || String(val).trim() === '') ? EMPTY_KEY_PART : String(val).trim().toLowerCase();
-      });
-      
-      let actualAnimalCount: number | undefined = undefined;
-      if (lookupKeyParts.every(part => part !== EMPTY_KEY_PART)) {
-         const lookupKey = lookupKeyParts.join('||');
-         actualAnimalCount = actualSpeciesMap.get(lookupKey);
-      }
-      
-      // Do not add actual_animal_count to the row if we are not displaying it
-      // newRow.actual_animal_count = actualAnimalCount; // Removed for now to hide column
-      return newRow;
-    });
-    setDataForComparisonTable(mergedData);
 
+
+        if (animalCountForCalc !== undefined && ingredientQtySumForCalc !== undefined && !isNaN(animalCountForCalc) && !isNaN(ingredientQtySumForCalc)) {
+            newRow.total_ingredients_required = parseFloat((animalCountForCalc * ingredientQtySumForCalc).toFixed(4));
+        } else {
+            newRow.total_ingredients_required = undefined;
+        }
+        return newRow;
+    });
+    
+    setDataForComparisonTable(dataWithTotalIngredients);
+
+    // Add 'total_ingredients_required' to columns if it's not already there and there's data
+    if (dataWithTotalIngredients.length > 0 && !tempComparisonTableCols.includes('total_ingredients_required')) {
+        const ingredientSumColIndex = tempComparisonTableCols.findIndex(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
+        if (ingredientSumColIndex !== -1) {
+            tempComparisonTableCols.splice(ingredientSumColIndex + 1, 0, 'total_ingredients_required');
+        } else {
+             const lastGroupingColIndex = groupings.length > 0 ? tempComparisonTableCols.indexOf(groupings[groupings.length - 1].column) : -1;
+             if (lastGroupingColIndex !== -1) {
+                tempComparisonTableCols.splice(lastGroupingColIndex + 1, 0, 'total_ingredients_required');
+             } else {
+                tempComparisonTableCols.push('total_ingredients_required');
+             }
+        }
+    }
+    
     const columnsToExclude = ['actual_animal_count', 'total_animal_sum', 'total_animal_average', 'total_animal_count', 'total_animal_first', 'total_animal_max'];
-    const finalComparisonCols = (currentTableColumns || []).filter(col => !columnsToExclude.includes(col));
+    const finalComparisonCols = tempComparisonTableCols.filter(col => !columnsToExclude.includes(col));
     setComparisonTableColumns([...new Set(finalComparisonCols)]);
 
 
@@ -177,6 +206,16 @@ export default function Home() {
       columnsToExclude.forEach(colToExclude => {
           delete newGrandTotal[colToExclude];
       });
+      
+      if (dataWithTotalIngredients.length > 0) {
+        newGrandTotal.total_ingredients_required = dataWithTotalIngredients.reduce((sum, row) => {
+            const val = row.total_ingredients_required;
+            return sum + (typeof val === 'number' && !isNaN(val) ? val : 0);
+        }, 0);
+        if (typeof newGrandTotal.total_ingredients_required === 'number') {
+             newGrandTotal.total_ingredients_required = parseFloat(newGrandTotal.total_ingredients_required.toFixed(4));
+        }
+      }
       setGrandTotalForComparisonTable(newGrandTotal);
     } else {
       setGrandTotalForComparisonTable(undefined);
@@ -352,7 +391,7 @@ export default function Home() {
     if (!sourceData.length || !sourceColumns.length) return [];
     
     return sourceColumns.filter(col => {
-        if (['actual_animal_count'].includes(col) || col.startsWith('total_animal')) { 
+        if (['actual_animal_count'].includes(col) || col.startsWith('total_animal') || col === 'total_ingredients_required') { 
             return false; 
         }
         const firstRowValue = sourceData[0]?.[col];
@@ -501,13 +540,13 @@ export default function Home() {
               </div>
             </Card>
 
-            {(selectedComparisonColumn) ? ( 
+            {(selectedComparisonColumn || currentDisplayColumns.includes('total_ingredients_required')) ? ( 
               <div className="flex-1 min-h-0">
                 <DataTable 
                   data={dataForComparisonTable} 
                   columns={comparisonTableColumns} 
                   grandTotalRow={grandTotalForComparisonTable}
-                  isComparisonMode={true}
+                  isComparisonMode={!!selectedComparisonColumn} // Only true comparison mode if a column is selected
                   comparisonColumn={selectedComparisonColumn} 
                   actualQuantities={actualComparisonQuantities}
                   onActualQuantityChange={handleActualQuantityChange}
@@ -518,7 +557,7 @@ export default function Home() {
               <Card>
                 <CardContent className="p-6 text-center text-muted-foreground">
                   <Columns className="h-12 w-12 text-primary/50 mx-auto mb-4" />
-                  <p>Please select a numeric column for ingredient quantity comparison.</p>
+                  <p>Please select a numeric column for ingredient quantity comparison, or view "Total Ingredients Required" if available.</p>
                 </CardContent>
               </Card>
             )}
@@ -730,3 +769,4 @@ export default function Home() {
     
 
     
+
