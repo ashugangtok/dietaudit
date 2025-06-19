@@ -95,9 +95,10 @@ export default function Home() {
   // Effect to merge processedData with parsedActualSpeciesData for the comparison tab
   useEffect(() => {
     if (activeTab !== "comparison" || !hasAppliedFilters) {
-        setDataForComparisonTable(processedData || []);
-        setGrandTotalForComparisonTable(grandTotalRow);
-        setComparisonTableColumns(currentTableColumns || []);
+        // Ensure comparison-specific state is a copy when not actively processing for comparison tab
+        setDataForComparisonTable((processedData || []).map(row => ({ ...row })));
+        setGrandTotalForComparisonTable(grandTotalRow ? { ...grandTotalRow } : undefined);
+        setComparisonTableColumns(currentTableColumns ? [...currentTableColumns] : []);
         return;
     }
     
@@ -115,7 +116,6 @@ export default function Home() {
           const val = sRow[k];
           return (val === undefined || val === null || String(val).trim() === '') ? EMPTY_KEY_PART : String(val).trim().toLowerCase();
         });
-        // Ensure all parts of the key are present before adding to map
         if (keyParts.every(part => part !== EMPTY_KEY_PART)) {
             const key = keyParts.join('||');
             const count = parseFloat(String(sRow['actual_animal_count'] ?? '0'));
@@ -125,10 +125,9 @@ export default function Home() {
         }
       });
       
-      // This map operation creates new row objects for baseDataForComparison
       let currentContext: Record<string, any> = {};
       baseDataForComparison = baseDataForComparison.map(pRow => {
-        const newRow = { ...pRow }; // Work on a copy
+        const newRow = { ...pRow }; 
         groupings.forEach(g => {
           const groupCol = g.column;
           if (pRow[groupCol] !== PIVOT_BLANK_MARKER && pRow[groupCol] !== undefined) {
@@ -137,25 +136,22 @@ export default function Home() {
         });
         
         const lookupKeyParts = speciesLookupKeys.map(k => {
-          const val = currentContext[k]; // Use the maintained context
+          const val = currentContext[k]; 
           return (val === undefined || val === null || String(val).trim() === '') ? EMPTY_KEY_PART : String(val).trim().toLowerCase();
         });
         
         if (lookupKeyParts.every(part => part !== EMPTY_KEY_PART)) {
            const lookupKey = lookupKeyParts.join('||');
-           newRow.actual_animal_count = actualSpeciesMap.get(lookupKey); // Add to the newRow
+           newRow.actual_animal_count = actualSpeciesMap.get(lookupKey); 
         }
         return newRow;
       });
     }
 
-    // Calculate "Total Ingredients Required"
-    // This map also creates new row objects based on the (potentially modified) baseDataForComparison
     const dataWithTotalIngredients = baseDataForComparison.map(row => {
-        const newRow = { ...row }; // Work on a copy
+        const newRow = { ...row }; 
         let animalCountForCalc: number | undefined;
 
-        // Prioritize actual_animal_count if available
         if (newRow.actual_animal_count !== undefined && typeof newRow.actual_animal_count === 'number') {
             animalCountForCalc = newRow.actual_animal_count;
         } else if (newRow.total_animal_sum !== undefined && typeof newRow.total_animal_sum === 'number') {
@@ -163,21 +159,17 @@ export default function Home() {
         } else if (newRow.total_animal_average !== undefined && typeof newRow.total_animal_average === 'number') {
             animalCountForCalc = newRow.total_animal_average;
         } else if (typeof newRow.common_name === 'string') {
-            // Fallback to parsing from "Common Name (Count)" string if other counts aren't available
             const match = String(newRow.common_name).match(/\((\d+(\.\d+)?)\)$/);
             if (match && match[1]) {
                 animalCountForCalc = parseFloat(match[1]);
             }
         }
 
-
         let ingredientQtySumForCalc: number | undefined;
-        // Find the ingredient_qty_sum column (or similar) from the original pivot table columns
         const ingredientSumCol = tempComparisonTableCols.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
         if (ingredientSumCol && newRow[ingredientSumCol] !== undefined && typeof newRow[ingredientSumCol] === 'number') {
             ingredientQtySumForCalc = newRow[ingredientSumCol] as number;
         }
-
 
         if (animalCountForCalc !== undefined && ingredientQtySumForCalc !== undefined && !isNaN(animalCountForCalc) && !isNaN(ingredientQtySumForCalc)) {
             newRow.total_ingredients_required = parseFloat((animalCountForCalc * ingredientQtySumForCalc).toFixed(4));
@@ -189,14 +181,11 @@ export default function Home() {
     
     setDataForComparisonTable(dataWithTotalIngredients);
 
-    // Add 'total_ingredients_required' to columns if it's not already there and there's data
     if (dataWithTotalIngredients.some(row => row.total_ingredients_required !== undefined) && !tempComparisonTableCols.includes('total_ingredients_required')) {
         const ingredientSumColIndex = tempComparisonTableCols.findIndex(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
         if (ingredientSumColIndex !== -1) {
-            // Insert after the first ingredient quantity sum column found
             tempComparisonTableCols.splice(ingredientSumColIndex + 1, 0, 'total_ingredients_required');
         } else {
-             // Fallback: add after last grouping column or at the end
              const lastGroupingColIndex = groupings.length > 0 ? tempComparisonTableCols.indexOf(groupings[groupings.length - 1].column) : -1;
              if (lastGroupingColIndex !== -1) {
                 tempComparisonTableCols.splice(lastGroupingColIndex + 1, 0, 'total_ingredients_required');
@@ -206,19 +195,17 @@ export default function Home() {
         }
     }
     
-    // Define columns to explicitly exclude from the Comparison tab display
     const columnsToExclude = ['actual_animal_count', 'total_animal_sum', 'total_animal_average', 'total_animal_count', 'total_animal_first', 'total_animal_max'];
     const finalComparisonCols = tempComparisonTableCols.filter(col => !columnsToExclude.includes(col));
-    setComparisonTableColumns([...new Set(finalComparisonCols)]); // Use Set to ensure uniqueness if 'total_ingredients_required' was already there
+    setComparisonTableColumns([...new Set(finalComparisonCols)]); 
 
 
     if (grandTotalRow) {
-      const newGrandTotal = { ...grandTotalRow }; // Start with a copy of the original grandTotalRow
+      const newGrandTotal = { ...grandTotalRow }; 
       columnsToExclude.forEach(colToExclude => {
-          delete newGrandTotal[colToExclude]; // Remove excluded columns from the comparison grand total
+          delete newGrandTotal[colToExclude]; 
       });
       
-      // Calculate grand total for 'total_ingredients_required'
       if (dataWithTotalIngredients.some(row => row.total_ingredients_required !== undefined)) {
         newGrandTotal.total_ingredients_required = dataWithTotalIngredients.reduce((sum, row) => {
             const val = row.total_ingredients_required;
@@ -403,16 +390,14 @@ export default function Home() {
     if (!sourceData.length || !sourceColumns.length) return [];
     
     return sourceColumns.filter(col => {
-        // Exclude specific columns that are not for direct numeric comparison input or are already derived
         if (['actual_animal_count'].includes(col) || col.startsWith('total_animal') || col === 'total_ingredients_required') { 
             return false; 
         }
-        // Check if values in the column are numeric or if it's a known numeric/summary column
         const firstRowValue = sourceData[0]?.[col];
         if (typeof firstRowValue === 'number') return true;
-        if (sourceData.length === 0 && sourceGrandTotal && typeof sourceGrandTotal[col] === 'number') return true; // Check grand total if data is empty
-        if (col.includes('_sum') || col.includes('_average') || col.includes('_count')) return true; // Standard summary suffixes
-        if (NUMERIC_COLUMNS.includes(col as keyof DietDataRow) && col !== 'actual_animal_count' && !col.startsWith('total_animal')) return true; // From types
+        if (sourceData.length === 0 && sourceGrandTotal && typeof sourceGrandTotal[col] === 'number') return true; 
+        if (col.includes('_sum') || col.includes('_average') || col.includes('_count')) return true; 
+        if (NUMERIC_COLUMNS.includes(col as keyof DietDataRow) && col !== 'actual_animal_count' && !col.startsWith('total_animal')) return true; 
         return false;
     });
   }, [processedData, currentTableColumns, grandTotalRow, activeTab, dataForComparisonTable, comparisonTableColumns, grandTotalForComparisonTable]);
@@ -560,7 +545,7 @@ export default function Home() {
                   data={dataForComparisonTable} 
                   columns={comparisonTableColumns} 
                   grandTotalRow={grandTotalForComparisonTable}
-                  isComparisonMode={!!selectedComparisonColumn} // Only true comparison mode if a column is selected
+                  isComparisonMode={!!selectedComparisonColumn} 
                   comparisonColumn={selectedComparisonColumn} 
                   actualQuantities={actualComparisonQuantities}
                   onActualQuantityChange={handleActualQuantityChange}
@@ -679,7 +664,16 @@ export default function Home() {
     } else { // View Data Tab
       return (
         <div className="flex-1 min-h-0">
-          <DataTable data={processedData} columns={currentTableColumns} grandTotalRow={grandTotalRow} groupingColumns={groupings.map(g => g.column)} />
+          <DataTable 
+            data={currentDisplayData} 
+            columns={currentDisplayColumns} 
+            grandTotalRow={currentGrandTotal} 
+            groupingColumns={groupings.map(g => g.column)}
+            isComparisonMode={isComparisonTab && !!selectedComparisonColumn}
+            comparisonColumn={isComparisonTab ? selectedComparisonColumn : null}
+            actualQuantities={isComparisonTab ? actualComparisonQuantities : {}}
+            onActualQuantityChange={isComparisonTab ? handleActualQuantityChange : undefined}
+          />
         </div>
       );
     }
@@ -785,3 +779,6 @@ export default function Home() {
     
 
 
+
+
+    
