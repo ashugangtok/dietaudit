@@ -104,7 +104,20 @@ export default function Home() {
     if (!parsedActualSpeciesData || parsedActualSpeciesData.length === 0) {
       setDataForComparisonTable(processedData || []);
       setGrandTotalForComparisonTable(grandTotalRow);
-      setComparisonTableColumns(currentTableColumns || []);
+      // Explicitly filter out total_animal summaries and actual_animal_count for comparison tab view
+      const columnsToExclude = ['actual_animal_count', 'total_animal_sum', 'total_animal_average', 'total_animal_count', 'total_animal_first', 'total_animal_max'];
+      const finalComparisonCols = (currentTableColumns || []).filter(col => !columnsToExclude.includes(col));
+      setComparisonTableColumns(finalComparisonCols);
+      
+      if (grandTotalRow) {
+          const newGrandTotal = { ...grandTotalRow };
+          columnsToExclude.forEach(colToExclude => {
+              delete newGrandTotal[colToExclude];
+          });
+          setGrandTotalForComparisonTable(newGrandTotal);
+      } else {
+          setGrandTotalForComparisonTable(undefined);
+      }
       return;
     }
 
@@ -148,34 +161,28 @@ export default function Home() {
          actualAnimalCount = actualSpeciesMap.get(lookupKey);
       }
       
-      if (actualAnimalCount !== undefined) {
-        newRow.actual_animal_count = actualAnimalCount; // This property is added to the row object
-      }
+      // Do not add actual_animal_count to the row if we are not displaying it
+      // newRow.actual_animal_count = actualAnimalCount; // Removed for now to hide column
       return newRow;
     });
     setDataForComparisonTable(mergedData);
 
-    // Columns for comparison table will be the same as currentTableColumns
-    // as actual_animal_count is not being added as a displayed column.
-    let newComparisonTableColumns = [...(currentTableColumns || [])];
-    
-    // Explicitly do NOT add 'actual_animal_count' to newComparisonTableColumns here
-    // if we don't want it displayed by default.
-    // If it *were* to be displayed, the logic to insert it would go here.
-    // For now, it's removed from display.
+    const columnsToExclude = ['actual_animal_count', 'total_animal_sum', 'total_animal_average', 'total_animal_count', 'total_animal_first', 'total_animal_max'];
+    const finalComparisonCols = (currentTableColumns || []).filter(col => !columnsToExclude.includes(col));
+    setComparisonTableColumns([...new Set(finalComparisonCols)]);
 
-    newComparisonTableColumns = [...new Set(newComparisonTableColumns)];
-    setComparisonTableColumns(newComparisonTableColumns);
 
     if (grandTotalRow) {
       const newGrandTotal = { ...grandTotalRow };
-      // Do not calculate or add actual_animal_count to grand total if not displayed.
+      columnsToExclude.forEach(colToExclude => {
+          delete newGrandTotal[colToExclude];
+      });
       setGrandTotalForComparisonTable(newGrandTotal);
     } else {
       setGrandTotalForComparisonTable(undefined);
     }
 
-  }, [processedData, grandTotalRow, parsedActualSpeciesData, activeTab, hasAppliedFilters, groupings, currentTableColumns]);
+  }, [processedData, grandTotalRow, parsedActualSpeciesData, activeTab, hasAppliedFilters, groupings, currentTableColumns, allHeaders]);
 
 
   const handleFileSelectedCallback = useCallback((base64Content: string, fileName: string) => {
@@ -252,7 +259,7 @@ export default function Home() {
 
         const requiredDefaultPivotCols = [
             ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => col as string),
-            ...DEFAULT_IMAGE_PIVOT_SUMMARIES.map(s => s.column) // Summaries now exclude total_animal
+            ...DEFAULT_IMAGE_PIVOT_SUMMARIES.map(s => s.column) 
         ];
         const canApplyDefaultImagePivot = requiredDefaultPivotCols.every(col => result.headers.includes(col as string));
 
@@ -276,7 +283,6 @@ export default function Home() {
                     : result.headers.length > 0 ? [{ column: result.headers[0] }] : []);
                 setSummaries((result.headers.includes('ingredient_qty'))
                     ? [{ column: 'ingredient_qty', type: 'sum' }]
-                    // Removed total_animal as a fallback summary here as well to be consistent
                     : []);
             }
         }
@@ -346,7 +352,6 @@ export default function Home() {
     if (!sourceData.length || !sourceColumns.length) return [];
     
     return sourceColumns.filter(col => {
-        // Exclude 'actual_animal_count' explicitly from being a selectable comparison column if it ever exists
         if (['actual_animal_count'].includes(col) || col.startsWith('total_animal')) { 
             return false; 
         }
@@ -354,7 +359,7 @@ export default function Home() {
         if (typeof firstRowValue === 'number') return true;
         if (sourceData.length === 0 && sourceGrandTotal && typeof sourceGrandTotal[col] === 'number') return true;
         if (col.includes('_sum') || col.includes('_average') || col.includes('_count')) return true;
-        if (NUMERIC_COLUMNS.includes(col as keyof DietDataRow) && col !== 'actual_animal_count' && col !== 'total_animal') return true;
+        if (NUMERIC_COLUMNS.includes(col as keyof DietDataRow) && col !== 'actual_animal_count' && !col.startsWith('total_animal')) return true;
         return false;
     });
   }, [processedData, currentTableColumns, grandTotalRow, activeTab, dataForComparisonTable, comparisonTableColumns, grandTotalForComparisonTable]);
@@ -496,7 +501,7 @@ export default function Home() {
               </div>
             </Card>
 
-            {(selectedComparisonColumn) ? ( // Removed parsedActualSpeciesData.length > 0 from this condition
+            {(selectedComparisonColumn) ? ( 
               <div className="flex-1 min-h-0">
                 <DataTable 
                   data={dataForComparisonTable} 
@@ -514,7 +519,6 @@ export default function Home() {
                 <CardContent className="p-6 text-center text-muted-foreground">
                   <Columns className="h-12 w-12 text-primary/50 mx-auto mb-4" />
                   <p>Please select a numeric column for ingredient quantity comparison.</p>
-                  {/* Removed the message about Actual Animal Count as it's no longer displayed as a separate column */}
                 </CardContent>
               </Card>
             )}

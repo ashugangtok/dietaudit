@@ -90,7 +90,7 @@ export const DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
 
 export const DEFAULT_IMAGE_PIVOT_SUMMARIES: SummarizationOption[] = [
   { column: 'ingredient_qty', type: 'sum' },
-  // { column: 'total_animal', type: 'sum' }, // Removed as per user request
+  { column: 'total_animal', type: 'sum' }, // Restored default summary for total_animal
 ];
 
 
