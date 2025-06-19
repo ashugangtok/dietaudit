@@ -117,8 +117,6 @@ export default function Home() {
         const val = sRow[k];
         return (val === undefined || val === null || String(val).trim() === '') ? EMPTY_KEY_PART : String(val).trim().toLowerCase();
       });
-      // Ensure all key parts for the map are actual values, not placeholders for empty.
-      // This means a row in species file must have all context fields to be mapped.
       if (keyParts.every(part => part !== EMPTY_KEY_PART)) {
         const key = keyParts.join('||');
         const count = parseFloat(String(sRow['actual_animal_count'] ?? '0'));
@@ -145,58 +143,33 @@ export default function Home() {
       });
       
       let actualAnimalCount: number | undefined = undefined;
-      // Only attempt lookup if all parts of the key from currentContext are "real" values
       if (lookupKeyParts.every(part => part !== EMPTY_KEY_PART)) {
          const lookupKey = lookupKeyParts.join('||');
          actualAnimalCount = actualSpeciesMap.get(lookupKey);
       }
       
       if (actualAnimalCount !== undefined) {
-        newRow.actual_animal_count = actualAnimalCount;
+        newRow.actual_animal_count = actualAnimalCount; // This property is added to the row object
       }
       return newRow;
     });
     setDataForComparisonTable(mergedData);
 
+    // Columns for comparison table will be the same as currentTableColumns
+    // as actual_animal_count is not being added as a displayed column.
     let newComparisonTableColumns = [...(currentTableColumns || [])];
-    const actualAnimalCountCol = 'actual_animal_count';
     
-    if (parsedActualSpeciesData.length > 0 && !newComparisonTableColumns.includes(actualAnimalCountCol)) {
-        const commonNameIndex = newComparisonTableColumns.indexOf('common_name');
-        const groupNameIndex = newComparisonTableColumns.indexOf('group_name');
-        
-        let insertAtIndex = -1;
-        // Try to insert after 'total_animal_sum' or 'total_animal_average' if they exist
-        const totalAnimalSumIndex = newComparisonTableColumns.findIndex(col => col.startsWith('total_animal_sum'));
-        const totalAnimalAvgIndex = newComparisonTableColumns.findIndex(col => col.startsWith('total_animal_average'));
-        const totalAnimalIndex = newComparisonTableColumns.indexOf('total_animal');
+    // Explicitly do NOT add 'actual_animal_count' to newComparisonTableColumns here
+    // if we don't want it displayed by default.
+    // If it *were* to be displayed, the logic to insert it would go here.
+    // For now, it's removed from display.
 
-
-        if (totalAnimalSumIndex !== -1) insertAtIndex = totalAnimalSumIndex + 1;
-        else if (totalAnimalAvgIndex !== -1) insertAtIndex = totalAnimalAvgIndex + 1;
-        else if (totalAnimalIndex !== -1) insertAtIndex = totalAnimalIndex + 1;
-        else if (commonNameIndex !== -1) insertAtIndex = commonNameIndex + 1;
-        else if (groupNameIndex !== -1) insertAtIndex = groupNameIndex + 1;
-        
-        if (insertAtIndex !== -1) {
-            newComparisonTableColumns.splice(insertAtIndex, 0, actualAnimalCountCol);
-        } else {
-            newComparisonTableColumns.push(actualAnimalCountCol); 
-        }
-    }
-    
     newComparisonTableColumns = [...new Set(newComparisonTableColumns)];
     setComparisonTableColumns(newComparisonTableColumns);
 
-
     if (grandTotalRow) {
       const newGrandTotal = { ...grandTotalRow };
-      if (parsedActualSpeciesData.length > 0) {
-        newGrandTotal.actual_animal_count = mergedData.reduce((sum, row) => {
-            const actual = row.actual_animal_count;
-            return sum + (typeof actual === 'number' && !isNaN(actual) ? actual : 0);
-        },0);
-      }
+      // Do not calculate or add actual_animal_count to grand total if not displayed.
       setGrandTotalForComparisonTable(newGrandTotal);
     } else {
       setGrandTotalForComparisonTable(undefined);
@@ -279,7 +252,7 @@ export default function Home() {
 
         const requiredDefaultPivotCols = [
             ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => col as string),
-            ...DEFAULT_IMAGE_PIVOT_SUMMARIES.map(s => s.column)
+            ...DEFAULT_IMAGE_PIVOT_SUMMARIES.map(s => s.column) // Summaries now exclude total_animal
         ];
         const canApplyDefaultImagePivot = requiredDefaultPivotCols.every(col => result.headers.includes(col as string));
 
@@ -303,9 +276,8 @@ export default function Home() {
                     : result.headers.length > 0 ? [{ column: result.headers[0] }] : []);
                 setSummaries((result.headers.includes('ingredient_qty'))
                     ? [{ column: 'ingredient_qty', type: 'sum' }]
-                    : (result.headers.includes('total_animal'))
-                        ? [{ column: 'total_animal', type: 'sum'}]
-                        : []);
+                    // Removed total_animal as a fallback summary here as well to be consistent
+                    : []);
             }
         }
         
@@ -374,14 +346,15 @@ export default function Home() {
     if (!sourceData.length || !sourceColumns.length) return [];
     
     return sourceColumns.filter(col => {
-        if (['actual_animal_count'].includes(col)) { 
+        // Exclude 'actual_animal_count' explicitly from being a selectable comparison column if it ever exists
+        if (['actual_animal_count'].includes(col) || col.startsWith('total_animal')) { 
             return false; 
         }
         const firstRowValue = sourceData[0]?.[col];
         if (typeof firstRowValue === 'number') return true;
         if (sourceData.length === 0 && sourceGrandTotal && typeof sourceGrandTotal[col] === 'number') return true;
         if (col.includes('_sum') || col.includes('_average') || col.includes('_count')) return true;
-        if (NUMERIC_COLUMNS.includes(col as keyof DietDataRow)) return true;
+        if (NUMERIC_COLUMNS.includes(col as keyof DietDataRow) && col !== 'actual_animal_count' && col !== 'total_animal') return true;
         return false;
     });
   }, [processedData, currentTableColumns, grandTotalRow, activeTab, dataForComparisonTable, comparisonTableColumns, grandTotalForComparisonTable]);
@@ -523,7 +496,7 @@ export default function Home() {
               </div>
             </Card>
 
-            {(selectedComparisonColumn || parsedActualSpeciesData.length > 0) ? (
+            {(selectedComparisonColumn) ? ( // Removed parsedActualSpeciesData.length > 0 from this condition
               <div className="flex-1 min-h-0">
                 <DataTable 
                   data={dataForComparisonTable} 
@@ -540,8 +513,8 @@ export default function Home() {
               <Card>
                 <CardContent className="p-6 text-center text-muted-foreground">
                   <Columns className="h-12 w-12 text-primary/50 mx-auto mb-4" />
-                  <p>Please select a numeric column for ingredient quantity comparison or upload an actual species count file.</p>
-                   <p className="text-xs mt-1">(Actual Animal Count column will appear after species file is uploaded and processed, if context matches.)</p>
+                  <p>Please select a numeric column for ingredient quantity comparison.</p>
+                  {/* Removed the message about Actual Animal Count as it's no longer displayed as a separate column */}
                 </CardContent>
               </Card>
             )}

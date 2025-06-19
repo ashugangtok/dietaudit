@@ -27,7 +27,7 @@ export interface DietDataRow {
   ingredient_qty?: number;
   base_uom_name?: string;
   note?: string; // For subtotals, special notes, or markers
-  actual_animal_count?: number; // Added for species count comparison
+  actual_animal_count?: number; 
 }
 
 export interface GroupingOption {
@@ -90,7 +90,7 @@ export const DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
 
 export const DEFAULT_IMAGE_PIVOT_SUMMARIES: SummarizationOption[] = [
   { column: 'ingredient_qty', type: 'sum' },
-  { column: 'total_animal', type: 'sum' }, 
+  // { column: 'total_animal', type: 'sum' }, // Removed as per user request
 ];
 
 
