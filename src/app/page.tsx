@@ -3,12 +3,12 @@
 
 import type React from 'react';
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { FileSpreadsheet, AlertCircle, ListChecks, TableIcon, Download, Loader2, BarChartHorizontalBig, UploadCloud } from 'lucide-react';
+import { FileSpreadsheet, AlertCircle, FileSearch, TableIcon, Download, Loader2, UploadCloud } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { useTableProcessor, calculateProcessedTableData, type ProcessedTableData } from '@/hooks/useTableProcessor';
+import { useTableProcessor } from '@/hooks/useTableProcessor';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption } from '@/types';
 import {
     DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS,
@@ -18,7 +18,6 @@ import {
 import FileUpload from '@/components/FileUpload';
 import DataTable from '@/components/DataTable';
 import SimpleFilterPanel from '@/components/SimpleFilterPanel';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import DietWiseLogo from '@/components/DietWiseLogo';
 import { exportToPdf } from '@/lib/pdfUtils';
 import { parseExcelFlow } from '@/ai/flows/parse-excel-flow';
@@ -112,7 +111,6 @@ export default function Home() {
          if (result.headers.includes('base_uom_name') && !DEFAULT_IMAGE_PIVOT_SUMMARIES.find(s => s.column === 'base_uom_name')) {
             requiredDefaultPivotCols.push('base_uom_name');
         }
-         // animal_id is crucial for correct animal counting.
          if (result.headers.includes('animal_id') && !requiredDefaultPivotCols.includes('animal_id')) {
             requiredDefaultPivotCols.push('animal_id');
         }
@@ -130,7 +128,6 @@ export default function Home() {
 
             const totalAnimalSummaryIndex = currentViewSummaries.findIndex(s => s.column === 'total_animal');
             if (totalAnimalSummaryIndex !== -1) {
-                 // The 'first' type for 'total_animal' is now handled by useTableProcessor to count unique animal_ids
                  currentViewSummaries[totalAnimalSummaryIndex].type = 'first';
             } else if (result.headers.includes('total_animal') && result.headers.includes('animal_id')) {
                 currentViewSummaries.push({ column: 'total_animal', type: 'first'});
@@ -145,12 +142,12 @@ export default function Home() {
                 : result.headers.length > 0 ? [{ column: result.headers[0] }] : []);
 
             const fallbackSummaries: SummarizationOption[] = [];
-            if (result.headers.includes('ingredient_qty')) fallbackSummaries.push({ column: 'ingredient_qty', type: 'sum' });
+            if (result.headers.includes('ingredient_qty')) fallbackSummaries.push({ column: 'ingredient_qty', type: 'first' });
             if (result.headers.includes('base_uom_name')) fallbackSummaries.push({ column: 'base_uom_name', type: 'first'});
             if (result.headers.includes('total_animal') && result.headers.includes('animal_id')) {
                 fallbackSummaries.push({ column: 'total_animal', type: 'first'});
             } else if (result.headers.includes('total_animal')) {
-                 fallbackSummaries.push({ column: 'total_animal', type: 'first'}); // Fallback if animal_id not present
+                 fallbackSummaries.push({ column: 'total_animal', type: 'first'}); 
             }
 
 
@@ -197,59 +194,58 @@ export default function Home() {
     let reportTitleSuffix = "Report";
     let isViewDataForPdf = false;
 
-    if (activeTab === "extractedData") {
-        dataToExport = processedData.map(row => ({...row})); // Shallow copy
+    if (activeTab === "extractedData" || activeTab === "audit") {
+        dataToExport = processedData.map(row => ({...row})); 
         columnsToExport = [...currentTableColumns];
-        grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined; // Shallow copy
-        reportTitleSuffix = "Full Diet Report";
-        isViewDataForPdf = true; // Mark for special PDF handling if needed
-    } else if (activeTab === "comparison") {
-        const comparisonGroupings: GroupingOption[] = DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS
-            .filter(g => g !== 'common_name') 
-            .map(col => ({ column: col as string }));
-        
-        const comparisonTableData = calculateProcessedTableData(
-            rawData,
-            comparisonGroupings,
-            defaultSummaries,
-            filters,
-            allHeaders,
-            hasAppliedFilters,
-            false
-        );
-        dataToExport = comparisonTableData.processedData.map(row => ({...row}));
-        columnsToExport = [...comparisonTableData.columns];
-        grandTotalToExport = comparisonTableData.grandTotalRow ? {...comparisonTableData.grandTotalRow} : undefined;
-        reportTitleSuffix = "Comparison Report";
-
-    } else if (activeTab === "exportSections") {
-        dataToExport = processedData.map(row => ({...row}));
-        columnsToExport = [...currentTableColumns];
-        grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined;
-        reportTitleSuffix = "Combined Section Report";
+        grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined; 
+        reportTitleSuffix = activeTab === "extractedData" ? "Full Diet Report" : "Audit Report";
+        isViewDataForPdf = true; 
     }
 
     const uomKey = columnsToExport.find(k => k.startsWith('base_uom_name_') && k.endsWith('_first'));
-    const ingredientQtySumKey = columnsToExport.find(k => k.startsWith('ingredient_qty_') && k.endsWith('_sum'));
+    const ingredientQtyFirstKey = columnsToExport.find(k => k.startsWith('ingredient_qty_') && k.endsWith('_first'));
+    const totalQtyRequiredKey = columnsToExport.find(k => k === 'total_qty_required_calculated');
 
-    if (uomKey && ingredientQtySumKey && allHeaders.includes('base_uom_name')) {
+
+    if (uomKey && (ingredientQtyFirstKey || totalQtyRequiredKey) && allHeaders.includes('base_uom_name')) {
         dataToExport = dataToExport.map(row => {
             const newRow = {...row};
-            const qty = newRow[ingredientQtySumKey];
-            const uom = row[uomKey];
-            if (typeof qty === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                newRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+            if (ingredientQtyFirstKey) {
+                const qtyPerAnimal = newRow[ingredientQtyFirstKey];
+                const uom = row[uomKey];
+                if (typeof qtyPerAnimal === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
+                    newRow[ingredientQtyFirstKey] = `${qtyPerAnimal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                }
+            }
+            if (totalQtyRequiredKey) {
+                const totalQty = newRow[totalQtyRequiredKey];
+                const uom = row[uomKey]; // Assume UoM is consistent
+                if (typeof totalQty === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
+                    newRow[totalQtyRequiredKey] = `${totalQty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                }
             }
             return newRow;
         });
-        if (grandTotalToExport && typeof grandTotalToExport[ingredientQtySumKey] === 'number') {
-            const qty = grandTotalToExport[ingredientQtySumKey] as number;
-            const uom = grandTotalToExport[uomKey];
-            if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                 grandTotalToExport[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+
+        if (grandTotalToExport) {
+            if (ingredientQtyFirstKey && typeof grandTotalToExport[ingredientQtyFirstKey] === 'number') {
+                const qty = grandTotalToExport[ingredientQtyFirstKey] as number;
+                const uom = grandTotalToExport[uomKey];
+                if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
+                    grandTotalToExport[ingredientQtyFirstKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                }
+            }
+            if (totalQtyRequiredKey && typeof grandTotalToExport[totalQtyRequiredKey] === 'number') {
+                const qty = grandTotalToExport[totalQtyRequiredKey] as number;
+                const uom = grandTotalToExport[uomKey]; // Assume UoM is consistent
+                if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
+                    grandTotalToExport[totalQtyRequiredKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                }
             }
         }
-         if (uomKey !== ingredientQtySumKey) { // This condition might change if View Data PDF needs UoM
+        
+        // Only remove UoM if it's not the primary quantity display (e.g., if we have separate Qty/Animal and Total Qty columns)
+        if (uomKey && (ingredientQtyFirstKey || totalQtyRequiredKey) && (ingredientQtyFirstKey !== uomKey && totalQtyRequiredKey !== uomKey)) {
             columnsToExport = columnsToExport.filter(c => c !== uomKey);
         }
     }
@@ -264,51 +260,9 @@ export default function Home() {
     }
   };
 
-
-  const handleDownloadSectionPdf = (sectionName: string, sectionTableDataInput: ProcessedTableData) => {
-     const sectionTableData = {
-         processedData: sectionTableDataInput.processedData.map(row => ({...row})),
-         columns: [...sectionTableDataInput.columns],
-         grandTotalRow: sectionTableDataInput.grandTotalRow ? {...sectionTableDataInput.grandTotalRow} : undefined
-     };
-
-     const ingredientQtySumKey = sectionTableData.columns.find(k => k.startsWith('ingredient_qty_') && k.endsWith('_sum'));
-     const uomKey = sectionTableData.columns.find(k => k.startsWith('base_uom_name_') && k.endsWith('_first'));
-
-     if (ingredientQtySumKey && uomKey && allHeaders.includes('base_uom_name')) {
-        sectionTableData.processedData = sectionTableData.processedData.map(row => {
-            const newRow = {...row};
-            const qty = newRow[ingredientQtySumKey];
-            const uom = newRow[uomKey];
-            if (typeof qty === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                newRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
-            }
-            return newRow;
-        });
-        if (sectionTableData.grandTotalRow && typeof sectionTableData.grandTotalRow[ingredientQtySumKey] === 'number') {
-            const qty = sectionTableData.grandTotalRow[ingredientQtySumKey] as number;
-            const uom = sectionTableData.grandTotalRow[uomKey];
-             if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                 sectionTableData.grandTotalRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
-            }
-        }
-        if (uomKey !== ingredientQtySumKey) {
-            sectionTableData.columns = sectionTableData.columns.filter(c => c !== uomKey);
-        }
-     }
-
-     if (sectionTableData.processedData.length > 0 && sectionTableData.columns.length > 0 && hasAppliedFilters) {
-      exportToPdf(sectionTableData.processedData, sectionTableData.columns, `Section Report: ${sectionName} - ${rawFileName}`, `${rawFileName}_section_${sectionName.replace(/\s+/g, '_')}`, sectionTableData.grandTotalRow, false, allHeaders);
-      toast({ title: "PDF Download Started", description: `PDF for section ${sectionName} is being generated.` });
-    } else {
-      toast({ variant: "destructive", title: "No Data", description: `No data available to export for section ${sectionName}. Ensure filters are applied.` });
-    }
-  };
-
-
   const year = new Date().getFullYear();
 
-  const renderContentForDataTabs = (isExportTab: boolean, isComparisonTab: boolean = false) => {
+  const renderContentForDataTabs = () => {
     if (isLoading) {
       return (
         <Card><CardHeader><CardTitle>Processing...</CardTitle></CardHeader><CardContent className="p-6 flex justify-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></CardContent></Card>
@@ -358,168 +312,27 @@ export default function Home() {
         return <Card><CardContent className="p-6 text-center text-destructive">No data or headers extracted from "<strong>{rawFileName}</strong>".</CardContent></Card>;
     }
     
-    // Check for "View Data" and "Comparison" tabs specifically for the "no data for current view" message
-    if (!isExportTab && processedData.length === 0 && rawData.length > 0 && hasAppliedFilters) {
+    if (processedData.length === 0 && rawData.length > 0 && hasAppliedFilters) {
        return <Card><CardContent className="p-6 text-center text-muted-foreground">Filters for "<strong>{rawFileName}</strong>" resulted in no data for the current view.</CardContent></Card>;
     }
 
-
-    if (isExportTab) { 
-      const getSectionData = (sectionNameValue: string) => {
-          const rawDataForThisSection = rawData.filter(row => {
-            const sectionMatch = String(row.section_name || '').trim() === sectionNameValue;
-            if (!sectionMatch) return false;
-             return filters.every(filter => {
-                const tempProcessed = calculateProcessedTableData([row], [], [], [filter], allHeaders, true, true);
-                const valueAfterProcessing = tempProcessed.filteredData[0]?.[filter.column];
-                const filterValue = filter.value;
-                const normalizedRowValue = String(valueAfterProcessing ?? '').toLowerCase();
-
-                if (valueAfterProcessing === undefined || valueAfterProcessing === null || String(valueAfterProcessing).trim() === '') {
-                     return filter.type === 'equals' && (filterValue === '' || filterValue === null);
-                }
-                switch (filter.type) {
-                  case 'equals': return normalizedRowValue === String(filterValue).toLowerCase();
-                  case 'contains': if (filterValue === '') return true; return normalizedRowValue.includes(String(filterValue).toLowerCase());
-                  case 'in': return Array.isArray(filterValue) && filterValue.map(v => String(v).toLowerCase()).includes(normalizedRowValue);
-                  case 'range_number':
-                    if (Array.isArray(filterValue) && filterValue.length === 2) {
-                      const [min, max] = filterValue.map(v => parseFloat(String(v)));
-                      const numericRowValue = parseFloat(String(valueAfterProcessing));
-                      if (isNaN(numericRowValue)) return false;
-                      const minCheck = isNaN(min) || numericRowValue >= min;
-                      const maxCheck = isNaN(max) || numericRowValue <= max;
-                      return minCheck && maxCheck;
-                    }
-                    return true;
-                  default: return true;
-                }
-            });
-          });
-          return calculateProcessedTableData( rawDataForThisSection, defaultGroupings, defaultSummaries, [], allHeaders, true, false );
-      };
-
-      const uniqueSectionNames = [...new Set(processedData.map(row => String(row.section_name || PIVOT_BLANK_MARKER).trim()).filter(name => name && name !== PIVOT_BLANK_MARKER && name !== "Grand Total"))].sort();
-       if (uniqueSectionNames.length === 0 && processedData.length === 0 && rawData.length > 0 && hasAppliedFilters) { // No sections, but also no processed data due to filters
-           return <Card><CardContent className="p-6 text-center text-muted-foreground">Filters for "<strong>{rawFileName}</strong>" resulted in no data, so no sections can be displayed.</CardContent></Card>;
-       }
-
-
-      return (
-        <>
-          <div className="flex justify-end mb-2">
-            <Button onClick={handleDownloadAllPdf} size="sm" disabled={isLoading || processedData.length === 0 || !hasAppliedFilters}>
+    return (
+      <div className="flex-1 min-h-0">
+         <div className="flex justify-end mb-2">
+           <Button onClick={handleDownloadAllPdf} size="sm" disabled={isLoading || processedData.length === 0 || !hasAppliedFilters}>
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-               Download All Sections as PDF
-            </Button>
-          </div>
-          <ScrollArea className="flex-1">
-            <div className="space-y-6">
-              {uniqueSectionNames.length > 0 ?
-                uniqueSectionNames.map((sectionName) => {
-                  const sectionTableData = getSectionData(sectionName);
-                  if (sectionTableData.processedData.length === 0) {
-                      return (
-                          <Card key={sectionName}>
-                              <CardHeader className="flex flex-row items-center justify-between p-4">
-                                  <CardTitle className="text-lg font-semibold">Section: {sectionName}</CardTitle>
-                                   <Button onClick={() => handleDownloadSectionPdf(sectionName, sectionTableData)} size="sm" variant="outline" disabled={true}>
-                                    <Download className="mr-2 h-4 w-4" /> PDF
-                                  </Button>
-                              </CardHeader>
-                              <CardContent className="p-4"><p className="text-muted-foreground">No data matches the current global filters for this section.</p></CardContent>
-                          </Card>
-                      );
-                  }
-                  return (
-                    <Card key={sectionName} className="overflow-hidden">
-                      <CardHeader className="flex flex-row items-center justify-between p-4">
-                        <CardTitle className="text-lg font-semibold">Section: {sectionName}</CardTitle>
-                        <Button onClick={() => handleDownloadSectionPdf(sectionName, sectionTableData)} size="sm" variant="outline" disabled={isLoading || sectionTableData.processedData.length === 0 || !hasAppliedFilters}>
-                          {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />} PDF
-                        </Button>
-                      </CardHeader>
-                      <CardContent className="min-h-0 pt-0 p-0">
-                         <div style={{ height: 'auto', maxHeight: '600px', overflowY: 'auto' }}>
-                          <DataTable
-                            data={sectionTableData.processedData}
-                            columns={sectionTableData.columns}
-                            grandTotalRow={sectionTableData.grandTotalRow}
-                            allHeaders={allHeaders}
-                            isViewDataTab={false} 
-                          />
-                         </div>
-                      </CardContent>
-                    </Card>
-                  );
-              }) : (
-                 <Card>
-                    <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
-                        <AlertCircle className="h-12 w-12 text-primary/50 mb-4" />
-                        <p className="font-semibold">No Sections Found</p>
-                        <p>The current filter selection for "<strong>{rawFileName}</strong>" did not yield any data with 'section_name' values, or no data matched filters.</p>
-                    </CardContent>
-                 </Card>
-               )}
-            </div>
-          </ScrollArea>
-        </>
-      );
-    } else if (isComparisonTab) { 
-        const comparisonGroupings: GroupingOption[] = DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS
-            .filter(g => g !== 'common_name') 
-            .map(col => ({ column: col as string }));
-        
-        const comparisonTableData = calculateProcessedTableData(
-            rawData,
-            comparisonGroupings,
-            defaultSummaries,
-            filters,
-            allHeaders,
-            hasAppliedFilters,
-            false 
-        );
-        
-        if (comparisonTableData.processedData.length === 0 && rawData.length > 0 && hasAppliedFilters) {
-            return <Card><CardContent className="p-6 text-center text-muted-foreground">Filters for "<strong>{rawFileName}</strong>" resulted in no data for the comparison view.</CardContent></Card>;
-        }
-
-        return (
-            <div className="flex-1 min-h-0">
-                 <div className="flex justify-end mb-2">
-                     <Button onClick={handleDownloadAllPdf} size="sm" disabled={isLoading || comparisonTableData.processedData.length === 0 || !hasAppliedFilters}>
-                        {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                        Download PDF
-                    </Button>
-                </div>
-              <DataTable
-                data={comparisonTableData.processedData}
-                columns={comparisonTableData.columns}
-                grandTotalRow={comparisonTableData.grandTotalRow}
-                allHeaders={allHeaders}
-                isViewDataTab={false} 
-              />
-            </div>
-          );
-    } else {  // This block serves "View Data"
-      return (
-        <div className="flex-1 min-h-0">
-           <div className="flex justify-end mb-2">
-             <Button onClick={handleDownloadAllPdf} size="sm" disabled={isLoading || processedData.length === 0 || !hasAppliedFilters}>
-                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                Download PDF
-            </Button>
-          </div>
-          <DataTable
-            data={processedData}
-            columns={currentTableColumns}
-            grandTotalRow={grandTotalRow}
-            allHeaders={allHeaders}
-            isViewDataTab={true} // Enable two-row display for View Data
-          />
+              Download PDF
+          </Button>
         </div>
-      );
-    }
+        <DataTable
+          data={processedData}
+          columns={currentTableColumns}
+          grandTotalRow={grandTotalRow}
+          allHeaders={allHeaders}
+          isViewDataTab={true} 
+        />
+      </div>
+    );
   };
 
 
@@ -530,15 +343,14 @@ export default function Home() {
       </header>
       <div className="px-4 py-2 border-b flex-1 min-h-0 flex flex-col">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full h-full flex flex-col">
-          <TabsList className="bg-muted p-1 rounded-md grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
+          <TabsList className="bg-muted p-1 rounded-md grid grid-cols-1 sm:grid-cols-3 md:grid-cols-3">
             <TabsTrigger value="uploadExcel" className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-primary/10 data-[state=inactive]:text-muted-foreground rounded-sm flex items-center justify-center gap-2"><UploadCloud className="h-4 w-4"/>Upcel</TabsTrigger>
             <TabsTrigger value="extractedData" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-primary/10 data-[state=inactive]:text-muted-foreground rounded-sm flex items-center justify-center gap-2"><TableIcon className="h-4 w-4" />View Data</TabsTrigger>
-            <TabsTrigger value="exportSections" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-primary/10 data-[state=inactive]:text-muted-foreground rounded-sm flex items-center justify-center gap-2"><ListChecks className="h-4 w-4"/>Export by Section</TabsTrigger>
-            <TabsTrigger value="comparison" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-primary/10 data-[state=inactive]:text-muted-foreground rounded-sm flex items-center justify-center gap-2"><BarChartHorizontalBig className="h-4 w-4"/>Comparison</TabsTrigger>
+            <TabsTrigger value="audit" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-primary/10 data-[state=inactive]:text-muted-foreground rounded-sm flex items-center justify-center gap-2"><FileSearch className="h-4 w-4"/>Audit</TabsTrigger>
           </TabsList>
 
           <TabsContent value="uploadExcel" className="mt-2 flex-1 overflow-y-auto flex items-center justify-center">
-             {renderContentForDataTabs(false, false)}
+             {renderContentForDataTabs()}
           </TabsContent>
 
           <TabsContent value="extractedData" className="mt-2 flex flex-col flex-1 min-h-0">
@@ -550,11 +362,11 @@ export default function Home() {
                     onApplyFilters={handleApplyFiltersCallback}
                     disabled={isLoading || !isFileSelected}
                 />
-                {renderContentForDataTabs(false, false)}
+                {renderContentForDataTabs()}
             </div>
           </TabsContent>
 
-          <TabsContent value="exportSections" className="mt-2 flex flex-col flex-1 min-h-0">
+          <TabsContent value="audit" className="mt-2 flex flex-col flex-1 min-h-0">
              <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
                  <SimpleFilterPanel
                     rawData={rawData}
@@ -563,20 +375,7 @@ export default function Home() {
                     onApplyFilters={handleApplyFiltersCallback}
                     disabled={isLoading || !isFileSelected}
                 />
-                {renderContentForDataTabs(true, false)}
-              </div>
-          </TabsContent>
-
-          <TabsContent value="comparison" className="mt-2 flex flex-col flex-1 min-h-0">
-             <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
-                 <SimpleFilterPanel
-                    rawData={rawData}
-                    allHeaders={allHeaders}
-                    appliedFilters={filters}
-                    onApplyFilters={handleApplyFiltersCallback}
-                    disabled={isLoading || !isFileSelected}
-                />
-                {renderContentForDataTabs(false, true)}
+                {renderContentForDataTabs()}
               </div>
           </TabsContent>
         </Tabs>
@@ -591,6 +390,4 @@ export default function Home() {
   );
 }
     
-
     
-
