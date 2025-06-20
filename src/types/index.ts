@@ -83,14 +83,15 @@ export const DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
   'group_name',
   'meal_start_time',
   'diet_name',
-  // 'common_name', // Removed as per request for Comparison tab (affects View Data & Export Sections too)
+  'common_name', // Restored common_name here
   'type_name',
   'ingredient_name',
 ];
 
 export const DEFAULT_IMAGE_PIVOT_SUMMARIES: SummarizationOption[] = [
   { column: 'ingredient_qty', type: 'sum' },
-  { column: 'total_animal', type: 'first' }, // Changed from 'sum' to 'first' based on previous refinement for View Data
+  { column: 'total_animal', type: 'first' }, 
+  { column: 'base_uom_name', type: 'first' },
 ];
 
 

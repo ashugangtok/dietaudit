@@ -44,6 +44,7 @@ export default function Home() {
 
   const { toast } = useToast();
 
+  // This main processor is used for "View Data" and "Export Sections"
   const { processedData, columns: currentTableColumns, grandTotalRow } = useTableProcessor({
     rawData,
     groupings: defaultGroupings,
@@ -135,13 +136,13 @@ export default function Home() {
             const fallbackGroupingCandidates = ['group_name', 'common_name', 'diet_name', 'type_name', 'ingredient_name', 'meal_start_time', 'section_name', 'site_name'];
             const availableFallbackGroupings = fallbackGroupingCandidates.filter(h => result.headers.includes(h as string));
             setDefaultGroupings(availableFallbackGroupings.length > 0
-                ? availableFallbackGroupings.slice(0,5).map(col => ({ column: col as string })) // Increased slice to 5 for better fallback
+                ? availableFallbackGroupings.slice(0,5).map(col => ({ column: col as string })) 
                 : result.headers.length > 0 ? [{ column: result.headers[0] }] : []);
 
             const fallbackSummaries: SummarizationOption[] = [];
             if (result.headers.includes('ingredient_qty')) fallbackSummaries.push({ column: 'ingredient_qty', type: 'sum' });
             if (result.headers.includes('base_uom_name')) fallbackSummaries.push({ column: 'base_uom_name', type: 'first'});
-            if (result.headers.includes('total_animal')) fallbackSummaries.push({ column: 'total_animal', type: 'first'}); // Use 'first' for fallback too
+            if (result.headers.includes('total_animal')) fallbackSummaries.push({ column: 'total_animal', type: 'first'});
 
             if (fallbackSummaries.length === 0 && result.parsedData.length > 0 && result.headers.length > 0) {
                 const firstDataRow = result.parsedData[0];
@@ -185,18 +186,32 @@ export default function Home() {
     let grandTotalToExport: DietDataRow | undefined = undefined;
     let reportTitleSuffix = "Report";
 
-    if (activeTab === "extractedData" || activeTab === "comparison") {
+    if (activeTab === "extractedData") {
         dataToExport = processedData.map(row => ({...row}));
         columnsToExport = [...currentTableColumns];
         grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined;
-        reportTitleSuffix = activeTab === "comparison" ? "Comparison Report" : "Full Diet Report";
+        reportTitleSuffix = "Full Diet Report";
+    } else if (activeTab === "comparison") {
+        // For comparison, get its specific data
+        const comparisonGroupings: GroupingOption[] = DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS
+            .filter(g => g !== 'common_name') // Exclude common_name for comparison tab
+            .map(col => ({ column: col as string }));
+        
+        const comparisonTableData = calculateProcessedTableData(
+            rawData,
+            comparisonGroupings,
+            defaultSummaries, // Use the same summaries as View Data for consistency
+            filters,
+            allHeaders,
+            hasAppliedFilters,
+            false
+        );
+        dataToExport = comparisonTableData.processedData.map(row => ({...row}));
+        columnsToExport = [...comparisonTableData.columns];
+        grandTotalToExport = comparisonTableData.grandTotalRow ? {...comparisonTableData.grandTotalRow} : undefined;
+        reportTitleSuffix = "Comparison Report";
+
     } else if (activeTab === "exportSections") {
-        // For "Export All Sections", we iterate and build a multi-section PDF
-        // This part remains more complex or can be simplified to one combined table
-        // For simplicity now, let's make "Download All Sections PDF" export the *currently visible processedData*
-        // which would be all sections combined if no section_name filter is applied, or filtered data.
-        // A true multi-section PDF from one button is a larger feature.
-        // For now, it will behave like "View Data" export.
         dataToExport = processedData.map(row => ({...row}));
         columnsToExport = [...currentTableColumns];
         grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined;
@@ -331,21 +346,24 @@ export default function Home() {
     if (rawData.length === 0 && allHeaders.length === 0 && hasAppliedFilters) {
         return <Card><CardContent className="p-6 text-center text-destructive">No data or headers extracted from "<strong>{rawFileName}</strong>".</CardContent></Card>;
     }
-    if (processedData.length === 0 && rawData.length > 0 && hasAppliedFilters ) {
+    if (processedData.length === 0 && rawData.length > 0 && hasAppliedFilters && !isComparisonTab) { // For View Data & Export
        return <Card><CardContent className="p-6 text-center text-muted-foreground">Filters for "<strong>{rawFileName}</strong>" resulted in no data for the current view.</CardContent></Card>;
     }
 
 
-    // For "View Data", "Export Sections", and now "Comparison" tabs
-    if (isExportTab) {
+    // For "View Data", "Export Sections"
+    if (isExportTab) { // This handles "Export Sections"
       const getSectionData = (sectionNameValue: string) => {
           const rawDataForThisSection = rawData.filter(row => {
             const sectionMatch = String(row.section_name || '').trim() === sectionNameValue;
             if (!sectionMatch) return false;
              return filters.every(filter => {
-                const valueAfterProcessing = calculateProcessedTableData([row], [], [], [filter], allHeaders, true, false).filteredData[0]?.[filter.column];
+                // Use calculateProcessedTableData with disableDisplayBlanking=true for accurate filter value checks
+                const tempProcessed = calculateProcessedTableData([row], [], [], [filter], allHeaders, true, true);
+                const valueAfterProcessing = tempProcessed.filteredData[0]?.[filter.column];
                 const filterValue = filter.value;
                 const normalizedRowValue = String(valueAfterProcessing ?? '').toLowerCase();
+
                 if (valueAfterProcessing === undefined || valueAfterProcessing === null || String(valueAfterProcessing).trim() === '') {
                      return filter.type === 'equals' && (filterValue === '' || filterValue === null);
                 }
@@ -367,6 +385,7 @@ export default function Home() {
                 }
             });
           });
+          // Process this section's data using the main defaultGroupings and defaultSummaries
           return calculateProcessedTableData( rawDataForThisSection, defaultGroupings, defaultSummaries, [], allHeaders, true, false );
       };
 
@@ -431,18 +450,47 @@ export default function Home() {
           </ScrollArea>
         </>
       );
-    } else { 
-      // This block now serves "View Data" and "Comparison" tabs
+    } else if (isComparisonTab) { // This block now serves "Comparison" tab
+        const comparisonGroupings: GroupingOption[] = DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS
+            .filter(g => g !== 'common_name') // Exclude common_name
+            .map(col => ({ column: col as string }));
+        
+        // Ensure that defaultSummaries is used, which should include 'total_animal' and 'ingredient_qty'
+        // 'base_uom_name' for display purposes with ingredient_qty
+        const comparisonTableData = calculateProcessedTableData(
+            rawData,
+            comparisonGroupings,
+            defaultSummaries, // Use the same summaries as View Data
+            filters,
+            allHeaders,
+            hasAppliedFilters,
+            false // disableDisplayBlanking = false for standard DataTable rendering
+        );
+        
+        if (comparisonTableData.processedData.length === 0 && rawData.length > 0 && hasAppliedFilters) {
+            return <Card><CardContent className="p-6 text-center text-muted-foreground">Filters for "<strong>{rawFileName}</strong>" resulted in no data for the comparison view.</CardContent></Card>;
+        }
+
+        return (
+            <div className="flex-1 min-h-0">
+                 <div className="flex justify-end mb-2">
+                     <Button onClick={handleDownloadAllPdf} size="sm" disabled={isLoading || comparisonTableData.processedData.length === 0 || !hasAppliedFilters}>
+                        {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                        Download PDF
+                    </Button>
+                </div>
+              <DataTable
+                data={comparisonTableData.processedData}
+                columns={comparisonTableData.columns}
+                grandTotalRow={comparisonTableData.grandTotalRow}
+                allHeaders={allHeaders}
+              />
+            </div>
+          );
+    } else {  // This block serves "View Data"
       return (
         <div className="flex-1 min-h-0">
-          {isComparisonTab && (
-            <div className="flex justify-end mb-2">
-                 <Button onClick={handleDownloadAllPdf} size="sm" disabled={isLoading || processedData.length === 0 || !hasAppliedFilters}>
-                    {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                    Download PDF
-                </Button>
-            </div>
-          )}
+          {/* No specific Download PDF button here for View Data; PDF is for Comparison or Export Sections */}
           <DataTable
             data={processedData}
             columns={currentTableColumns}
