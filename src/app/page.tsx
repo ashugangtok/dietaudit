@@ -1,8 +1,7 @@
 
-
 "use client";
 
-import type React from 'react';
+import React from 'react'; // Changed from "import type React from 'react';"
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { FileSpreadsheet, FileSearch, TableIcon, Download, Loader2, UploadCloud, CheckSquare } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
