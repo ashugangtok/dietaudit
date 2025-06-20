@@ -1,4 +1,3 @@
-
 "use client";
 
 import type React from 'react';
@@ -46,8 +45,10 @@ interface ComparisonPageType {
 }
 
 interface ComparisonPageDiet {
+  dietKey: string; // Unique key: dietNameRaw|commonName
   dietNameRaw: string;
-  dietNameDisplay: string; // Includes animal count
+  commonName: string; // Store common_name for display and keying
+  dietNameDisplay: string; // Includes common_name and animal count
   animalCount: number;
   types: ComparisonPageType[];
 }
@@ -63,13 +64,14 @@ interface ComparisonPageGroup {
 const COMPARISON_TAB_INITIAL_GROUPINGS: GroupingOption[] = [
   { column: 'group_name' },
   { column: 'diet_name' },
+  { column: 'common_name' }, // Added common_name
   { column: 'type_name' },
   { column: 'ingredient_name' },
 ];
 
 const COMPARISON_TAB_INITIAL_SUMMARIES: SummarizationOption[] = [
   { column: 'ingredient_qty', type: 'sum' }, // This will be "qty for 1 Species"
-  { column: 'total_animal', type: 'first' },   // Animal count for the diet context
+  { column: 'total_animal', type: 'first' },   // Animal count for the diet-species context
   { column: 'base_uom_name', type: 'first' }, // UoM for the ingredient
 ];
 
@@ -145,6 +147,7 @@ export default function Home() {
         initialProcessed.processedData.forEach(row => {
           const groupName = String(row.group_name || 'Unknown Group');
           const dietNameRaw = String(row.diet_name || 'Unknown Diet');
+          const commonName = String(row.common_name || 'Unknown Species');
           const typeName = String(row.type_name || 'Unknown Type');
           const ingredientName = String(row.ingredient_name || 'Unknown Ingredient');
           
@@ -156,12 +159,16 @@ export default function Home() {
             groupsMap.set(groupName, { groupName, diets: [], totalRowsInGroup: 0 });
           }
           const currentGroup = groupsMap.get(groupName)!;
+          
+          const dietKey = `${dietNameRaw}|${commonName}`;
 
-          let currentDiet = currentGroup.diets.find(d => d.dietNameRaw === dietNameRaw && d.animalCount === animalCount);
+          let currentDiet = currentGroup.diets.find(d => d.dietKey === dietKey && d.animalCount === animalCount);
           if (!currentDiet) {
             currentDiet = { 
+              dietKey,
               dietNameRaw, 
-              dietNameDisplay: `${dietNameRaw} (${animalCount})`, 
+              commonName,
+              dietNameDisplay: `${dietNameRaw} - ${commonName} (${animalCount})`, 
               animalCount, 
               types: [] 
             };
@@ -349,8 +356,8 @@ export default function Home() {
     }
   }, [isFileSelected, rawFileBase64, rawFileName, toast]);
 
-  const buildActualQtyKey = (groupName: string, dietNameRaw: string, typeName: string, ingredientName?: string) => {
-    let key = `${groupName}|${dietNameRaw}|${typeName}`;
+  const buildActualQtyKey = (groupName: string, dietNameRaw: string, commonName: string, typeName: string, ingredientName?: string) => {
+    let key = `${groupName}|${dietNameRaw}|${commonName}|${typeName}`;
     if (ingredientName) {
       key += `|${ingredientName}`;
     } else {
@@ -389,7 +396,7 @@ export default function Home() {
                      doc.text(`Group: ${group.groupName} (Continued)`, 40, 30);
                 }
                 doc.setFontSize(12);
-                doc.text(`Diet: ${diet.dietNameDisplay}`, 40, currentY);
+                doc.text(`Diet/Species: ${diet.dietNameDisplay}`, 40, currentY); // Updated label
                 currentY += 20;
 
                 diet.types.forEach((type, typeIdx) => {
@@ -401,14 +408,14 @@ export default function Home() {
                         doc.text(`Group: ${group.groupName} (Continued)`, 40, 30);
                         currentY += 20;
                         doc.setFontSize(12);
-                        doc.text(`Diet: ${diet.dietNameDisplay} (Continued)`, 40, currentY);
+                        doc.text(`Diet/Species: ${diet.dietNameDisplay} (Continued)`, 40, currentY); // Updated label
                         currentY += 20;
                     }
                     const head = [['Type Name', 'Ingredient Name', 'Qty/Species', 'Qty/Total', 'Qty to Receive', 'Qty Received', 'Difference']];
                     const body = [];
 
                     type.ingredients.forEach(ing => {
-                        const actualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, type.typeName, ing.ingredientName);
+                        const actualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, type.typeName, ing.ingredientName);
                         const actualQtyStr = actualQuantities[actualKey] || '';
                         const actualQtyNum = parseFloat(actualQtyStr);
                         let diffStr = '';
@@ -427,7 +434,7 @@ export default function Home() {
                     });
 
                     // Subtotal row for the type
-                    const actualTypeKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, type.typeName);
+                    const actualTypeKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, type.typeName);
                     const actualTypeQtyStr = actualQuantities[actualTypeKey] || '';
                     const actualTypeQtyNum = parseFloat(actualTypeQtyStr);
                     let diffTypeStr = '';
@@ -582,14 +589,13 @@ export default function Home() {
                 const groupRecord: any = {
                     group_id: group.groupName,
                     diet_name: diet.dietNameRaw,
+                    species: diet.commonName, // Added species
                     type_name: type.typeName,
+                    animal_count: diet.animalCount, // Added animal count for this diet/species
                     ingredients: [],
-                    // Additional context if available and needed for backend
-                    // species: diet.dietNameDisplay.split(' (')[0], // Example: Extract species from display name
-                    // animal_count: diet.animalCount,
                 };
                 
-                const actualTypeKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, type.typeName);
+                const actualTypeKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, type.typeName);
                 const actualTypeQtyStr = actualQuantities[actualTypeKey] || '';
                 if(actualTypeQtyStr !== '') {
                     groupRecord.type_actual_qty = parseFloat(actualTypeQtyStr) || null;
@@ -597,7 +603,7 @@ export default function Home() {
                 }
 
                 type.ingredients.forEach(ing => {
-                    const actualIngKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, type.typeName, ing.ingredientName);
+                    const actualIngKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, type.typeName, ing.ingredientName);
                     const actualIngQtyStr = actualQuantities[actualIngKey] || '';
                     
                     groupRecord.ingredients.push({
@@ -676,7 +682,7 @@ export default function Home() {
               <Card className="flex-1">
                 <CardHeader>
                     <CardTitle>Comparison - No Data Matches Filters or Structure</CardTitle>
-                    <CardDescription>Adjust filters or check data. Ensure group, diet, type, and ingredient columns are present.</CardDescription>
+                    <CardDescription>Adjust filters or check data. Ensure group, diet, common_name, type, and ingredient columns are present.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 text-center text-muted-foreground">
                     <AlertCircle className="h-12 w-12 text-destructive/50 mx-auto mb-4" />
@@ -694,7 +700,7 @@ export default function Home() {
                     let isFirstRowOfDiet = true;
                     diet.types.forEach((type) => {
                         // Type subtotal row first
-                        const typeActualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, type.typeName);
+                        const typeActualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, type.typeName);
                         const typeActualQtyStr = actualQuantities[typeActualKey] || '';
                         const typeActualQtyNum = parseFloat(typeActualQtyStr);
                         let typeDiff = NaN;
@@ -728,7 +734,7 @@ export default function Home() {
                         let isFirstIngredientOfType = true;
 
                         type.ingredients.forEach((ing) => {
-                            const ingActualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, type.typeName, ing.ingredientName);
+                            const ingActualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, type.typeName, ing.ingredientName);
                             const ingActualQtyStr = actualQuantities[ingActualKey] || '';
                             const ingActualQtyNum = parseFloat(ingActualQtyStr);
                             let ingDiff = NaN;
@@ -799,7 +805,7 @@ export default function Home() {
                     <ShadcnTableHeader className="sticky top-0 bg-muted z-10">
                         <ShadcnTableRow>
                             <ShadcnTableHead className="border border-muted px-2 py-1 w-[150px]">Group Name</ShadcnTableHead>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[200px]">Diet Name</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[250px]">Diet / Species</ShadcnTableHead>
                             <ShadcnTableHead className="border border-muted px-2 py-1 w-[150px]">Type Name</ShadcnTableHead>
                             <ShadcnTableHead className="border border-muted px-2 py-1 w-[200px]">Ingredient Name</ShadcnTableHead>
                             <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[120px]">Qty/1 Species</ShadcnTableHead>
