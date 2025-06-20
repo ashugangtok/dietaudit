@@ -31,7 +31,6 @@ import { Separator } from '@/components/ui/separator';
 import { Table as ShadcnTable, TableBody as ShadcnTableBody, TableCell as ShadcnTableCell, TableHead as ShadcnTableHead, TableHeader as ShadcnTableHeader, TableRow as ShadcnTableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 
-// New interfaces for the hierarchical comparison view
 interface ComparisonPageIngredient {
   ingredientName: string;
   qtyPerSpecies: number;
@@ -49,21 +48,21 @@ interface ComparisonPageSpeciesDiet {
   speciesName: string;
   animalCount: number;
   types: ComparisonPageType[];
-  totalRowsForSpecies: number; // For rowspan
+  totalRowsForSpecies: number; 
 }
 
 interface ComparisonPageDietContext {
   dietName: string;
   mealStartTime: string;
   speciesBreakdown: ComparisonPageSpeciesDiet[];
-  speciesSummaryText: string; // e.g., "2 Species: Tufted Capuchin, Bearded Capuchin"
-  totalRowsInDietContext: number; // For rowspan
+  speciesSummaryText: string; 
+  totalRowsInDietContext: number; 
 }
 
 interface ComparisonPageGroup {
   groupName: string;
   dietContexts: ComparisonPageDietContext[];
-  totalRowsInGroup: number; // For rowspan
+  totalRowsInGroup: number; 
 }
 
 
@@ -71,14 +70,14 @@ const COMPARISON_TAB_INITIAL_GROUPINGS: GroupingOption[] = [
   { column: 'group_name' },
   { column: 'meal_start_time' },
   { column: 'diet_name' },
-  { column: 'common_name' }, // Species
+  { column: 'common_name' }, 
   { column: 'type_name' },
   { column: 'ingredient_name' },
 ];
 
 const COMPARISON_TAB_INITIAL_SUMMARIES: SummarizationOption[] = [
-  { column: 'ingredient_qty', type: 'first' }, // Assuming this is "qty per # species"
-  { column: 'total_animal', type: 'first' },   // Animal count for the specific species
+  { column: 'ingredient_qty', type: 'sum' }, 
+  { column: 'total_animal', type: 'first' },
   { column: 'base_uom_name', type: 'first' },
 ];
 
@@ -143,7 +142,7 @@ export default function Home() {
           filters,
           allHeaders,
           true,
-          true // disableDisplayBlanking = true
+          true 
         );
 
         const groupsMap = new Map<string, ComparisonPageGroup>();
@@ -156,8 +155,8 @@ export default function Home() {
           const typeName = String(row.type_name || 'Unknown Type');
           const ingredientName = String(row.ingredient_name || 'Unknown Ingredient');
 
-          const animalCount = parseInt(String(row.total_animal_first), 10) || 0;
-          const qtyPerSpecies = parseFloat(String(row.ingredient_qty_first)) || 0;
+          const animalCount = parseInt(String(row.total_animal_first), 10) || 0; 
+          const qtyPerSpecies = parseFloat(String(row.ingredient_qty_sum)) || 0; 
           const uom = String(row.base_uom_name_first || '');
 
           if (!groupsMap.has(groupName)) {
@@ -177,11 +176,8 @@ export default function Home() {
             currentSpeciesDiet = { speciesName, animalCount, types: [], totalRowsForSpecies: 0 };
             currentDietContext.speciesBreakdown.push(currentSpeciesDiet);
           } else {
-            // Ensure animal count is consistent if species already exists (might happen if data isn't perfectly clean)
              if(animalCount > 0 && currentSpeciesDiet.animalCount === 0) currentSpeciesDiet.animalCount = animalCount;
              else if (animalCount > 0 && animalCount !== currentSpeciesDiet.animalCount) {
-                 // Potentially log a warning or choose a strategy (e.g., max, first) if counts differ for the same species in same context.
-                 // For now, let's assume the first one encountered (or updated if later is non-zero) is fine.
                  currentSpeciesDiet.animalCount = Math.max(currentSpeciesDiet.animalCount, animalCount);
              }
           }
@@ -201,24 +197,23 @@ export default function Home() {
           });
         });
 
-        // Calculate totals and sort
         groupsMap.forEach(group => {
           group.dietContexts.forEach(dietContext => {
             const distinctSpecies = new Map<string, number>();
             dietContext.speciesBreakdown.forEach(speciesDiet => {
               distinctSpecies.set(speciesDiet.speciesName, speciesDiet.animalCount);
-              speciesDiet.totalRowsForSpecies = 0; // Reset for recalculation
+              speciesDiet.totalRowsForSpecies = 0; 
               speciesDiet.types.sort((a, b) => a.typeName.localeCompare(b.typeName));
               speciesDiet.types.forEach(type => {
                 type.ingredients.sort((a, b) => a.ingredientName.localeCompare(b.ingredientName));
                 type.plannedQtyTypeTotal = parseFloat(type.ingredients.reduce((sum, ing) => sum + ing.qtyForTotalSpecies, 0).toFixed(4));
-                speciesDiet.totalRowsForSpecies += type.ingredients.length + 1; // +1 for type subtotal row
+                speciesDiet.totalRowsForSpecies += type.ingredients.length + 1; 
               });
               dietContext.totalRowsInDietContext += speciesDiet.totalRowsForSpecies;
             });
 
             const speciesEntries = Array.from(distinctSpecies.entries());
-            dietContext.speciesSummaryText = `${speciesEntries.length} Species: ${speciesEntries.map(([name, count]) => `${name}`).join(', ')}`;
+            dietContext.speciesSummaryText = `${speciesEntries.length} Species: ${speciesEntries.map(([name, _count]) => `${name}`).join(', ')}`;
              dietContext.speciesBreakdown.sort((a,b) => a.speciesName.localeCompare(b.speciesName));
           });
           group.dietContexts.sort((a,b) => {
@@ -627,7 +622,6 @@ export default function Home() {
             diet_name: dietContext.dietName,
             species_name: speciesDiet.speciesName,
             animal_count: speciesDiet.animalCount,
-            // date: // Consider adding a date field if relevant, perhaps from filters or a global date picker
             types: []
           };
 
@@ -805,7 +799,6 @@ export default function Home() {
                                 }
                                 rows.push(
                                     <ShadcnTableRow key={ingActualKey} className="hover:bg-accent/10">
-                                        {/* Rowspan placeholders already rendered above if needed */}
                                         {!isFirstRowOfGroup && group.totalRowsInGroup > 1 && speciesDiet.totalRowsForSpecies === (type.ingredients.length +1) && type.ingredients.indexOf(ing) === 0 ? null : null}
                                         {!isFirstRowOfDietContext && dietContext.totalRowsInDietContext > 1 && speciesDiet.totalRowsForSpecies === (type.ingredients.length +1) && type.ingredients.indexOf(ing) === 0 ? null : null}
                                         {!isFirstRowOfDietContext && dietContext.totalRowsInDietContext > 1 && speciesDiet.totalRowsForSpecies === (type.ingredients.length +1) && type.ingredients.indexOf(ing) === 0 ? null : null}
