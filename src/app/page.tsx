@@ -31,6 +31,7 @@ import { Separator } from '@/components/ui/separator';
 import { Table as ShadcnTable, TableBody as ShadcnTableBody, TableCell as ShadcnTableCell, TableHead as ShadcnTableHead, TableHeader as ShadcnTableHeader, TableRow as ShadcnTableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 
+// New interfaces for the hierarchical comparison view
 interface ComparisonPageIngredient {
   ingredientName: string;
   qtyPerSpecies: number;
@@ -44,36 +45,40 @@ interface ComparisonPageType {
   plannedQtyTypeTotal: number;
 }
 
-interface ComparisonPageDiet {
-  dietKey: string; 
-  dietNameRaw: string;
-  commonName: string; 
-  mealStartTime: string;
-  dietNameDisplay: string; 
+interface ComparisonPageSpeciesDiet {
+  speciesName: string;
   animalCount: number;
   types: ComparisonPageType[];
+  totalRowsForSpecies: number; // For rowspan
+}
+
+interface ComparisonPageDietContext {
+  dietName: string;
+  mealStartTime: string;
+  speciesBreakdown: ComparisonPageSpeciesDiet[];
+  speciesSummaryText: string; // e.g., "2 Species: Tufted Capuchin, Bearded Capuchin"
+  totalRowsInDietContext: number; // For rowspan
 }
 
 interface ComparisonPageGroup {
-  groupName: string; 
-  diets: ComparisonPageDiet[];
-  totalRowsInGroup: number; 
+  groupName: string;
+  dietContexts: ComparisonPageDietContext[];
+  totalRowsInGroup: number; // For rowspan
 }
 
 
 const COMPARISON_TAB_INITIAL_GROUPINGS: GroupingOption[] = [
   { column: 'group_name' },
-  { column: 'diet_name' },
-  { column: 'common_name' }, 
   { column: 'meal_start_time' },
+  { column: 'diet_name' },
+  { column: 'common_name' }, // Species
   { column: 'type_name' },
   { column: 'ingredient_name' },
 ];
 
-
 const COMPARISON_TAB_INITIAL_SUMMARIES: SummarizationOption[] = [
-  { column: 'ingredient_qty', type: 'sum' }, 
-  { column: 'total_animal', type: 'first' },   
+  { column: 'ingredient_qty', type: 'first' }, // Assuming this is "qty per # species"
+  { column: 'total_animal', type: 'first' },   // Animal count for the specific species
   { column: 'base_uom_name', type: 'first' },
 ];
 
@@ -135,63 +140,59 @@ export default function Home() {
           rawData,
           COMPARISON_TAB_INITIAL_GROUPINGS,
           COMPARISON_TAB_INITIAL_SUMMARIES,
-          filters, 
+          filters,
           allHeaders,
-          true, 
-          true  
+          true,
+          true // disableDisplayBlanking = true
         );
 
         const groupsMap = new Map<string, ComparisonPageGroup>();
 
         initialProcessed.processedData.forEach(row => {
           const groupName = String(row.group_name || 'Unknown Group');
-          const dietNameRaw = String(row.diet_name || 'Unknown Diet');
-          const commonName = String(row.common_name || 'Unknown Species'); 
           const mealStartTime = String(row.meal_start_time || 'N/A');
+          const dietName = String(row.diet_name || 'Unknown Diet');
+          const speciesName = String(row.common_name || 'Unknown Species');
           const typeName = String(row.type_name || 'Unknown Type');
           const ingredientName = String(row.ingredient_name || 'Unknown Ingredient');
 
-          
           const animalCount = parseInt(String(row.total_animal_first), 10) || 0;
-          const qtyPerSpecies = parseFloat(String(row.ingredient_qty_sum)) || 0;
+          const qtyPerSpecies = parseFloat(String(row.ingredient_qty_first)) || 0;
           const uom = String(row.base_uom_name_first || '');
 
           if (!groupsMap.has(groupName)) {
-            groupsMap.set(groupName, { groupName, diets: [], totalRowsInGroup: 0 });
+            groupsMap.set(groupName, { groupName, dietContexts: [], totalRowsInGroup: 0 });
           }
           const currentGroup = groupsMap.get(groupName)!;
 
-          
-          const dietKey = `${groupName}|${dietNameRaw}|${commonName}|${mealStartTime}`;
-
-          let currentDiet = currentGroup.diets.find(d => d.dietKey === dietKey);
-          if (!currentDiet) {
-            currentDiet = {
-              dietKey,
-              dietNameRaw,
-              commonName, 
-              mealStartTime,
-              dietNameDisplay: `${dietNameRaw} - ${commonName} (${animalCount}) - Meal: ${mealStartTime}`,
-              animalCount,
-              types: []
-            };
-            currentGroup.diets.push(currentDiet);
-          } else {
-            
-            if(animalCount > 0 && currentDiet.animalCount === 0) {
-                currentDiet.animalCount = animalCount;
-                currentDiet.dietNameDisplay = `${dietNameRaw} - ${commonName} (${animalCount}) - Meal: ${mealStartTime}`;
-            }
+          const dietContextKey = `${dietName}|${mealStartTime}`;
+          let currentDietContext = currentGroup.dietContexts.find(dc => dc.dietName === dietName && dc.mealStartTime === mealStartTime);
+          if (!currentDietContext) {
+            currentDietContext = { dietName, mealStartTime, speciesBreakdown: [], speciesSummaryText: '', totalRowsInDietContext: 0 };
+            currentGroup.dietContexts.push(currentDietContext);
           }
 
+          let currentSpeciesDiet = currentDietContext.speciesBreakdown.find(sd => sd.speciesName === speciesName);
+          if (!currentSpeciesDiet) {
+            currentSpeciesDiet = { speciesName, animalCount, types: [], totalRowsForSpecies: 0 };
+            currentDietContext.speciesBreakdown.push(currentSpeciesDiet);
+          } else {
+            // Ensure animal count is consistent if species already exists (might happen if data isn't perfectly clean)
+             if(animalCount > 0 && currentSpeciesDiet.animalCount === 0) currentSpeciesDiet.animalCount = animalCount;
+             else if (animalCount > 0 && animalCount !== currentSpeciesDiet.animalCount) {
+                 // Potentially log a warning or choose a strategy (e.g., max, first) if counts differ for the same species in same context.
+                 // For now, let's assume the first one encountered (or updated if later is non-zero) is fine.
+                 currentSpeciesDiet.animalCount = Math.max(currentSpeciesDiet.animalCount, animalCount);
+             }
+          }
 
-          let currentType = currentDiet.types.find(t => t.typeName === typeName);
+          let currentType = currentSpeciesDiet.types.find(t => t.typeName === typeName);
           if (!currentType) {
             currentType = { typeName, ingredients: [], plannedQtyTypeTotal: 0 };
-            currentDiet.types.push(currentType);
+            currentSpeciesDiet.types.push(currentType);
           }
 
-          const qtyForTotalSpecies = parseFloat((qtyPerSpecies * currentDiet.animalCount).toFixed(4));
+          const qtyForTotalSpecies = parseFloat((qtyPerSpecies * currentSpeciesDiet.animalCount).toFixed(4));
           currentType.ingredients.push({
             ingredientName,
             qtyPerSpecies: parseFloat(qtyPerSpecies.toFixed(4)),
@@ -200,30 +201,35 @@ export default function Home() {
           });
         });
 
-        
+        // Calculate totals and sort
         groupsMap.forEach(group => {
-          group.totalRowsInGroup = 0;
-          
-          group.diets.sort((a,b) => {
-            const dietComp = a.dietNameRaw.localeCompare(b.dietNameRaw);
+          group.dietContexts.forEach(dietContext => {
+            const distinctSpecies = new Map<string, number>();
+            dietContext.speciesBreakdown.forEach(speciesDiet => {
+              distinctSpecies.set(speciesDiet.speciesName, speciesDiet.animalCount);
+              speciesDiet.totalRowsForSpecies = 0; // Reset for recalculation
+              speciesDiet.types.sort((a, b) => a.typeName.localeCompare(b.typeName));
+              speciesDiet.types.forEach(type => {
+                type.ingredients.sort((a, b) => a.ingredientName.localeCompare(b.ingredientName));
+                type.plannedQtyTypeTotal = parseFloat(type.ingredients.reduce((sum, ing) => sum + ing.qtyForTotalSpecies, 0).toFixed(4));
+                speciesDiet.totalRowsForSpecies += type.ingredients.length + 1; // +1 for type subtotal row
+              });
+              dietContext.totalRowsInDietContext += speciesDiet.totalRowsForSpecies;
+            });
+
+            const speciesEntries = Array.from(distinctSpecies.entries());
+            dietContext.speciesSummaryText = `${speciesEntries.length} Species: ${speciesEntries.map(([name, count]) => `${name}`).join(', ')}`;
+             dietContext.speciesBreakdown.sort((a,b) => a.speciesName.localeCompare(b.speciesName));
+          });
+          group.dietContexts.sort((a,b) => {
+            const dietComp = a.dietName.localeCompare(b.dietName);
             if (dietComp !== 0) return dietComp;
-            const speciesComp = a.commonName.localeCompare(b.commonName);
-            if (speciesComp !== 0) return speciesComp;
             return a.mealStartTime.localeCompare(b.mealStartTime);
           });
-
-          group.diets.forEach(diet => {
-            diet.types.sort((a,b) => a.typeName.localeCompare(b.typeName));
-            diet.types.forEach(type => {
-              type.ingredients.sort((a,b) => a.ingredientName.localeCompare(b.ingredientName));
-              type.plannedQtyTypeTotal = parseFloat(type.ingredients.reduce((sum, ing) => sum + ing.qtyForTotalSpecies, 0).toFixed(4));
-              
-              group.totalRowsInGroup += type.ingredients.length + 1;
-            });
-          });
+          group.totalRowsInGroup = group.dietContexts.reduce((sum, dc) => sum + dc.totalRowsInDietContext, 0);
         });
 
-        const finalDisplayData = Array.from(groupsMap.values()).sort((a,b) => a.groupName.localeCompare(b.groupName));
+        const finalDisplayData = Array.from(groupsMap.values()).sort((a, b) => a.groupName.localeCompare(b.groupName));
         setComparisonDisplayData(finalDisplayData);
 
       } catch (e) {
@@ -234,7 +240,6 @@ export default function Home() {
         setIsLoading(false);
       }
     } else if (activeTab === "comparison" && (!hasAppliedFilters || rawData.length === 0)) {
-        
         setComparisonDisplayData([]);
         setIsLoading(false);
     }
@@ -247,16 +252,15 @@ export default function Home() {
     const cleanFileName = fileName.replace(/\.(xlsx|xls)$/i, '');
     setRawFileName(cleanFileName);
 
-    
     setRawData([]);
     setAllHeaders([]);
     setFilters([]);
     setHasAppliedFilters(false);
     setIsFileSelected(true);
-    setActiveTab("uploadExcel"); // Stay on upload tab initially as per new design
+    setActiveTab("uploadExcel");
     setActualQuantities({});
     setParsedActualSpeciesData([]);
-    setComparisonDisplayData([]); 
+    setComparisonDisplayData([]);
 
     toast({
         title: "File Ready for Processing",
@@ -297,7 +301,7 @@ export default function Home() {
     }
 
     setIsLoading(true);
-    setActualQuantities({}); 
+    setActualQuantities({});
 
     try {
         const result = await parseExcelFlow({ excelFileBase64: rawFileBase64, originalFileName: rawFileName });
@@ -306,7 +310,7 @@ export default function Home() {
             toast({ variant: "destructive", title: "File Parsing Error", description: result.error });
             setRawData([]);
             setAllHeaders([]);
-            setComparisonDisplayData([]); 
+            setComparisonDisplayData([]);
             setIsLoading(false);
             return;
         }
@@ -314,7 +318,6 @@ export default function Home() {
         setRawData(result.parsedData);
         setAllHeaders(result.headers);
 
-        
         const requiredDefaultPivotCols = [
             ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => col as string),
             ...DEFAULT_IMAGE_PIVOT_SUMMARIES.map(s => s.column)
@@ -334,32 +337,22 @@ export default function Home() {
                 setDefaultGroupings(SPECIAL_PIVOT_UOM_ROW_GROUPINGS.map(col => ({ column: col as string })));
                 setDefaultSummaries([{ column: SPECIAL_PIVOT_UOM_VALUE_FIELD as string, type: 'sum' }]);
             } else {
-                
                 const fallbackGroupingCandidates = ['group_name', 'common_name', 'diet_name', 'type_name', 'ingredient_name'];
                 const availableFallbackGroupings = fallbackGroupingCandidates.filter(h => result.headers.includes(h as string));
                 setDefaultGroupings(availableFallbackGroupings.length > 0
-                    ? availableFallbackGroupings.slice(0,4).map(col => ({ column: col as string })) 
+                    ? availableFallbackGroupings.slice(0,4).map(col => ({ column: col as string }))
                     : result.headers.length > 0 ? [{ column: result.headers[0] }] : []);
 
                 const fallbackSummaries: SummarizationOption[] = [];
-                if (result.headers.includes('ingredient_qty')) {
-                    fallbackSummaries.push({ column: 'ingredient_qty', type: 'sum' });
-                }
-                if (result.headers.includes('base_uom_name')) { 
-                    fallbackSummaries.push({ column: 'base_uom_name', type: 'first'});
-                }
-                if (result.headers.includes('total_animal')) { 
-                    fallbackSummaries.push({ column: 'total_animal', type: 'first'});
-                }
-                
+                if (result.headers.includes('ingredient_qty')) fallbackSummaries.push({ column: 'ingredient_qty', type: 'sum' });
+                if (result.headers.includes('base_uom_name')) fallbackSummaries.push({ column: 'base_uom_name', type: 'first'});
+                if (result.headers.includes('total_animal')) fallbackSummaries.push({ column: 'total_animal', type: 'first'});
+
                 if (fallbackSummaries.length === 0 && result.parsedData.length > 0) {
                     const firstDataRow = result.parsedData[0];
                     const someNumericHeader = result.headers.find(h => typeof firstDataRow[h] === 'number');
-                    if (someNumericHeader) {
-                        fallbackSummaries.push({column: someNumericHeader, type: 'sum'});
-                    } else if (result.headers.length > 0) { 
-                        fallbackSummaries.push({column: result.headers[0], type: 'count'});
-                    }
+                    if (someNumericHeader) fallbackSummaries.push({column: someNumericHeader, type: 'sum'});
+                    else if (result.headers.length > 0) fallbackSummaries.push({column: result.headers[0], type: 'count'});
                 }
                 setDefaultSummaries(fallbackSummaries);
             }
@@ -384,24 +377,24 @@ export default function Home() {
         toast({ variant: "destructive", title: "Processing Error", description: "An unexpected error occurred while parsing or filtering the file." });
         setRawData([]);
         setAllHeaders([]);
-        setComparisonDisplayData([]); 
+        setComparisonDisplayData([]);
     } finally {
         setIsLoading(false);
     }
   }, [isFileSelected, rawFileBase64, rawFileName, toast]);
 
-  
-  const buildActualQtyKey = (groupName: string, dietNameRaw: string, commonName: string, mealStartTime: string, typeName: string, ingredientName?: string) => {
-    let key = `${groupName}|${dietNameRaw}|${commonName}|${mealStartTime}|${typeName}`;
+
+  const buildActualQtyKey = (groupName: string, dietName: string, mealStartTime: string, speciesName: string, typeName: string, ingredientName?: string) => {
+    let key = `${groupName}|${dietName}|${mealStartTime}|${speciesName}|${typeName}`;
     if (ingredientName) {
       key += `|${ingredientName}`;
     } else {
-      key += `|__TYPE_SUBTOTAL__`; 
+      key += `|__TYPE_SUBTOTAL__`;
     }
     return key;
   };
 
-  
+
   const handleActualQuantityChange = useCallback((actualKey: string, value: string) => {
     setActualQuantities(prev => ({ ...prev, [actualKey]: value }));
   }, []);
@@ -417,115 +410,110 @@ export default function Home() {
         const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
         let firstPageOverall = true;
 
-        comparisonDisplayData.forEach((group) => { 
+        comparisonDisplayData.forEach((group) => {
             if (!firstPageOverall) doc.addPage(); else firstPageOverall = false;
             doc.setFontSize(14);
             doc.text(`Group: ${group.groupName}`, 40, 30);
             let currentY = 50;
 
-            group.diets.forEach((diet, dietIdx) => { 
-                if (dietIdx > 0 && currentY > 50) currentY += 15; 
+            group.dietContexts.forEach((dietContext, dietCtxIdx) => {
+                if (dietCtxIdx > 0 && currentY > 50) currentY += 15;
 
-                
-                if (currentY > doc.internal.pageSize.height - 120 && group.diets.length > 1) { 
-                    doc.addPage();
-                    currentY = 40;
-                    doc.setFontSize(14);
-                    doc.text(`Group: ${group.groupName} (Continued)`, 40, 30); 
-                    currentY += 20;
+                if (currentY > doc.internal.pageSize.height - 150 && group.dietContexts.length > 1) {
+                    doc.addPage(); currentY = 40;
+                    doc.setFontSize(14); doc.text(`Group: ${group.groupName} (Continued)`, 40, 30); currentY += 20;
                 }
 
-                doc.setFontSize(12);
-                doc.text(`Diet/Species/Meal: ${diet.dietNameDisplay}`, 40, currentY); 
-                currentY += 20;
+                doc.setFontSize(11);
+                doc.text(`Diet: ${dietContext.dietName} / Meal: ${dietContext.mealStartTime}`, 40, currentY); currentY += 15;
+                doc.text(`Species Context: ${dietContext.speciesSummaryText}`, 40, currentY); currentY += 20;
 
-                diet.types.forEach((type, typeIdx) => { 
-                    if (typeIdx > 0 && currentY > (dietIdx === 0 && typeIdx === 0 ? 70 : 50)) currentY += 10;
 
-                    
-                    if (currentY > doc.internal.pageSize.height - 100) { 
-                        doc.addPage();
-                        currentY = 40;
-                        doc.setFontSize(14);
-                        doc.text(`Group: ${group.groupName} (Continued)`, 40, 30);
-                        currentY += 20;
-                        doc.setFontSize(12);
-                        doc.text(`Diet/Species/Meal: ${diet.dietNameDisplay} (Continued)`, 40, currentY);
-                        currentY += 20;
+                dietContext.speciesBreakdown.forEach((speciesDiet, speciesIdx) => {
+                    if (speciesIdx > 0 && currentY > 70) currentY += 10;
+                     if (currentY > doc.internal.pageSize.height - 120 && dietContext.speciesBreakdown.length > 1) {
+                        doc.addPage(); currentY = 40;
+                        doc.setFontSize(14); doc.text(`Group: ${group.groupName} (Continued)`, 40, 30); currentY += 20;
+                        doc.setFontSize(11); doc.text(`Diet: ${dietContext.dietName} / Meal: ${dietContext.mealStartTime} (Cont.)`, 40, currentY); currentY+=15;
+                        doc.text(`Species Context: ${dietContext.speciesSummaryText} (Cont.)`, 40, currentY); currentY += 20;
                     }
 
-                    const head = [['Type Name', 'Ingredient Name', 'Qty/1 Species', 'Qty/Total Species', 'Qty to Receive', 'Qty Received', 'Difference']];
-                    const body = [];
+                    doc.setFontSize(10);
+                    doc.text(`Species: ${speciesDiet.speciesName} (Count: ${speciesDiet.animalCount})`, 50, currentY); currentY += 15;
 
-                    
-                    type.ingredients.forEach(ing => { 
-                        const actualIngKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName, ing.ingredientName);
-                        const actualQtyStr = actualQuantities[actualIngKey] || '';
-                        const actualQtyNum = parseFloat(actualQtyStr);
-                        let diffStr = '';
-                        if (actualQtyStr !== '' && !isNaN(actualQtyNum)) {
-                            diffStr = (actualQtyNum - ing.qtyForTotalSpecies).toFixed(4);
+                    speciesDiet.types.forEach((type, typeIdx) => {
+                        if (typeIdx > 0 && currentY > 85) currentY += 10;
+                        if (currentY > doc.internal.pageSize.height - 100) {
+                           doc.addPage(); currentY = 40;
+                           doc.setFontSize(14); doc.text(`Group: ${group.groupName} (Continued)`, 40, 30); currentY += 20;
+                           doc.setFontSize(11); doc.text(`Diet: ${dietContext.dietName} / Meal: ${dietContext.mealStartTime} (Cont.)`, 40, currentY); currentY+=15;
+                           doc.text(`Species Context: ${dietContext.speciesSummaryText} (Cont.)`, 40, currentY); currentY +=15;
+                           doc.setFontSize(10); doc.text(`Species: ${speciesDiet.speciesName} (Count: ${speciesDiet.animalCount}) (Cont.)`, 50, currentY); currentY += 15;
+                        }
+
+                        const head = [['Type Name', 'Ingredient Name', 'Qty/1 Species', 'Qty/Total Species', 'Qty to Receive', 'Qty Received', 'Difference']];
+                        const body = [];
+
+                        type.ingredients.forEach(ing => {
+                            const actualIngKey = buildActualQtyKey(group.groupName, dietContext.dietName, dietContext.mealStartTime, speciesDiet.speciesName, type.typeName, ing.ingredientName);
+                            const actualQtyStr = actualQuantities[actualIngKey] || '';
+                            const actualQtyNum = parseFloat(actualQtyStr);
+                            let diffStr = '';
+                            if (actualQtyStr !== '' && !isNaN(actualQtyNum)) {
+                                diffStr = (actualQtyNum - ing.qtyForTotalSpecies).toFixed(4);
+                            }
+                            body.push([
+                                ing === type.ingredients[0] ? type.typeName : '',
+                                ing.ingredientName,
+                                ing.qtyPerSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''),
+                                ing.qtyForTotalSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''),
+                                ing.qtyForTotalSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''),
+                                actualQtyStr,
+                                diffStr
+                            ]);
+                        });
+
+                        const actualTypeKey = buildActualQtyKey(group.groupName, dietContext.dietName, dietContext.mealStartTime, speciesDiet.speciesName, type.typeName);
+                        const actualTypeQtyStr = actualQuantities[actualTypeKey] || '';
+                        const actualTypeQtyNum = parseFloat(actualTypeQtyStr);
+                        let diffTypeStr = '';
+                        if (actualTypeQtyStr !== '' && !isNaN(actualTypeQtyNum)) {
+                            diffTypeStr = (actualTypeQtyNum - type.plannedQtyTypeTotal).toFixed(4);
                         }
                         body.push([
-                            ing === type.ingredients[0] ? type.typeName : '', 
-                            ing.ingredientName,
-                            ing.qtyPerSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''),
-                            ing.qtyForTotalSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''),
-                            ing.qtyForTotalSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''), 
-                            actualQtyStr,
-                            diffStr
+                            { content: type.typeName, styles: { fontStyle: 'bold', fillColor: [230, 230, 230] } },
+                            { content: 'SUBTOTAL', styles: { fontStyle: 'bold', halign: 'right', fillColor: [230, 230, 230] } },
+                            { content: '', styles: {fillColor: [230,230,230]}},
+                            { content: '', styles: {fillColor: [230,230,230]}},
+                            { content: type.plannedQtyTypeTotal.toFixed(4) + (type.ingredients[0]?.uom ? ` ${type.ingredients[0].uom}` : ''), styles: { fontStyle: 'bold', halign: 'right', fillColor: [230,230,230] } },
+                            { content: actualTypeQtyStr, styles: { fontStyle: 'bold', halign: 'right', fillColor: [230,230,230] } },
+                            { content: diffTypeStr, styles: { fontStyle: 'bold', halign: 'right', fillColor: [230,230,230] } }
                         ]);
-                    });
 
-                    
-                    const actualTypeKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName);
-                    const actualTypeQtyStr = actualQuantities[actualTypeKey] || '';
-                    const actualTypeQtyNum = parseFloat(actualTypeQtyStr);
-                    let diffTypeStr = '';
-                    if (actualTypeQtyStr !== '' && !isNaN(actualTypeQtyNum)) {
-                        diffTypeStr = (actualTypeQtyNum - type.plannedQtyTypeTotal).toFixed(4);
-                    }
-                    body.push([
-                        { content: type.typeName, styles: { fontStyle: 'bold', fillColor: [230, 230, 230] } },
-                        { content: 'SUBTOTAL', styles: { fontStyle: 'bold', halign: 'right', fillColor: [230, 230, 230] } },
-                        { content: '', styles: {fillColor: [230,230,230]}}, 
-                        { content: '', styles: {fillColor: [230,230,230]}}, 
-                        { content: type.plannedQtyTypeTotal.toFixed(4) + (type.ingredients[0]?.uom ? ` ${type.ingredients[0].uom}` : ''), styles: { fontStyle: 'bold', halign: 'right', fillColor: [230,230,230] } },
-                        { content: actualTypeQtyStr, styles: { fontStyle: 'bold', halign: 'right', fillColor: [230,230,230] } },
-                        { content: diffTypeStr, styles: { fontStyle: 'bold', halign: 'right', fillColor: [230,230,230] } }
-                    ]);
-
-                    autoTable(doc, {
-                        head: head,
-                        body: body,
-                        startY: currentY,
-                        theme: 'grid',
-                        headStyles: { fillColor: [38, 153, 153], textColor: [255,255,255], fontSize: 7, cellPadding: 2},
-                        styles: { fontSize: 7, cellPadding: 2, overflow: 'ellipsize'},
-                        columnStyles: {
-                            0: { cellWidth: 80 }, 1: { cellWidth: 100 }, 
-                            2: { cellWidth: 60, halign: 'right' }, 3: { cellWidth: 60, halign: 'right' }, 
-                            4: { cellWidth: 70, halign: 'right' }, 5: { cellWidth: 60, halign: 'right' }, 
-                            6: { cellWidth: 60, halign: 'right' }, 
-                        },
-                        didParseCell: function (data) { 
-                            if (data.column.index === 6) { 
-                                 const cellRawValue = data.cell.raw;
-                                 if (cellRawValue !== null && cellRawValue !== undefined && String(cellRawValue).trim() !== '') {
-                                    const numericValue = parseFloat(String(cellRawValue));
-                                    if (!isNaN(numericValue)) {
-                                        if (numericValue < 0) data.cell.styles.textColor = [220, 53, 69]; 
-                                        else if (numericValue > 0) data.cell.styles.textColor = [0, 123, 255]; 
+                        autoTable(doc, {
+                            head: head, body: body, startY: currentY, theme: 'grid',
+                            headStyles: { fillColor: [38, 153, 153], textColor: [255,255,255], fontSize: 7, cellPadding: 2},
+                            styles: { fontSize: 7, cellPadding: 2, overflow: 'ellipsize'},
+                            columnStyles: { 0: { cellWidth: 70 }, 1: { cellWidth: 90 }, 2: { cellWidth: 55, halign: 'right' }, 3: { cellWidth: 60, halign: 'right' }, 4: { cellWidth: 65, halign: 'right' }, 5: { cellWidth: 55, halign: 'right' }, 6: { cellWidth: 55, halign: 'right' } },
+                            didParseCell: (data) => {
+                                if (data.column.index === 6) {
+                                     const cellRawValue = data.cell.raw;
+                                     if (cellRawValue !== null && cellRawValue !== undefined && String(cellRawValue).trim() !== '') {
+                                        const numericValue = parseFloat(String(cellRawValue));
+                                        if (!isNaN(numericValue)) {
+                                            if (numericValue < 0) data.cell.styles.textColor = [220, 53, 69];
+                                            else if (numericValue > 0) data.cell.styles.textColor = [0, 123, 255];
+                                        }
                                     }
                                 }
-                            }
-                        },
-                        didDrawPage: (dataHook) => { 
-                             doc.setFontSize(8);
-                             doc.text("Page " + doc.internal.getNumberOfPages(), doc.internal.pageSize.width - 60, doc.internal.pageSize.height - 20);
-                        },
+                            },
+                            didDrawPage: (dataHook) => {
+                                 doc.setFontSize(8);
+                                 doc.text("Page " + doc.internal.getNumberOfPages(), doc.internal.pageSize.width - 60, doc.internal.pageSize.height - 20);
+                            },
+                        });
+                        currentY = (doc as any).lastAutoTable.finalY + 10;
                     });
-                    currentY = (doc as any).lastAutoTable.finalY + 10;
                 });
             });
         });
@@ -534,17 +522,17 @@ export default function Home() {
         return;
     }
 
-    
+
     let dataToExport: DietDataRow[] = [];
     let columnsToExport: string[] = [];
     let grandTotalToExport: DietDataRow | undefined = undefined;
 
     if (activeTab === "extractedData" || activeTab === "exportSections") {
-        dataToExport = processedData.map(row => ({...row})); 
-        columnsToExport = [...currentTableColumns]; 
-        grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined; 
+        dataToExport = processedData.map(row => ({...row}));
+        columnsToExport = [...currentTableColumns];
+        grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined;
 
-        
+
         const ingredientQtySumKey = columnsToExport.find(k => k.startsWith('ingredient_qty_') && k.endsWith('_sum'));
         const uomKey = columnsToExport.find(k => k.startsWith('base_uom_name_') && k.endsWith('_first'));
 
@@ -565,7 +553,7 @@ export default function Home() {
                      grandTotalToExport[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
                 }
             }
-             if (uomKey !== ingredientQtySumKey) { 
+             if (uomKey !== ingredientQtySumKey) {
                 columnsToExport = columnsToExport.filter(c => c !== uomKey);
             }
         }
@@ -582,14 +570,14 @@ export default function Home() {
 
 
   const handleDownloadSectionPdf = (sectionName: string, sectionTableDataInput: ProcessedTableData) => {
-     
+
      const sectionTableData = {
          processedData: sectionTableDataInput.processedData.map(row => ({...row})),
          columns: [...sectionTableDataInput.columns],
          grandTotalRow: sectionTableDataInput.grandTotalRow ? {...sectionTableDataInput.grandTotalRow} : undefined
      };
 
-     
+
      const ingredientQtySumKey = sectionTableData.columns.find(k => k.startsWith('ingredient_qty_') && k.endsWith('_sum'));
      const uomKey = sectionTableData.columns.find(k => k.startsWith('base_uom_name_') && k.endsWith('_first'));
 
@@ -630,34 +618,44 @@ export default function Home() {
     }
 
     const dataToSave: any[] = [];
-    comparisonDisplayData.forEach(group => { 
-        group.diets.forEach(diet => { 
-            
-            const groupRecord: any = {
-                group_id: group.groupName, 
-                species: diet.commonName, 
-                meal_time: diet.mealStartTime, 
-                
-                ingredients: [],
+    comparisonDisplayData.forEach(group => {
+      group.dietContexts.forEach(dietContext => {
+        dietContext.speciesBreakdown.forEach(speciesDiet => {
+          const recordToSave: any = {
+            group_name: group.groupName,
+            meal_start_time: dietContext.mealStartTime,
+            diet_name: dietContext.dietName,
+            species_name: speciesDiet.speciesName,
+            animal_count: speciesDiet.animalCount,
+            // date: // Consider adding a date field if relevant, perhaps from filters or a global date picker
+            types: []
+          };
+
+          speciesDiet.types.forEach(type => {
+            const typeRecord: any = {
+              type_name: type.typeName,
+              planned_total_qty_for_type: type.plannedQtyTypeTotal,
+              actual_total_qty_for_type: parseFloat(actualQuantities[buildActualQtyKey(group.groupName, dietContext.dietName, dietContext.mealStartTime, speciesDiet.speciesName, type.typeName)] || 'NaN') || null,
+              ingredients: []
             };
-
-            diet.types.forEach(type => { 
-                
-                type.ingredients.forEach(ing => { 
-                    const actualIngKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName, ing.ingredientName);
-                    const actualIngQtyStr = actualQuantities[actualIngKey] || '';
-
-                    groupRecord.ingredients.push({
-                        name: ing.ingredientName, 
-                        planned_qty: ing.qtyForTotalSpecies, 
-                        actual_qty: actualIngQtyStr !== '' ? (parseFloat(actualIngQtyStr) || null) : null, 
-                        
-                    });
-                });
+            type.ingredients.forEach(ing => {
+              const actualIngKey = buildActualQtyKey(group.groupName, dietContext.dietName, dietContext.mealStartTime, speciesDiet.speciesName, type.typeName, ing.ingredientName);
+              const actualIngQtyStr = actualQuantities[actualIngKey] || '';
+              typeRecord.ingredients.push({
+                ingredient_name: ing.ingredientName,
+                qty_per_species: ing.qtyPerSpecies,
+                uom: ing.uom,
+                planned_qty_for_total_species: ing.qtyForTotalSpecies,
+                actual_qty_received: actualIngQtyStr !== '' ? (parseFloat(actualIngQtyStr) || null) : null,
+              });
             });
-            dataToSave.push(groupRecord);
+            recordToSave.types.push(typeRecord);
+          });
+          dataToSave.push(recordToSave);
         });
+      });
     });
+
 
     const jsonData = JSON.stringify(dataToSave, null, 2);
     console.log("Data prepared for saving (JSON):", jsonData);
@@ -671,12 +669,12 @@ export default function Home() {
   const year = new Date().getFullYear();
 
   const renderContentForDataTabs = (isExportTab: boolean, isComparisonTab: boolean = false) => {
-    if (isLoading && !isComparisonTab) { 
+    if (isLoading && !isComparisonTab) {
       return (
         <Card><CardHeader><CardTitle>Processing...</CardTitle></CardHeader><CardContent className="p-6 flex justify-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></CardContent></Card>
       );
     }
-     if (isComparisonTab && isLoading) { 
+     if (isComparisonTab && isLoading) {
       return (
         <Card><CardHeader><CardTitle>Structuring Comparison Data...</CardTitle></CardHeader><CardContent className="p-6 flex justify-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></CardContent></Card>
       );
@@ -718,7 +716,7 @@ export default function Home() {
       );
     }
 
-    
+
     if (!isComparisonTab) {
         if (rawData.length === 0 && allHeaders.length > 0 && hasAppliedFilters) {
             return <Card><CardContent className="p-6 text-center text-muted-foreground">File "<strong>{rawFileName}</strong>" contains only headers.</CardContent></Card>;
@@ -726,15 +724,15 @@ export default function Home() {
         if (rawData.length === 0 && allHeaders.length === 0 && hasAppliedFilters) {
             return <Card><CardContent className="p-6 text-center text-destructive">No data or headers extracted from "<strong>{rawFileName}</strong>".</CardContent></Card>;
         }
-        if (processedData.length === 0 && rawData.length > 0 && hasAppliedFilters ) { 
+        if (processedData.length === 0 && rawData.length > 0 && hasAppliedFilters ) {
            return <Card><CardContent className="p-6 text-center text-muted-foreground">Filters for "<strong>{rawFileName}</strong>" resulted in no data for the current view.</CardContent></Card>;
         }
     }
 
 
-    
+
     if (isComparisonTab) {
-        if (isLoadingActualSpeciesFile) { 
+        if (isLoadingActualSpeciesFile) {
             return <Card><CardHeader><CardTitle>Loading Species File...</CardTitle></CardHeader><CardContent className="p-6 flex justify-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></CardContent></Card>;
         }
         if (comparisonDisplayData.length === 0 && rawData.length > 0 && hasAppliedFilters) {
@@ -751,82 +749,91 @@ export default function Home() {
               </Card>
             );
         }
-        
+
         const renderComparisonRows = () => {
             const rows: JSX.Element[] = [];
-            comparisonDisplayData.forEach((group) => { 
+            comparisonDisplayData.forEach((group) => {
                 let isFirstRowOfGroup = true;
-                group.diets.forEach((diet) => { 
-                    let isFirstRowOfDiet = true;
-                    diet.types.forEach((type) => { 
-                        const typeActualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName);
-                        const typeActualQtyStr = actualQuantities[typeActualKey] || '';
-                        const typeActualQtyNum = parseFloat(typeActualQtyStr);
-                        let typeDiff = NaN;
-                        if (!isNaN(typeActualQtyNum)) {
-                            typeDiff = typeActualQtyNum - type.plannedQtyTypeTotal;
-                        }
-
-                        
-                        rows.push(
-                            <ShadcnTableRow key={`${typeActualKey}_subtotal`} className="bg-muted/50 dark:bg-muted/30 font-semibold hover:bg-muted">
-                                {isFirstRowOfGroup && <ShadcnTableCell rowSpan={group.totalRowsInGroup} className="border align-top pt-2">{group.groupName}</ShadcnTableCell>}
-                                {isFirstRowOfDiet && <ShadcnTableCell rowSpan={diet.types.reduce((acc, t) => acc + t.ingredients.length + 1, 0)} className="border align-top pt-2">{diet.dietNameDisplay}</ShadcnTableCell>}
-                                <ShadcnTableCell className="border text-left italic">Mix: {type.typeName}</ShadcnTableCell>
-                                <ShadcnTableCell className="border text-right italic">SUBTOTAL (Mix)</ShadcnTableCell>
-                                <ShadcnTableCell className="border text-right"></ShadcnTableCell> 
-                                <ShadcnTableCell className="border text-right"></ShadcnTableCell> 
-                                <ShadcnTableCell className="border text-right">{type.plannedQtyTypeTotal.toFixed(4)}</ShadcnTableCell>
-                                <ShadcnTableCell className="border text-right">
-                                    <Input
-                                        type="number" step="any"
-                                        value={typeActualQtyStr}
-                                        onChange={(e) => handleActualQuantityChange(typeActualKey, e.target.value)}
-                                        className="h-8 text-right w-full min-w-[80px]"
-                                    />
-                                </ShadcnTableCell>
-                                <ShadcnTableCell className={`border text-right ${typeDiff < 0 ? 'text-red-600 dark:text-red-400' : typeDiff > 0 ? 'text-blue-600 dark:text-blue-400' : ''}`}>
-                                    {!isNaN(typeDiff) ? typeDiff.toFixed(4) : ''}
-                                </ShadcnTableCell>
-                            </ShadcnTableRow>
-                        );
-                        isFirstRowOfGroup = false; 
-                        
-                        let isFirstIngredientOfTypeForDietDisplay = true;
-
-                        
-                        type.ingredients.forEach((ing) => { 
-                            const ingActualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName, ing.ingredientName);
-                            const ingActualQtyStr = actualQuantities[ingActualKey] || '';
-                            const ingActualQtyNum = parseFloat(ingActualQtyStr);
-                            let ingDiff = NaN;
-                            if (!isNaN(ingActualQtyNum)) {
-                                ingDiff = ingActualQtyNum - ing.qtyForTotalSpecies;
+                group.dietContexts.forEach((dietContext) => {
+                    let isFirstRowOfDietContext = true;
+                    dietContext.speciesBreakdown.forEach((speciesDiet) => {
+                        let isFirstRowOfSpecies = true;
+                        speciesDiet.types.forEach((type) => {
+                            const typeActualKey = buildActualQtyKey(group.groupName, dietContext.dietName, dietContext.mealStartTime, speciesDiet.speciesName, type.typeName);
+                            const typeActualQtyStr = actualQuantities[typeActualKey] || '';
+                            const typeActualQtyNum = parseFloat(typeActualQtyStr);
+                            let typeDiff = NaN;
+                            if (!isNaN(typeActualQtyNum)) {
+                                typeDiff = typeActualQtyNum - type.plannedQtyTypeTotal;
                             }
+
                             rows.push(
-                                <ShadcnTableRow key={ingActualKey} className="hover:bg-accent/10">
-                                     
-                                    <ShadcnTableCell className="border text-left pl-4">{type.typeName === "Unknown Type" ? "" : type.typeName}</ShadcnTableCell> 
-                                    <ShadcnTableCell className="border text-left">{ing.ingredientName}</ShadcnTableCell>
-                                    <ShadcnTableCell className="border text-right">{ing.qtyPerSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
-                                    <ShadcnTableCell className="border text-right">{ing.qtyForTotalSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
-                                    <ShadcnTableCell className="border text-right">{ing.qtyForTotalSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell> 
+                                <ShadcnTableRow key={`${typeActualKey}_subtotal`} className="bg-muted/50 dark:bg-muted/30 font-semibold hover:bg-muted">
+                                    {isFirstRowOfGroup && <ShadcnTableCell rowSpan={group.totalRowsInGroup} className="border align-top pt-2">{group.groupName}</ShadcnTableCell>}
+                                    {isFirstRowOfDietContext && <ShadcnTableCell rowSpan={dietContext.totalRowsInDietContext} className="border align-top pt-2">{dietContext.mealStartTime}</ShadcnTableCell>}
+                                    {isFirstRowOfDietContext && <ShadcnTableCell rowSpan={dietContext.totalRowsInDietContext} className="border align-top pt-2">{dietContext.dietName}</ShadcnTableCell>}
+                                    {isFirstRowOfDietContext && <ShadcnTableCell rowSpan={dietContext.totalRowsInDietContext} className="border align-top pt-2 whitespace-pre-line">{dietContext.speciesSummaryText}</ShadcnTableCell>}
+                                    {isFirstRowOfSpecies && <ShadcnTableCell rowSpan={speciesDiet.totalRowsForSpecies} className="border align-top pt-2">{`${speciesDiet.speciesName} (${speciesDiet.animalCount})`}</ShadcnTableCell>}
+                                    <ShadcnTableCell className="border text-left italic">{type.typeName}</ShadcnTableCell>
+                                    <ShadcnTableCell className="border text-right italic">SUBTOTAL (Mix)</ShadcnTableCell>
+                                    <ShadcnTableCell className="border text-right"></ShadcnTableCell>
+                                    <ShadcnTableCell className="border text-right"></ShadcnTableCell>
+                                    <ShadcnTableCell className="border text-right">{type.plannedQtyTypeTotal.toFixed(4)}</ShadcnTableCell>
                                     <ShadcnTableCell className="border text-right">
                                         <Input
                                             type="number" step="any"
-                                            value={ingActualQtyStr}
-                                            onChange={(e) => handleActualQuantityChange(ingActualKey, e.target.value)}
+                                            value={typeActualQtyStr}
+                                            onChange={(e) => handleActualQuantityChange(typeActualKey, e.target.value)}
                                             className="h-8 text-right w-full min-w-[80px]"
                                         />
                                     </ShadcnTableCell>
-                                    <ShadcnTableCell className={`border text-right ${ingDiff < 0 ? 'text-red-600 dark:text-red-400' : ingDiff > 0 ? 'text-blue-600 dark:text-blue-400' : ''}`}>
-                                        {!isNaN(ingDiff) ? ingDiff.toFixed(4) : ''}
+                                    <ShadcnTableCell className={`border text-right ${typeDiff < 0 ? 'text-red-600 dark:text-red-400' : typeDiff > 0 ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                        {!isNaN(typeDiff) ? typeDiff.toFixed(4) : ''}
                                     </ShadcnTableCell>
                                 </ShadcnTableRow>
                             );
-                             isFirstIngredientOfTypeForDietDisplay = false; 
+                            isFirstRowOfGroup = false;
+                            isFirstRowOfDietContext = false;
+                            
+                            type.ingredients.forEach((ing) => {
+                                const ingActualKey = buildActualQtyKey(group.groupName, dietContext.dietName, dietContext.mealStartTime, speciesDiet.speciesName, type.typeName, ing.ingredientName);
+                                const ingActualQtyStr = actualQuantities[ingActualKey] || '';
+                                const ingActualQtyNum = parseFloat(ingActualQtyStr);
+                                let ingDiff = NaN;
+                                if (!isNaN(ingActualQtyNum)) {
+                                    ingDiff = ingActualQtyNum - ing.qtyForTotalSpecies;
+                                }
+                                rows.push(
+                                    <ShadcnTableRow key={ingActualKey} className="hover:bg-accent/10">
+                                        {/* Rowspan placeholders already rendered above if needed */}
+                                        {!isFirstRowOfGroup && group.totalRowsInGroup > 1 && speciesDiet.totalRowsForSpecies === (type.ingredients.length +1) && type.ingredients.indexOf(ing) === 0 ? null : null}
+                                        {!isFirstRowOfDietContext && dietContext.totalRowsInDietContext > 1 && speciesDiet.totalRowsForSpecies === (type.ingredients.length +1) && type.ingredients.indexOf(ing) === 0 ? null : null}
+                                        {!isFirstRowOfDietContext && dietContext.totalRowsInDietContext > 1 && speciesDiet.totalRowsForSpecies === (type.ingredients.length +1) && type.ingredients.indexOf(ing) === 0 ? null : null}
+                                        {!isFirstRowOfDietContext && dietContext.totalRowsInDietContext > 1 && speciesDiet.totalRowsForSpecies === (type.ingredients.length +1) && type.ingredients.indexOf(ing) === 0 ? null : null}
+                                        {!isFirstRowOfSpecies && speciesDiet.totalRowsForSpecies > 1 && type.ingredients.indexOf(ing) === 0 ? null : null}
+
+
+                                        <ShadcnTableCell className="border text-left pl-4">{type.typeName === "Unknown Type" ? "" : type.typeName}</ShadcnTableCell>
+                                        <ShadcnTableCell className="border text-left">{ing.ingredientName}</ShadcnTableCell>
+                                        <ShadcnTableCell className="border text-right">{ing.qtyPerSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
+                                        <ShadcnTableCell className="border text-right">{ing.qtyForTotalSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
+                                        <ShadcnTableCell className="border text-right">{ing.qtyForTotalSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
+                                        <ShadcnTableCell className="border text-right">
+                                            <Input
+                                                type="number" step="any"
+                                                value={ingActualQtyStr}
+                                                onChange={(e) => handleActualQuantityChange(ingActualKey, e.target.value)}
+                                                className="h-8 text-right w-full min-w-[80px]"
+                                            />
+                                        </ShadcnTableCell>
+                                        <ShadcnTableCell className={`border text-right ${ingDiff < 0 ? 'text-red-600 dark:text-red-400' : ingDiff > 0 ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                            {!isNaN(ingDiff) ? ingDiff.toFixed(4) : ''}
+                                        </ShadcnTableCell>
+                                    </ShadcnTableRow>
+                                );
+                            });
+                             isFirstRowOfSpecies = false;
                         });
-                        isFirstRowOfDiet = false; 
                     });
                 });
             });
@@ -835,10 +842,8 @@ export default function Home() {
 
         return (
           <div className="flex flex-col flex-1 min-h-0 space-y-4">
-            
             <div className="flex justify-between items-start gap-4">
                 <div className="flex-1 space-y-2">
-                    
                 </div>
                 <div className="flex flex-col items-end space-y-2">
                      <FileUpload
@@ -862,26 +867,28 @@ export default function Home() {
             </div>
             <Separator />
 
-            
-            <ScrollArea className="flex-1 -mx-4 px-4"> 
+            <ScrollArea className="flex-1 -mx-4 px-4">
                 <ShadcnTable className="min-w-full border-collapse border border-muted">
-                    <ShadcnTableHeader className="sticky top-0 bg-card z-10"> 
+                    <ShadcnTableHeader className="sticky top-0 bg-card z-10">
                         <ShadcnTableRow>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[150px] text-left">Group Name</ShadcnTableHead>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[300px] text-left">Diet / Species / Meal</ShadcnTableHead>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[150px] text-left">Type Name</ShadcnTableHead>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[200px] text-left">Ingredient Name</ShadcnTableHead>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[120px]">Qty/1 Species</ShadcnTableHead>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[120px]">Qty/Total Species</ShadcnTableHead>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[120px]">Qty to be Received</ShadcnTableHead>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[120px]">Qty Received</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[120px] text-left">group_name</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[80px] text-left">Start Time</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[200px] text-left">diet_name</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[250px] text-left">Species Context</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[180px] text-left">Species & Animal Count</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[150px] text-left">type_name</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[150px] text-left">ingredient_name</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[100px]">Qty/# Species</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[100px]">Qty/total Animals</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[100px]">Qty to be Received</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[100px]">Qty Received</ShadcnTableHead>
                             <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[100px]">Difference</ShadcnTableHead>
                         </ShadcnTableRow>
                     </ShadcnTableHeader>
                     <ShadcnTableBody>
                         {comparisonDisplayData.length > 0 ? renderComparisonRows() : (
                             <ShadcnTableRow>
-                                <ShadcnTableCell colSpan={9} className="text-center py-10 text-muted-foreground">
+                                <ShadcnTableCell colSpan={12} className="text-center py-10 text-muted-foreground">
                                     No comparison data to display. Apply filters to process your Excel file.
                                 </ShadcnTableCell>
                             </ShadcnTableRow>
@@ -894,18 +901,18 @@ export default function Home() {
     }
 
 
-    
-    if (isExportTab) { 
+
+    if (isExportTab) {
       const getSectionData = (sectionNameValue: string) => {
-          
-          
+
+
           const rawDataForThisSection = rawData.filter(row => {
             const sectionMatch = String(row.section_name || '').trim() === sectionNameValue;
             if (!sectionMatch) return false;
-            
+
              return filters.every(filter => {
-                
-                
+
+
                 const valueAfterProcessing = calculateProcessedTableData([row], [], [], [filter], allHeaders, true, false).filteredData[0]?.[filter.column];
                 const filterValue = filter.value;
                 const normalizedRowValue = String(valueAfterProcessing ?? '').toLowerCase();
@@ -931,7 +938,7 @@ export default function Home() {
                 }
             });
           });
-          
+
           return calculateProcessedTableData( rawDataForThisSection, defaultGroupings, defaultSummaries, [], allHeaders, true, false );
       };
 
@@ -950,7 +957,7 @@ export default function Home() {
               {uniqueSectionNames.length > 0 ?
                 uniqueSectionNames.map((sectionName) => {
                   const sectionTableData = getSectionData(sectionName);
-                  if (sectionTableData.processedData.length === 0) { 
+                  if (sectionTableData.processedData.length === 0) {
                       return (
                           <Card key={sectionName}>
                               <CardHeader className="flex flex-row items-center justify-between p-4">
@@ -971,19 +978,19 @@ export default function Home() {
                           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />} PDF
                         </Button>
                       </CardHeader>
-                      <CardContent className="min-h-0 pt-0 p-0"> 
-                         <div style={{ height: 'auto', maxHeight: '600px', overflowY: 'auto' }}> 
+                      <CardContent className="min-h-0 pt-0 p-0">
+                         <div style={{ height: 'auto', maxHeight: '600px', overflowY: 'auto' }}>
                           <DataTable
                             data={sectionTableData.processedData}
                             columns={sectionTableData.columns}
                             grandTotalRow={sectionTableData.grandTotalRow}
-                            allHeaders={allHeaders} 
+                            allHeaders={allHeaders}
                           />
                          </div>
                       </CardContent>
                     </Card>
                   );
-              }) : ( 
+              }) : (
                  <Card>
                     <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
                         <AlertCircle className="h-12 w-12 text-primary/50 mb-4" />
@@ -996,14 +1003,14 @@ export default function Home() {
           </ScrollArea>
         </>
       );
-    } else { 
+    } else {
       return (
-        <div className="flex-1 min-h-0"> 
+        <div className="flex-1 min-h-0">
           <DataTable
-            data={processedData} 
-            columns={currentTableColumns} 
-            grandTotalRow={grandTotalRow} 
-            allHeaders={allHeaders} 
+            data={processedData}
+            columns={currentTableColumns}
+            grandTotalRow={grandTotalRow}
+            allHeaders={allHeaders}
           />
         </div>
       );
@@ -1012,7 +1019,7 @@ export default function Home() {
 
 
   return (
-    <main className="min-h-screen text-foreground flex flex-col bg-transparent"> 
+    <main className="min-h-screen text-foreground flex flex-col bg-transparent">
       <header className="px-4 py-3 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-20">
         <DietWiseLogo />
       </header>
@@ -1030,8 +1037,8 @@ export default function Home() {
           </TabsContent>
 
 
-          <TabsContent value="extractedData" className="mt-2 flex flex-col flex-1 min-h-0"> 
-             <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4"> 
+          <TabsContent value="extractedData" className="mt-2 flex flex-col flex-1 min-h-0">
+             <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
                 <SimpleFilterPanel
                     rawData={rawData}
                     allHeaders={allHeaders}
@@ -1079,6 +1086,4 @@ export default function Home() {
     </main>
   );
 }
-    
-
     
