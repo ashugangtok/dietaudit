@@ -1,4 +1,5 @@
 
+
 export interface DietDataRow {
   [key: string]: string | number | undefined;
   common_name?: string;
@@ -11,7 +12,7 @@ export interface DietDataRow {
   site_name?: string;
   group_name?: string;
   sex?: string;
-  total_animal?: number;
+  total_animal?: number; // Represents original total_animal if present, or count of unique animal_id after processing
   date?: string; // Or Date object if parsed
   diet_id?: string;
   diet_name?: string;
@@ -28,7 +29,7 @@ export interface DietDataRow {
   base_uom_name?: string;
   note?: string; // For subtotals, special notes, or markers
   actual_animal_count?: number;
-  animal_id?: string; // Added for unique animal identification
+  animal_id?: string;
 }
 
 export interface GroupingOption {
@@ -90,12 +91,66 @@ export const DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
 ];
 
 export const DEFAULT_IMAGE_PIVOT_SUMMARIES: SummarizationOption[] = [
-  { column: 'ingredient_qty', type: 'first' }, // Changed from 'sum' to 'first'
-  { column: 'total_animal', type: 'first' }, 
+  { column: 'ingredient_qty', type: 'first' },
+  { column: 'total_animal', type: 'first' },
   { column: 'base_uom_name', type: 'first' },
 ];
 
 
 export const DEFAULT_IMAGE_PIVOT_FILTER_COLUMNS: (keyof DietDataRow)[] = ['class_name'];
 export const PIVOT_DEFAULT_FILTERS: (keyof DietDataRow)[] = [];
+
+
+// Types for Audit Tab hierarchical data
+export interface AuditPageIngredient {
+  ingredientName: string;
+  qtyPerSpecies: number;
+  qtyForTotalSpecies: number; // Planned qty for total animals of this species for this ingredient
+  uom: string;
+  // actualQtyReceived and difference will be stored in auditActualQuantities state
+}
+
+export interface AuditPageType {
+  typeName: string;
+  ingredients: AuditPageIngredient[];
+  plannedQtyTypeTotal: number; // Sum of qtyForTotalSpecies for all ingredients in this type
+  totalRowsForType: number; // For rowspan calculation
+  // actualQtyReceived and difference for the type subtotal will be in auditActualQuantities
+}
+
+export interface AuditPageSpeciesDiet {
+  speciesName: string;
+  animalCount: number;
+  types: AuditPageType[];
+  totalRowsForSpecies: number; // For rowspan calculation (sum of all ingredient rows + type subtotal rows for this species)
+}
+
+export interface AuditPageDietContext {
+  mealStartTime: string;
+  dietName: string;
+  speciesBreakdown: AuditPageSpeciesDiet[];
+  speciesSummaryText: string; // e.g., "2 Species: Tufted Capuchin (4), Bearded Capuchin (1)"
+  totalRowsInDietContext: number; // For rowspan calculation
+}
+
+export interface AuditPageGroup {
+  groupName: string;
+  dietContexts: AuditPageDietContext[];
+  totalRowsForGroup: number; // For rowspan calculation
+}
+
+export const AUDIT_TAB_INITIAL_GROUPINGS: GroupingOption[] = [
+  { column: 'group_name' },
+  { column: 'meal_start_time' },
+  { column: 'diet_name' },
+  { column: 'common_name' }, // Species
+  { column: 'type_name' },   // Mix type
+  { column: 'ingredient_name' },
+];
+
+export const AUDIT_TAB_INITIAL_SUMMARIES: SummarizationOption[] = [
+  { column: 'ingredient_qty', type: 'first' }, // Qty per animal for an ingredient
+  { column: 'total_animal', type: 'first' },   // Animal count for the species (already unique by animal_id)
+  { column: 'base_uom_name', type: 'first' },  // Unit of measure
+];
     
