@@ -3,7 +3,7 @@
 
 import type React from 'react';
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { Leaf, FileSpreadsheet, AlertCircle, ListChecks, TableIcon, Download, Loader2, BarChartHorizontalBig, Save } from 'lucide-react';
+import { Leaf, FileSpreadsheet, AlertCircle, ListChecks, TableIcon, Download, Loader2, BarChartHorizontalBig, Save, UploadCloud } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -45,36 +45,36 @@ interface ComparisonPageType {
 }
 
 interface ComparisonPageDiet {
-  dietKey: string; // Composite key: group_name|diet_name_raw|common_name|meal_start_time
+  dietKey: string; 
   dietNameRaw: string;
-  commonName: string; // Species Name
+  commonName: string; 
   mealStartTime: string;
-  dietNameDisplay: string; // e.g. "Diet Name - Species Name (Animal Count) - Meal: Start Time"
+  dietNameDisplay: string; 
   animalCount: number;
   types: ComparisonPageType[];
 }
 
 interface ComparisonPageGroup {
-  groupName: string; // Corresponds to the 'group_name' field from Excel
+  groupName: string; 
   diets: ComparisonPageDiet[];
-  totalRowsInGroup: number; // For PDF rowspan calculation assistance if needed
+  totalRowsInGroup: number; 
 }
 
-// Groupings to get the necessary detail for comparison tab structure
+
 const COMPARISON_TAB_INITIAL_GROUPINGS: GroupingOption[] = [
   { column: 'group_name' },
   { column: 'diet_name' },
-  { column: 'common_name' }, // Ensure common_name is a primary grouping
+  { column: 'common_name' }, 
   { column: 'meal_start_time' },
   { column: 'type_name' },
   { column: 'ingredient_name' },
 ];
 
-// Summaries to get correct quantities for comparison
+
 const COMPARISON_TAB_INITIAL_SUMMARIES: SummarizationOption[] = [
-  { column: 'ingredient_qty', type: 'sum' }, // This will be qty per ingredient for the group context
-  { column: 'total_animal', type: 'first' },   // Animal count for the common_name
-  { column: 'base_uom_name', type: 'first' },// UOM for the ingredient
+  { column: 'ingredient_qty', type: 'sum' }, 
+  { column: 'total_animal', type: 'first' },   
+  { column: 'base_uom_name', type: 'first' },
 ];
 
 
@@ -106,7 +106,6 @@ export default function Home() {
 
   const { toast } = useToast();
 
-  // This useTableProcessor is for "View Data" and "Export Sections" tabs
   const { processedData, columns: currentTableColumns, grandTotalRow } = useTableProcessor({
     rawData,
     groupings: defaultGroupings,
@@ -136,10 +135,10 @@ export default function Home() {
           rawData,
           COMPARISON_TAB_INITIAL_GROUPINGS,
           COMPARISON_TAB_INITIAL_SUMMARIES,
-          filters, // Apply user's current filters
+          filters, 
           allHeaders,
-          true, // hasAppliedFilters is true here
-          true  // disableDisplayBlanking to get raw context values
+          true, 
+          true  
         );
 
         const groupsMap = new Map<string, ComparisonPageGroup>();
@@ -147,12 +146,12 @@ export default function Home() {
         initialProcessed.processedData.forEach(row => {
           const groupName = String(row.group_name || 'Unknown Group');
           const dietNameRaw = String(row.diet_name || 'Unknown Diet');
-          const commonName = String(row.common_name || 'Unknown Species'); // Species Name
+          const commonName = String(row.common_name || 'Unknown Species'); 
           const mealStartTime = String(row.meal_start_time || 'N/A');
           const typeName = String(row.type_name || 'Unknown Type');
           const ingredientName = String(row.ingredient_name || 'Unknown Ingredient');
 
-          // Use the summarized 'total_animal_first' for animal count for this species
+          
           const animalCount = parseInt(String(row.total_animal_first), 10) || 0;
           const qtyPerSpecies = parseFloat(String(row.ingredient_qty_sum)) || 0;
           const uom = String(row.base_uom_name_first || '');
@@ -162,7 +161,7 @@ export default function Home() {
           }
           const currentGroup = groupsMap.get(groupName)!;
 
-          // Diet key now includes common_name to differentiate diets for different species within the same group/meal
+          
           const dietKey = `${groupName}|${dietNameRaw}|${commonName}|${mealStartTime}`;
 
           let currentDiet = currentGroup.diets.find(d => d.dietKey === dietKey);
@@ -170,7 +169,7 @@ export default function Home() {
             currentDiet = {
               dietKey,
               dietNameRaw,
-              commonName, // Store common_name
+              commonName, 
               mealStartTime,
               dietNameDisplay: `${dietNameRaw} - ${commonName} (${animalCount}) - Meal: ${mealStartTime}`,
               animalCount,
@@ -178,7 +177,7 @@ export default function Home() {
             };
             currentGroup.diets.push(currentDiet);
           } else {
-            // Update animal count if a row for this dietKey has a more accurate one (though 'first' should be consistent)
+            
             if(animalCount > 0 && currentDiet.animalCount === 0) {
                 currentDiet.animalCount = animalCount;
                 currentDiet.dietNameDisplay = `${dietNameRaw} - ${commonName} (${animalCount}) - Meal: ${mealStartTime}`;
@@ -201,10 +200,10 @@ export default function Home() {
           });
         });
 
-        // Calculate totalRowsInGroup and sort
+        
         groupsMap.forEach(group => {
           group.totalRowsInGroup = 0;
-          // Sort diets: by raw name, then by common name, then by meal start time
+          
           group.diets.sort((a,b) => {
             const dietComp = a.dietNameRaw.localeCompare(b.dietNameRaw);
             if (dietComp !== 0) return dietComp;
@@ -218,7 +217,7 @@ export default function Home() {
             diet.types.forEach(type => {
               type.ingredients.sort((a,b) => a.ingredientName.localeCompare(b.ingredientName));
               type.plannedQtyTypeTotal = parseFloat(type.ingredients.reduce((sum, ing) => sum + ing.qtyForTotalSpecies, 0).toFixed(4));
-              // Each ingredient row + 1 subtotal row per type
+              
               group.totalRowsInGroup += type.ingredients.length + 1;
             });
           });
@@ -235,7 +234,7 @@ export default function Home() {
         setIsLoading(false);
       }
     } else if (activeTab === "comparison" && (!hasAppliedFilters || rawData.length === 0)) {
-        // Clear comparison data if filters are not applied or no raw data
+        
         setComparisonDisplayData([]);
         setIsLoading(false);
     }
@@ -248,20 +247,20 @@ export default function Home() {
     const cleanFileName = fileName.replace(/\.(xlsx|xls)$/i, '');
     setRawFileName(cleanFileName);
 
-    // Reset all data states
+    
     setRawData([]);
     setAllHeaders([]);
     setFilters([]);
     setHasAppliedFilters(false);
     setIsFileSelected(true);
-    setActiveTab("extractedData"); // Switch to extracted data view
+    setActiveTab("uploadExcel"); // Stay on upload tab initially as per new design
     setActualQuantities({});
     setParsedActualSpeciesData([]);
-    setComparisonDisplayData([]); // Clear comparison specific data
+    setComparisonDisplayData([]); 
 
     toast({
-        title: "File Selected",
-        description: `"${cleanFileName}" is ready. Apply filters to process and view data.`,
+        title: "File Ready for Processing",
+        description: `"${cleanFileName}" selected. Apply filters on other tabs to view data.`,
     });
     setIsLoading(false);
   }, [toast]);
@@ -298,7 +297,7 @@ export default function Home() {
     }
 
     setIsLoading(true);
-    setActualQuantities({}); // Reset actuals when filters change
+    setActualQuantities({}); 
 
     try {
         const result = await parseExcelFlow({ excelFileBase64: rawFileBase64, originalFileName: rawFileName });
@@ -307,7 +306,7 @@ export default function Home() {
             toast({ variant: "destructive", title: "File Parsing Error", description: result.error });
             setRawData([]);
             setAllHeaders([]);
-            setComparisonDisplayData([]); // Clear comparison data on error
+            setComparisonDisplayData([]); 
             setIsLoading(false);
             return;
         }
@@ -315,7 +314,7 @@ export default function Home() {
         setRawData(result.parsedData);
         setAllHeaders(result.headers);
 
-        // Logic for setting default groupings and summaries for "View Data" / "Export Sections"
+        
         const requiredDefaultPivotCols = [
             ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => col as string),
             ...DEFAULT_IMAGE_PIVOT_SUMMARIES.map(s => s.column)
@@ -335,30 +334,30 @@ export default function Home() {
                 setDefaultGroupings(SPECIAL_PIVOT_UOM_ROW_GROUPINGS.map(col => ({ column: col as string })));
                 setDefaultSummaries([{ column: SPECIAL_PIVOT_UOM_VALUE_FIELD as string, type: 'sum' }]);
             } else {
-                // More robust fallback for "View Data" / "Export Sections"
+                
                 const fallbackGroupingCandidates = ['group_name', 'common_name', 'diet_name', 'type_name', 'ingredient_name'];
                 const availableFallbackGroupings = fallbackGroupingCandidates.filter(h => result.headers.includes(h as string));
                 setDefaultGroupings(availableFallbackGroupings.length > 0
-                    ? availableFallbackGroupings.slice(0,4).map(col => ({ column: col as string })) // Max 4 for default
+                    ? availableFallbackGroupings.slice(0,4).map(col => ({ column: col as string })) 
                     : result.headers.length > 0 ? [{ column: result.headers[0] }] : []);
 
                 const fallbackSummaries: SummarizationOption[] = [];
                 if (result.headers.includes('ingredient_qty')) {
                     fallbackSummaries.push({ column: 'ingredient_qty', type: 'sum' });
                 }
-                if (result.headers.includes('base_uom_name')) { // For UOM display
+                if (result.headers.includes('base_uom_name')) { 
                     fallbackSummaries.push({ column: 'base_uom_name', type: 'first'});
                 }
-                if (result.headers.includes('total_animal')) { // For animal count display
+                if (result.headers.includes('total_animal')) { 
                     fallbackSummaries.push({ column: 'total_animal', type: 'first'});
                 }
-                // Add a generic numeric column if no specific ones are found
+                
                 if (fallbackSummaries.length === 0 && result.parsedData.length > 0) {
                     const firstDataRow = result.parsedData[0];
                     const someNumericHeader = result.headers.find(h => typeof firstDataRow[h] === 'number');
                     if (someNumericHeader) {
                         fallbackSummaries.push({column: someNumericHeader, type: 'sum'});
-                    } else if (result.headers.length > 0) { // Default to first header if no numeric found
+                    } else if (result.headers.length > 0) { 
                         fallbackSummaries.push({column: result.headers[0], type: 'count'});
                     }
                 }
@@ -385,24 +384,24 @@ export default function Home() {
         toast({ variant: "destructive", title: "Processing Error", description: "An unexpected error occurred while parsing or filtering the file." });
         setRawData([]);
         setAllHeaders([]);
-        setComparisonDisplayData([]); // Clear comparison data on error
+        setComparisonDisplayData([]); 
     } finally {
         setIsLoading(false);
     }
   }, [isFileSelected, rawFileBase64, rawFileName, toast]);
 
-  // Updated to include commonName in the key for ingredient-level actuals
+  
   const buildActualQtyKey = (groupName: string, dietNameRaw: string, commonName: string, mealStartTime: string, typeName: string, ingredientName?: string) => {
     let key = `${groupName}|${dietNameRaw}|${commonName}|${mealStartTime}|${typeName}`;
     if (ingredientName) {
       key += `|${ingredientName}`;
     } else {
-      key += `|__TYPE_SUBTOTAL__`; // For type-level actual quantity
+      key += `|__TYPE_SUBTOTAL__`; 
     }
     return key;
   };
 
-  // actualKey should now be the full composite key
+  
   const handleActualQuantityChange = useCallback((actualKey: string, value: string) => {
     setActualQuantities(prev => ({ ...prev, [actualKey]: value }));
   }, []);
@@ -418,33 +417,33 @@ export default function Home() {
         const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
         let firstPageOverall = true;
 
-        comparisonDisplayData.forEach((group) => { // Group is ComparisonPageGroup
+        comparisonDisplayData.forEach((group) => { 
             if (!firstPageOverall) doc.addPage(); else firstPageOverall = false;
             doc.setFontSize(14);
             doc.text(`Group: ${group.groupName}`, 40, 30);
             let currentY = 50;
 
-            group.diets.forEach((diet, dietIdx) => { // Diet is ComparisonPageDiet
-                if (dietIdx > 0 && currentY > 50) currentY += 15; // Add space between diets unless it's the first diet on a new page
+            group.diets.forEach((diet, dietIdx) => { 
+                if (dietIdx > 0 && currentY > 50) currentY += 15; 
 
-                // Check for page break before starting a new diet, if not the first diet in the group
-                if (currentY > doc.internal.pageSize.height - 120 && group.diets.length > 1) { // 120 as threshold for header + a few rows
+                
+                if (currentY > doc.internal.pageSize.height - 120 && group.diets.length > 1) { 
                     doc.addPage();
                     currentY = 40;
                     doc.setFontSize(14);
-                    doc.text(`Group: ${group.groupName} (Continued)`, 40, 30); // Group Header
+                    doc.text(`Group: ${group.groupName} (Continued)`, 40, 30); 
                     currentY += 20;
                 }
 
                 doc.setFontSize(12);
-                doc.text(`Diet/Species/Meal: ${diet.dietNameDisplay}`, 40, currentY); // Diet Header including species and animal count
+                doc.text(`Diet/Species/Meal: ${diet.dietNameDisplay}`, 40, currentY); 
                 currentY += 20;
 
-                diet.types.forEach((type, typeIdx) => { // Type is ComparisonPageType
+                diet.types.forEach((type, typeIdx) => { 
                     if (typeIdx > 0 && currentY > (dietIdx === 0 && typeIdx === 0 ? 70 : 50)) currentY += 10;
 
-                    // Check for page break before starting a new type table
-                    if (currentY > doc.internal.pageSize.height - 100) { // 100 as threshold for type subtotal + a few ingredients
+                    
+                    if (currentY > doc.internal.pageSize.height - 100) { 
                         doc.addPage();
                         currentY = 40;
                         doc.setFontSize(14);
@@ -458,8 +457,8 @@ export default function Home() {
                     const head = [['Type Name', 'Ingredient Name', 'Qty/1 Species', 'Qty/Total Species', 'Qty to Receive', 'Qty Received', 'Difference']];
                     const body = [];
 
-                    // Add ingredients for this type
-                    type.ingredients.forEach(ing => { // ing is ComparisonPageIngredient
+                    
+                    type.ingredients.forEach(ing => { 
                         const actualIngKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName, ing.ingredientName);
                         const actualQtyStr = actualQuantities[actualIngKey] || '';
                         const actualQtyNum = parseFloat(actualQtyStr);
@@ -468,17 +467,17 @@ export default function Home() {
                             diffStr = (actualQtyNum - ing.qtyForTotalSpecies).toFixed(4);
                         }
                         body.push([
-                            ing === type.ingredients[0] ? type.typeName : '', // Show type name only for the first ingredient of that type
+                            ing === type.ingredients[0] ? type.typeName : '', 
                             ing.ingredientName,
                             ing.qtyPerSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''),
                             ing.qtyForTotalSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''),
-                            ing.qtyForTotalSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''), // "Qty to be Received"
+                            ing.qtyForTotalSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''), 
                             actualQtyStr,
                             diffStr
                         ]);
                     });
 
-                    // Add subtotal row for the type
+                    
                     const actualTypeKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName);
                     const actualTypeQtyStr = actualQuantities[actualTypeKey] || '';
                     const actualTypeQtyNum = parseFloat(actualTypeQtyStr);
@@ -489,8 +488,8 @@ export default function Home() {
                     body.push([
                         { content: type.typeName, styles: { fontStyle: 'bold', fillColor: [230, 230, 230] } },
                         { content: 'SUBTOTAL', styles: { fontStyle: 'bold', halign: 'right', fillColor: [230, 230, 230] } },
-                        { content: '', styles: {fillColor: [230,230,230]}}, // Empty for Qty/1 Species
-                        { content: '', styles: {fillColor: [230,230,230]}}, // Empty for Qty/Total Species
+                        { content: '', styles: {fillColor: [230,230,230]}}, 
+                        { content: '', styles: {fillColor: [230,230,230]}}, 
                         { content: type.plannedQtyTypeTotal.toFixed(4) + (type.ingredients[0]?.uom ? ` ${type.ingredients[0].uom}` : ''), styles: { fontStyle: 'bold', halign: 'right', fillColor: [230,230,230] } },
                         { content: actualTypeQtyStr, styles: { fontStyle: 'bold', halign: 'right', fillColor: [230,230,230] } },
                         { content: diffTypeStr, styles: { fontStyle: 'bold', halign: 'right', fillColor: [230,230,230] } }
@@ -504,24 +503,24 @@ export default function Home() {
                         headStyles: { fillColor: [38, 153, 153], textColor: [255,255,255], fontSize: 7, cellPadding: 2},
                         styles: { fontSize: 7, cellPadding: 2, overflow: 'ellipsize'},
                         columnStyles: {
-                            0: { cellWidth: 80 }, 1: { cellWidth: 100 }, // Type Name, Ingredient Name
-                            2: { cellWidth: 60, halign: 'right' }, 3: { cellWidth: 60, halign: 'right' }, // Qty/1, Qty/Total
-                            4: { cellWidth: 70, halign: 'right' }, 5: { cellWidth: 60, halign: 'right' }, // Qty to Receive, Qty Received
-                            6: { cellWidth: 60, halign: 'right' }, // Difference
+                            0: { cellWidth: 80 }, 1: { cellWidth: 100 }, 
+                            2: { cellWidth: 60, halign: 'right' }, 3: { cellWidth: 60, halign: 'right' }, 
+                            4: { cellWidth: 70, halign: 'right' }, 5: { cellWidth: 60, halign: 'right' }, 
+                            6: { cellWidth: 60, halign: 'right' }, 
                         },
-                        didParseCell: function (data) { // Color difference
-                            if (data.column.index === 6) { // Difference column
+                        didParseCell: function (data) { 
+                            if (data.column.index === 6) { 
                                  const cellRawValue = data.cell.raw;
                                  if (cellRawValue !== null && cellRawValue !== undefined && String(cellRawValue).trim() !== '') {
                                     const numericValue = parseFloat(String(cellRawValue));
                                     if (!isNaN(numericValue)) {
-                                        if (numericValue < 0) data.cell.styles.textColor = [220, 53, 69]; // Red
-                                        else if (numericValue > 0) data.cell.styles.textColor = [0, 123, 255]; // Blue
+                                        if (numericValue < 0) data.cell.styles.textColor = [220, 53, 69]; 
+                                        else if (numericValue > 0) data.cell.styles.textColor = [0, 123, 255]; 
                                     }
                                 }
                             }
                         },
-                        didDrawPage: (dataHook) => { // Page numbers
+                        didDrawPage: (dataHook) => { 
                              doc.setFontSize(8);
                              doc.text("Page " + doc.internal.getNumberOfPages(), doc.internal.pageSize.width - 60, doc.internal.pageSize.height - 20);
                         },
@@ -535,17 +534,17 @@ export default function Home() {
         return;
     }
 
-    // PDF Export for "View Data" and "Export Sections" (remains largely the same)
+    
     let dataToExport: DietDataRow[] = [];
     let columnsToExport: string[] = [];
     let grandTotalToExport: DietDataRow | undefined = undefined;
 
     if (activeTab === "extractedData" || activeTab === "exportSections") {
-        dataToExport = processedData.map(row => ({...row})); // Use 'processedData' from useTableProcessor
-        columnsToExport = [...currentTableColumns]; // Use 'currentTableColumns' from useTableProcessor
-        grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined; // Use 'grandTotalRow'
+        dataToExport = processedData.map(row => ({...row})); 
+        columnsToExport = [...currentTableColumns]; 
+        grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined; 
 
-        // Concatenate UOM for display in PDF (same logic as before)
+        
         const ingredientQtySumKey = columnsToExport.find(k => k.startsWith('ingredient_qty_') && k.endsWith('_sum'));
         const uomKey = columnsToExport.find(k => k.startsWith('base_uom_name_') && k.endsWith('_first'));
 
@@ -566,7 +565,7 @@ export default function Home() {
                      grandTotalToExport[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
                 }
             }
-             if (uomKey !== ingredientQtySumKey) { // Remove separate UOM column if concatenated
+             if (uomKey !== ingredientQtySumKey) { 
                 columnsToExport = columnsToExport.filter(c => c !== uomKey);
             }
         }
@@ -583,14 +582,14 @@ export default function Home() {
 
 
   const handleDownloadSectionPdf = (sectionName: string, sectionTableDataInput: ProcessedTableData) => {
-     // This function serves "Export Sections" tab and uses data processed by useTableProcessor
+     
      const sectionTableData = {
          processedData: sectionTableDataInput.processedData.map(row => ({...row})),
          columns: [...sectionTableDataInput.columns],
          grandTotalRow: sectionTableDataInput.grandTotalRow ? {...sectionTableDataInput.grandTotalRow} : undefined
      };
 
-     // UOM concatenation for PDF (same logic as before)
+     
      const ingredientQtySumKey = sectionTableData.columns.find(k => k.startsWith('ingredient_qty_') && k.endsWith('_sum'));
      const uomKey = sectionTableData.columns.find(k => k.startsWith('base_uom_name_') && k.endsWith('_first'));
 
@@ -631,31 +630,28 @@ export default function Home() {
     }
 
     const dataToSave: any[] = [];
-    comparisonDisplayData.forEach(group => { // Iterating ComparisonPageGroup
-        group.diets.forEach(diet => { // Iterating ComparisonPageDiet
-            // One record per diet (which includes species)
+    comparisonDisplayData.forEach(group => { 
+        group.diets.forEach(diet => { 
+            
             const groupRecord: any = {
-                group_id: group.groupName, // Matches user's suggested JSON
-                species: diet.commonName, // Matches user's suggested JSON (species name)
-                meal_time: diet.mealStartTime, // Matches user's suggested JSON
-                // diet_name_raw: diet.dietNameRaw, // Optional for more context if needed by backend
-                // animal_count: diet.animalCount, // Optional
+                group_id: group.groupName, 
+                species: diet.commonName, 
+                meal_time: diet.mealStartTime, 
+                
                 ingredients: [],
             };
 
-            diet.types.forEach(type => { // Iterating ComparisonPageType
-                // Adding ingredients from each type to the diet's ingredient list
-                type.ingredients.forEach(ing => { // Iterating ComparisonPageIngredient
+            diet.types.forEach(type => { 
+                
+                type.ingredients.forEach(ing => { 
                     const actualIngKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName, ing.ingredientName);
                     const actualIngQtyStr = actualQuantities[actualIngKey] || '';
 
                     groupRecord.ingredients.push({
-                        name: ing.ingredientName, // Matches user's suggested JSON
-                        planned_qty: ing.qtyForTotalSpecies, // Matches user's suggested 'planned_qty' for total animals
-                        actual_qty: actualIngQtyStr !== '' ? (parseFloat(actualIngQtyStr) || null) : null, // Matches user's suggested JSON
-                        // uom: ing.uom, // Optional for backend context
-                        // planned_qty_per_species: ing.qtyPerSpecies, // Optional
-                        // type_name: type.typeName // Optional for more granular context if needed
+                        name: ing.ingredientName, 
+                        planned_qty: ing.qtyForTotalSpecies, 
+                        actual_qty: actualIngQtyStr !== '' ? (parseFloat(actualIngQtyStr) || null) : null, 
+                        
                     });
                 });
             });
@@ -675,12 +671,12 @@ export default function Home() {
   const year = new Date().getFullYear();
 
   const renderContentForDataTabs = (isExportTab: boolean, isComparisonTab: boolean = false) => {
-    if (isLoading && !isComparisonTab) { // Loading for View Data / Export Sections
+    if (isLoading && !isComparisonTab) { 
       return (
         <Card><CardHeader><CardTitle>Processing...</CardTitle></CardHeader><CardContent className="p-6 flex justify-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></CardContent></Card>
       );
     }
-     if (isComparisonTab && isLoading) { // Specific loading message for comparison structuring
+     if (isComparisonTab && isLoading) { 
       return (
         <Card><CardHeader><CardTitle>Structuring Comparison Data...</CardTitle></CardHeader><CardContent className="p-6 flex justify-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></CardContent></Card>
       );
@@ -688,11 +684,29 @@ export default function Home() {
 
     if (!isFileSelected) {
       return (
-        <Card><CardContent className="p-6 text-center text-muted-foreground"><p>Please upload an Excel file to begin.</p></CardContent></Card>
+         <div className="flex-1 flex flex-col items-center justify-center text-center space-y-4 py-10">
+            <DietWiseLogo className="w-48 h-auto mb-2" />
+            <p className="text-muted-foreground text-lg max-w-md">
+                Upload your animal diet plan Excel file for analysis and comparison.
+            </p>
+            <Card className="w-full max-w-lg shadow-xl bg-card/90 backdrop-blur-sm">
+                <CardHeader>
+                <CardTitle className="text-2xl">Upload Diet Plan</CardTitle>
+                <CardDescription>Select an Excel file (.xlsx, .xls) to begin.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                <FileUpload
+                    onFileSelected={handleFileSelectedCallback}
+                    onProcessing={setIsLoading}
+                    disabled={isLoading}
+                />
+                </CardContent>
+            </Card>
+        </div>
       );
     }
 
-    if (isFileSelected && !hasAppliedFilters) {
+    if (isFileSelected && !hasAppliedFilters && activeTab !== "uploadExcel") {
       return (
         <Card className="flex-1">
           <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
@@ -704,7 +718,7 @@ export default function Home() {
       );
     }
 
-    // Messages for "View Data" / "Export Sections" tabs
+    
     if (!isComparisonTab) {
         if (rawData.length === 0 && allHeaders.length > 0 && hasAppliedFilters) {
             return <Card><CardContent className="p-6 text-center text-muted-foreground">File "<strong>{rawFileName}</strong>" contains only headers.</CardContent></Card>;
@@ -712,15 +726,15 @@ export default function Home() {
         if (rawData.length === 0 && allHeaders.length === 0 && hasAppliedFilters) {
             return <Card><CardContent className="p-6 text-center text-destructive">No data or headers extracted from "<strong>{rawFileName}</strong>".</CardContent></Card>;
         }
-        if (processedData.length === 0 && rawData.length > 0 && hasAppliedFilters ) { // processedData from useTableProcessor
+        if (processedData.length === 0 && rawData.length > 0 && hasAppliedFilters ) { 
            return <Card><CardContent className="p-6 text-center text-muted-foreground">Filters for "<strong>{rawFileName}</strong>" resulted in no data for the current view.</CardContent></Card>;
         }
     }
 
 
-    // --- Comparison Tab Rendering ---
+    
     if (isComparisonTab) {
-        if (isLoadingActualSpeciesFile) { // Loading for the secondary species file
+        if (isLoadingActualSpeciesFile) { 
             return <Card><CardHeader><CardTitle>Loading Species File...</CardTitle></CardHeader><CardContent className="p-6 flex justify-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></CardContent></Card>;
         }
         if (comparisonDisplayData.length === 0 && rawData.length > 0 && hasAppliedFilters) {
@@ -737,14 +751,14 @@ export default function Home() {
               </Card>
             );
         }
-        // Helper to render rows for the comparison table with simulated rowspans
+        
         const renderComparisonRows = () => {
             const rows: JSX.Element[] = [];
-            comparisonDisplayData.forEach((group) => { // group is ComparisonPageGroup
+            comparisonDisplayData.forEach((group) => { 
                 let isFirstRowOfGroup = true;
-                group.diets.forEach((diet) => { // diet is ComparisonPageDiet
+                group.diets.forEach((diet) => { 
                     let isFirstRowOfDiet = true;
-                    diet.types.forEach((type) => { // type is ComparisonPageType
+                    diet.types.forEach((type) => { 
                         const typeActualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName);
                         const typeActualQtyStr = actualQuantities[typeActualKey] || '';
                         const typeActualQtyNum = parseFloat(typeActualQtyStr);
@@ -753,15 +767,15 @@ export default function Home() {
                             typeDiff = typeActualQtyNum - type.plannedQtyTypeTotal;
                         }
 
-                        // Render the Type Subtotal Row
+                        
                         rows.push(
                             <ShadcnTableRow key={`${typeActualKey}_subtotal`} className="bg-muted/50 dark:bg-muted/30 font-semibold hover:bg-muted">
                                 {isFirstRowOfGroup && <ShadcnTableCell rowSpan={group.totalRowsInGroup} className="border align-top pt-2">{group.groupName}</ShadcnTableCell>}
                                 {isFirstRowOfDiet && <ShadcnTableCell rowSpan={diet.types.reduce((acc, t) => acc + t.ingredients.length + 1, 0)} className="border align-top pt-2">{diet.dietNameDisplay}</ShadcnTableCell>}
                                 <ShadcnTableCell className="border text-left italic">Mix: {type.typeName}</ShadcnTableCell>
                                 <ShadcnTableCell className="border text-right italic">SUBTOTAL (Mix)</ShadcnTableCell>
-                                <ShadcnTableCell className="border text-right"></ShadcnTableCell> {/* Empty for Qty/1 Species */}
-                                <ShadcnTableCell className="border text-right"></ShadcnTableCell> {/* Empty for Qty/Total Species */}
+                                <ShadcnTableCell className="border text-right"></ShadcnTableCell> 
+                                <ShadcnTableCell className="border text-right"></ShadcnTableCell> 
                                 <ShadcnTableCell className="border text-right">{type.plannedQtyTypeTotal.toFixed(4)}</ShadcnTableCell>
                                 <ShadcnTableCell className="border text-right">
                                     <Input
@@ -776,12 +790,12 @@ export default function Home() {
                                 </ShadcnTableCell>
                             </ShadcnTableRow>
                         );
-                        isFirstRowOfGroup = false; // After the first row (type subtotal or ingredient) of this group, set to false
+                        isFirstRowOfGroup = false; 
                         
                         let isFirstIngredientOfTypeForDietDisplay = true;
 
-                        // Render Ingredient Rows for this Type
-                        type.ingredients.forEach((ing) => { // ing is ComparisonPageIngredient
+                        
+                        type.ingredients.forEach((ing) => { 
                             const ingActualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName, ing.ingredientName);
                             const ingActualQtyStr = actualQuantities[ingActualKey] || '';
                             const ingActualQtyNum = parseFloat(ingActualQtyStr);
@@ -791,12 +805,12 @@ export default function Home() {
                             }
                             rows.push(
                                 <ShadcnTableRow key={ingActualKey} className="hover:bg-accent/10">
-                                     {/* Group Name and Diet Name cells are handled by rowSpan logic above */}
-                                    <ShadcnTableCell className="border text-left pl-4">{type.typeName === "Unknown Type" ? "" : type.typeName}</ShadcnTableCell> {/* Type Name column */}
+                                     
+                                    <ShadcnTableCell className="border text-left pl-4">{type.typeName === "Unknown Type" ? "" : type.typeName}</ShadcnTableCell> 
                                     <ShadcnTableCell className="border text-left">{ing.ingredientName}</ShadcnTableCell>
                                     <ShadcnTableCell className="border text-right">{ing.qtyPerSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
                                     <ShadcnTableCell className="border text-right">{ing.qtyForTotalSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
-                                    <ShadcnTableCell className="border text-right">{ing.qtyForTotalSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell> {/* Qty to be Received */}
+                                    <ShadcnTableCell className="border text-right">{ing.qtyForTotalSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell> 
                                     <ShadcnTableCell className="border text-right">
                                         <Input
                                             type="number" step="any"
@@ -812,7 +826,7 @@ export default function Home() {
                             );
                              isFirstIngredientOfTypeForDietDisplay = false; 
                         });
-                        isFirstRowOfDiet = false; // After the first type (and its ingredients) within a diet, set to false
+                        isFirstRowOfDiet = false; 
                     });
                 });
             });
@@ -821,10 +835,10 @@ export default function Home() {
 
         return (
           <div className="flex flex-col flex-1 min-h-0 space-y-4">
-            {/* Header section with file upload and download buttons */}
+            
             <div className="flex justify-between items-start gap-4">
                 <div className="flex-1 space-y-2">
-                    {/* Placeholder for future controls if needed */}
+                    
                 </div>
                 <div className="flex flex-col items-end space-y-2">
                      <FileUpload
@@ -848,10 +862,10 @@ export default function Home() {
             </div>
             <Separator />
 
-            {/* Scrollable Table Area */}
-            <ScrollArea className="flex-1 -mx-4 px-4"> {/* Adjust margins/padding for better scroll */}
+            
+            <ScrollArea className="flex-1 -mx-4 px-4"> 
                 <ShadcnTable className="min-w-full border-collapse border border-muted">
-                    <ShadcnTableHeader className="sticky top-0 bg-card z-10"> {/* Sticky header */}
+                    <ShadcnTableHeader className="sticky top-0 bg-card z-10"> 
                         <ShadcnTableRow>
                             <ShadcnTableHead className="border border-muted px-2 py-1 w-[150px] text-left">Group Name</ShadcnTableHead>
                             <ShadcnTableHead className="border border-muted px-2 py-1 w-[300px] text-left">Diet / Species / Meal</ShadcnTableHead>
@@ -880,19 +894,18 @@ export default function Home() {
     }
 
 
-    // --- "View Data" and "Export Sections" Tabs Rendering (uses DataTable) ---
-    if (isExportTab) { // "Export Sections" Tab
+    
+    if (isExportTab) { 
       const getSectionData = (sectionNameValue: string) => {
-          // Logic to filter rawData for this specific section and then process it
-          // This uses the main 'filters' from SimpleFilterPanel
+          
+          
           const rawDataForThisSection = rawData.filter(row => {
             const sectionMatch = String(row.section_name || '').trim() === sectionNameValue;
             if (!sectionMatch) return false;
-            // Apply global filters to section data
+            
              return filters.every(filter => {
-                // This logic needs to be robust, similar to how useTableProcessor filters
-                // For simplicity, we assume calculateProcessedTableData handles filtering correctly when passed to it.
-                // Here, we filter rawData BEFORE passing to section-specific calculateProcessedTableData
+                
+                
                 const valueAfterProcessing = calculateProcessedTableData([row], [], [], [filter], allHeaders, true, false).filteredData[0]?.[filter.column];
                 const filterValue = filter.value;
                 const normalizedRowValue = String(valueAfterProcessing ?? '').toLowerCase();
@@ -918,7 +931,7 @@ export default function Home() {
                 }
             });
           });
-          // Process this section's filtered data with default groupings/summaries for display
+          
           return calculateProcessedTableData( rawDataForThisSection, defaultGroupings, defaultSummaries, [], allHeaders, true, false );
       };
 
@@ -937,7 +950,7 @@ export default function Home() {
               {uniqueSectionNames.length > 0 ?
                 uniqueSectionNames.map((sectionName) => {
                   const sectionTableData = getSectionData(sectionName);
-                  if (sectionTableData.processedData.length === 0) { // If no data for this section after global filters
+                  if (sectionTableData.processedData.length === 0) { 
                       return (
                           <Card key={sectionName}>
                               <CardHeader className="flex flex-row items-center justify-between p-4">
@@ -958,19 +971,19 @@ export default function Home() {
                           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />} PDF
                         </Button>
                       </CardHeader>
-                      <CardContent className="min-h-0 pt-0 p-0"> {/* Ensure no extra padding */}
-                         <div style={{ height: 'auto', maxHeight: '600px', overflowY: 'auto' }}> {/* Scroll for individual section table */}
+                      <CardContent className="min-h-0 pt-0 p-0"> 
+                         <div style={{ height: 'auto', maxHeight: '600px', overflowY: 'auto' }}> 
                           <DataTable
                             data={sectionTableData.processedData}
                             columns={sectionTableData.columns}
                             grandTotalRow={sectionTableData.grandTotalRow}
-                            allHeaders={allHeaders} // Pass allHeaders for UOM logic in DataTable
+                            allHeaders={allHeaders} 
                           />
                          </div>
                       </CardContent>
                     </Card>
                   );
-              }) : ( // No unique sections found AT ALL after global filters
+              }) : ( 
                  <Card>
                     <CardContent className="p-6 text-center text-muted-foreground flex flex-col justify-center items-center h-full">
                         <AlertCircle className="h-12 w-12 text-primary/50 mb-4" />
@@ -983,14 +996,14 @@ export default function Home() {
           </ScrollArea>
         </>
       );
-    } else { // "View Data" Tab
+    } else { 
       return (
-        <div className="flex-1 min-h-0"> {/* Ensure DataTable takes available space */}
+        <div className="flex-1 min-h-0"> 
           <DataTable
-            data={processedData} // from useTableProcessor
-            columns={currentTableColumns} // from useTableProcessor
-            grandTotalRow={grandTotalRow} // from useTableProcessor
-            allHeaders={allHeaders} // Pass allHeaders for UOM logic in DataTable
+            data={processedData} 
+            columns={currentTableColumns} 
+            grandTotalRow={grandTotalRow} 
+            allHeaders={allHeaders} 
           />
         </div>
       );
@@ -999,49 +1012,26 @@ export default function Home() {
 
 
   return (
-    <main className="min-h-screen text-foreground flex flex-col bg-transparent"> {/* Removed bg-background */}
+    <main className="min-h-screen text-foreground flex flex-col bg-transparent"> 
       <header className="px-4 py-3 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-20">
         <DietWiseLogo />
       </header>
       <div className="px-4 py-2 border-b flex-1 min-h-0 flex flex-col">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full h-full flex flex-col">
-          <TabsList className="bg-muted p-1 rounded-md grid grid-cols-4">
-            <TabsTrigger value="uploadExcel" className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><FileSpreadsheet className="h-4 w-4"/>Upload Excel</TabsTrigger>
-            <TabsTrigger value="extractedData" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><TableIcon className="h-4 w-4" />View Data</TabsTrigger>
-            <TabsTrigger value="exportSections" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><ListChecks className="h-4 w-4"/>Export by Section</TabsTrigger>
-            <TabsTrigger value="comparison" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><BarChartHorizontalBig className="h-4 w-4"/>Comparison</TabsTrigger>
+          <TabsList className="bg-muted p-1 rounded-md grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
+            <TabsTrigger value="uploadExcel" className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-primary/10 data-[state=inactive]:text-muted-foreground rounded-sm flex items-center justify-center gap-2"><UploadCloud className="h-4 w-4"/>Upcel</TabsTrigger>
+            <TabsTrigger value="extractedData" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-primary/10 data-[state=inactive]:text-muted-foreground rounded-sm flex items-center justify-center gap-2"><TableIcon className="h-4 w-4" />View Data</TabsTrigger>
+            <TabsTrigger value="exportSections" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-primary/10 data-[state=inactive]:text-muted-foreground rounded-sm flex items-center justify-center gap-2"><ListChecks className="h-4 w-4"/>Export by Section</TabsTrigger>
+            <TabsTrigger value="comparison" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-primary/10 data-[state=inactive]:text-muted-foreground rounded-sm flex items-center justify-center gap-2"><BarChartHorizontalBig className="h-4 w-4"/>Comparison</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="uploadExcel" className="mt-2 flex-1 overflow-y-auto">
-            <div className="container mx-auto flex flex-col items-center justify-center space-y-8 py-10">
-              {!isFileSelected && !isLoading && (
-                <div className="text-center space-y-4">
-                  <Leaf className="mx-auto h-24 w-24 text-primary" />
-                  <h1 className="text-4xl font-bold">DietWise</h1>
-                  <p className="text-muted-foreground text-lg">
-                    Upload your animal diet plan Excel file for analysis and comparison.
-                  </p>
-                </div>
-              )}
-              <Card className="w-full max-w-2xl shadow-lg">
-                <CardHeader>
-                  <CardTitle>Upload Diet Plan</CardTitle>
-                  <CardDescription>Select an Excel file (.xlsx, .xls) to begin.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <FileUpload
-                    onFileSelected={handleFileSelectedCallback}
-                    onProcessing={setIsLoading}
-                    disabled={isLoading}
-                  />
-                </CardContent>
-              </Card>
-            </div>
+          <TabsContent value="uploadExcel" className="mt-2 flex-1 overflow-y-auto flex items-center justify-center">
+             {renderContentForDataTabs(false, false)}
           </TabsContent>
 
 
-          <TabsContent value="extractedData" className="mt-2 flex flex-col flex-1 min-h-0"> {/* flex-1 and min-h-0 for layout */}
-             <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4"> {/* Ensure this container also helps with layout */}
+          <TabsContent value="extractedData" className="mt-2 flex flex-col flex-1 min-h-0"> 
+             <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4"> 
                 <SimpleFilterPanel
                     rawData={rawData}
                     allHeaders={allHeaders}
