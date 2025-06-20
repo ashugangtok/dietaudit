@@ -2,7 +2,7 @@
 "use client";
 
 import type React from 'react';
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 import {
   Table,
   TableHeader,
@@ -15,14 +15,15 @@ import {
 } from '@/components/ui/table';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import type { DietDataRow } from '@/types';
-import { PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER, DEFAULT_IMAGE_PIVOT_SUMMARIES } from '@/types'; // Import necessary constants
+import { PIVOT_BLANK_MARKER } from '@/types';
 
 interface DataTableProps {
   data: DietDataRow[];
   columns: string[];
   grandTotalRow?: DietDataRow;
   isLoading?: boolean;
-  allHeaders: string[]; // Added to access original headers for UoM logic
+  allHeaders: string[];
+  isViewDataTab?: boolean; // Flag to enable two-row display
 }
 
 
@@ -31,7 +32,8 @@ const DataTable: React.FC<DataTableProps> = ({
   columns,
   grandTotalRow,
   isLoading,
-  allHeaders, // Receive allHeaders
+  allHeaders,
+  isViewDataTab = false, // Default to false
 }) => {
   if (isLoading) {
     return (
@@ -44,9 +46,7 @@ const DataTable: React.FC<DataTableProps> = ({
 
   const dietNameColumnKey = 'diet_name'; 
   
-  // Determine the key for UoM data, assuming it's summarized as 'base_uom_name_first'
   const uomRowDataKey = useMemo(() => {
-    // Check if the original 'base_uom_name' header exists and if a summary for it is in current columns
     if (allHeaders.includes('base_uom_name')) {
       return columns.find(col => col.startsWith('base_uom_name_') && col.endsWith('_first'));
     }
@@ -57,10 +57,12 @@ const DataTable: React.FC<DataTableProps> = ({
     return columns.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
   }, [columns]);
 
+  const totalAnimalFirstKey = useMemo(() => {
+    return columns.find(col => col.startsWith('total_animal_') && col.endsWith('_first'));
+  }, [columns]);
+
 
   const effectiveDisplayColumns = useMemo(() => {
-    // If UoM is present and its column is different from the ingredient quantity sum column,
-    // and we intend to concatenate, filter out the separate UoM column.
     if (uomRowDataKey && ingredientQtySumKey && uomRowDataKey !== ingredientQtySumKey) {
       return columns.filter(col => col !== uomRowDataKey);
     }
@@ -75,6 +77,15 @@ const DataTable: React.FC<DataTableProps> = ({
     );
   }
 
+  const grandTotalRequiredQty = useMemo(() => {
+    if (!isViewDataTab || !grandTotalRow || !ingredientQtySumKey || !totalAnimalFirstKey) return 0;
+    return data.reduce((sum, row) => {
+      const perAnimalQty = Number(row[ingredientQtySumKey] || 0);
+      const animalCount = Number(row[totalAnimalFirstKey] || 0);
+      return sum + (perAnimalQty * animalCount);
+    }, 0);
+  }, [data, grandTotalRow, ingredientQtySumKey, totalAnimalFirstKey, isViewDataTab]);
+
 
   return (
     <ScrollArea className="whitespace-nowrap rounded-md border h-full">
@@ -84,15 +95,13 @@ const DataTable: React.FC<DataTableProps> = ({
           <TableRow>
             {effectiveDisplayColumns.map((column) => {
               let headerText = column;
-               // Specific header renaming
                if (column.startsWith('total_animal_')) {
-                 headerText = 'Total Animal';
+                 headerText = 'Animal Count'; // Changed for clarity
                } else if (column.startsWith('ingredient_qty_') && column.endsWith('_sum')) {
-                 headerText = 'Ingredient Qty (Sum)';
+                 headerText = 'Ingredient Qty'; // Simplified for View Data two-row display
                } else if (column.startsWith('base_uom_name_') && column.endsWith('_first')) {
                  headerText = 'UoM'; 
                }
-               // General renaming: remove summary suffix, replace underscores, capitalize
                else {
                  headerText = column.replace(/_sum$|_average$|_count$|_first$|_max$/i, '')
                                   .replace(/_/g, ' ')
@@ -106,85 +115,143 @@ const DataTable: React.FC<DataTableProps> = ({
         </TableHeader>
         <TableBody>
           {data.map((row, rowIndex) => {
-            const rowKey = `datarow-${rowIndex}-${JSON.stringify(Object.values(row).slice(0, 5).join('-'))}`;
+            const perAnimalRowKey = `datarow-${rowIndex}-per-animal-${JSON.stringify(Object.values(row).slice(0, 5).join('-'))}`;
+            const totalRequiredRowKey = `datarow-${rowIndex}-total-required-${JSON.stringify(Object.values(row).slice(0, 5).join('-'))}`;
+            
+            let totalRequiredQtyForThisIngredient: number | string = '';
+            if (isViewDataTab && ingredientQtySumKey && totalAnimalFirstKey && row[ingredientQtySumKey] !== undefined && row[totalAnimalFirstKey] !== undefined) {
+                 const perAnimal = Number(row[ingredientQtySumKey]);
+                 const animalCount = Number(row[totalAnimalFirstKey]);
+                 if (!isNaN(perAnimal) && !isNaN(animalCount)) {
+                    totalRequiredQtyForThisIngredient = perAnimal * animalCount;
+                 }
+            }
+
+
             return (
-              <TableRow
-                  key={rowKey}
-                  className={row.note === PIVOT_SUBTOTAL_MARKER ? "bg-secondary/70 font-semibold" : ""}
-                  data-testid={`data-row-${rowIndex}`}
-              >
-                {effectiveDisplayColumns.map((column) => {
-                  let cellContent: React.ReactNode;
-                  const cellValue = row[column];
+              <Fragment key={`fragment-${rowIndex}`}>
+                {/* Row 1: Per Animal Quantity */}
+                <TableRow
+                    key={perAnimalRowKey}
+                    className={row.note === PIVOT_BLANK_MARKER ? "bg-secondary/70 font-semibold" : ""}
+                    data-testid={`data-row-${rowIndex}-per-animal`}
+                >
+                  {effectiveDisplayColumns.map((column) => {
+                    let cellContent: React.ReactNode;
+                    const cellValue = row[column];
 
-                  // UoM Concatenation
-                  if (column === ingredientQtySumKey && uomRowDataKey && row[uomRowDataKey]) {
-                      const qtyValue = cellValue;
-                      const uom = row[uomRowDataKey]; // This is the value from the 'base_uom_name_first' column for this row
-                      if (typeof qtyValue === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                          cellContent = `${qtyValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
-                      } else if (typeof qtyValue === 'number') { // Fallback if UoM not available for this row
-                          cellContent = qtyValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
-                      } else { // Non-numeric qty or other cases
-                          cellContent = (qtyValue === undefined || qtyValue === null || qtyValue === PIVOT_BLANK_MARKER ? '' : String(qtyValue));
-                      }
-                  } else if (cellValue === PIVOT_BLANK_MARKER) {
-                    cellContent = '';
-                  } else if (typeof cellValue === 'number') {
-                    cellContent = Number.isInteger(cellValue) && !String(cellValue).includes('.') // Avoid .00 for integers
-                                    ? String(cellValue)
-                                    : cellValue.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4});
-                  } else {
-                    cellContent = (cellValue === undefined || cellValue === null ? '' : String(cellValue));
-                  }
+                    if (column === ingredientQtySumKey && uomRowDataKey && row[uomRowDataKey]) {
+                        const qtyValue = cellValue;
+                        const uom = row[uomRowDataKey]; 
+                        if (typeof qtyValue === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
+                            cellContent = `${qtyValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                        } else if (typeof qtyValue === 'number') { 
+                            cellContent = qtyValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
+                        } else { 
+                            cellContent = (qtyValue === undefined || qtyValue === null || qtyValue === PIVOT_BLANK_MARKER ? '' : String(qtyValue));
+                        }
+                    } else if (cellValue === PIVOT_BLANK_MARKER) {
+                      cellContent = '';
+                    } else if (typeof cellValue === 'number') {
+                      cellContent = Number.isInteger(cellValue) && !String(cellValue).includes('.') 
+                                      ? String(cellValue)
+                                      : cellValue.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4});
+                    } else {
+                      cellContent = (cellValue === undefined || cellValue === null ? '' : String(cellValue));
+                    }
 
-                  // Handle diet_name multi-line display (from previous logic)
-                  if (column === dietNameColumnKey && typeof cellContent === 'string' && (cellContent.includes('\n') || (row.note === PIVOT_SUBTOTAL_MARKER && String(row[column]).includes('Species')))) {
+                    if (column === dietNameColumnKey && typeof cellContent === 'string' && (cellContent.includes('\n') || (row.note === PIVOT_BLANK_MARKER && String(row[column]).includes('Species')))) {
+                      return (
+                        <TableCell key={`${column}-per-animal`} className="whitespace-nowrap">
+                          <div style={{ whiteSpace: 'pre-wrap' }}>{cellContent}</div>
+                        </TableCell>
+                      );
+                    }
+
+                    const originalColumnName = column.replace(/_sum$|_average$|_count$|_first$|_max$/i, '');
+                    const isPotentiallyNumeric = allHeaders.includes(originalColumnName) && 
+                                                 !['site_name', 'section_name', 'group_name', 'common_name', 'meal_time', 'ingredient_name', 'diet_name', 'type_name', 'base_uom_name'].includes(originalColumnName);
+                    const isNumericOutputCol = (typeof row[column] === 'number' && column !== uomRowDataKey) || 
+                                            (column === ingredientQtySumKey && typeof row[column] === 'number') || 
+                                            (isPotentiallyNumeric && typeof row[column] === 'number');
+
                     return (
-                      <TableCell key={column} className="whitespace-nowrap">
-                        <div style={{ whiteSpace: 'pre-wrap' }}>{cellContent}</div>
+                      <TableCell key={`${column}-per-animal`} className={`whitespace-nowrap ${isNumericOutputCol ? "text-right" : "text-left"}`}>
+                        {cellContent}
                       </TableCell>
                     );
-                  }
+                  })}
+                </TableRow>
 
-                  // Determine if column should be right-aligned (numeric)
-                  const originalColumnName = column.replace(/_sum$|_average$|_count$|_first$|_max$/i, '');
-                  // Check if the original column (before summary suffix) was intended to be numeric based on allHeaders
-                  // or if it's a known summary column that produces numbers.
-                  // This is a heuristic; a more robust way might involve type info if available.
-                  const isPotentiallyNumeric = allHeaders.includes(originalColumnName) && 
-                                               !['site_name', 'section_name', 'group_name', 'common_name', 'meal_time', 'ingredient_name', 'diet_name', 'type_name', 'base_uom_name'].includes(originalColumnName);
+                {/* Row 2: Total Quantity Required (only for View Data tab) */}
+                {isViewDataTab && ingredientQtySumKey && totalAnimalFirstKey && (
+                  <TableRow
+                      key={totalRequiredRowKey}
+                      className="bg-muted/30"
+                      data-testid={`data-row-${rowIndex}-total-required`}
+                  >
+                    {effectiveDisplayColumns.map((column, colIndex) => {
+                      let cellContentTotal: React.ReactNode = PIVOT_BLANK_MARKER;
+                      let isNumericOutputColTotal = false;
+
+                      const isGroupingColumn = !column.match(/_sum$|_average$|_count$|_first$|_max$/i);
+
+                      if (colIndex === effectiveDisplayColumns.findIndex(c => c.startsWith('ingredient_name'))) { // Assuming ingredient_name is the most specific field shown before qty. Adjust if needed.
+                           cellContentTotal = (
+                            <span style={{ paddingLeft: '1.5rem' }}>
+                               ↳ Total Required
+                            </span>);
+                      } else if (column === ingredientQtySumKey) {
+                          const qtyVal = totalRequiredQtyForThisIngredient;
+                          if (uomRowDataKey && row[uomRowDataKey] && typeof qtyVal === 'number') {
+                              const uom = row[uomRowDataKey];
+                              if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
+                                  cellContentTotal = `${qtyVal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                              } else {
+                                  cellContentTotal = qtyVal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
+                              }
+                          } else if (typeof qtyVal === 'number') {
+                              cellContentTotal = qtyVal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
+                          } else {
+                              cellContentTotal = String(qtyVal);
+                          }
+                          isNumericOutputColTotal = true;
+                      } else if (isGroupingColumn) {
+                          cellContentTotal = PIVOT_BLANK_MARKER;
+                      } else { // Other summary columns like animal_count or UoM in this row
+                          cellContentTotal = PIVOT_BLANK_MARKER;
+                      }
+                      
+                      if(cellContentTotal === PIVOT_BLANK_MARKER) cellContentTotal = '';
 
 
-                  const isNumericOutputCol = (typeof row[column] === 'number' && column !== uomRowDataKey) || // Raw number, not the UoM column itself
-                                          (column === ingredientQtySumKey && typeof row[column] === 'number') || // Specifically ingredient_qty_sum
-                                          (isPotentiallyNumeric && typeof row[column] === 'number'); // Other summarized numeric fields
-
-
-                  return (
-                    <TableCell key={column} className={`whitespace-nowrap ${isNumericOutputCol ? "text-right" : "text-left"}`}>
-                      {cellContent}
-                    </TableCell>
-                  );
-                })}
-              </TableRow>
+                      return (
+                        <TableCell key={`${column}-total`} className={`whitespace-nowrap ${isNumericOutputColTotal ? "text-right" : "text-left"}`}>
+                          {cellContentTotal}
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+                )}
+              </Fragment>
             );
           })}
         </TableBody>
         {grandTotalRow && (
           <TableFooter className="sticky bottom-0 bg-secondary font-bold z-10 shadow-sm">
-            <TableRow data-testid="grand-total-row">
+            {/* Grand Total Row 1: Per Animal */}
+            <TableRow data-testid="grand-total-row-per-animal">
               {effectiveDisplayColumns.map((column, colIndex) => {
                 let displayCellValue: React.ReactNode = "";
                 const rawCellValue = grandTotalRow[column];
 
                 if (colIndex === 0 && (rawCellValue === undefined || rawCellValue === null || String(rawCellValue).trim().toLowerCase() === "grand total" || grandTotalRow.note === "Grand Total")) {
-                     displayCellValue = "Grand Total";
+                     displayCellValue = isViewDataTab ? "Grand Total (Per Animal)" : "Grand Total";
                 } else if (column === ingredientQtySumKey && uomRowDataKey && grandTotalRow[uomRowDataKey] && typeof rawCellValue === 'number') {
                     const uom = grandTotalRow[uomRowDataKey];
                     if (uom && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
                          displayCellValue = `${rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
-                    } else { // Fallback if UoM not available for GT row
+                    } else { 
                          displayCellValue = rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
                     }
                 } else if (rawCellValue === PIVOT_BLANK_MARKER) {
@@ -198,22 +265,51 @@ const DataTable: React.FC<DataTableProps> = ({
                   displayCellValue = String(rawCellValue);
                 }
 
-                 // Determine numeric alignment for grand total row
                  const originalColumnNameGT = column.replace(/_sum$|_average$|_count$|_first$|_max$/i, '');
                  const isPotentiallyNumericGT = allHeaders.includes(originalColumnNameGT) &&
                                              !['site_name', 'section_name', 'group_name', 'common_name', 'meal_time', 'ingredient_name', 'diet_name', 'type_name', 'base_uom_name'].includes(originalColumnNameGT);
-
                  const isNumericGTOutputCol = (typeof grandTotalRow[column] === 'number' && column !== uomRowDataKey) ||
                                           (column === ingredientQtySumKey && typeof grandTotalRow[column] === 'number') ||
                                           (isPotentiallyNumericGT && typeof grandTotalRow[column] === 'number');
-
                  return (
-                    <TableCell key={column} className={`whitespace-nowrap ${isNumericGTOutputCol ? "text-right" : "text-left"}`}>
+                    <TableCell key={`${column}-gt-per-animal`} className={`whitespace-nowrap ${isNumericGTOutputCol ? "text-right" : "text-left"}`}>
                       {displayCellValue}
                     </TableCell>
                   );
               })}
             </TableRow>
+            
+            {/* Grand Total Row 2: Total Required (only for View Data tab) */}
+            {isViewDataTab && ingredientQtySumKey && totalAnimalFirstKey && (
+                 <TableRow data-testid="grand-total-row-total-required" className="bg-secondary/70">
+                    {effectiveDisplayColumns.map((column, colIndex) => {
+                        let displayCellValueTotal: React.ReactNode = "";
+                        let isNumericOutputColTotalGT = false;
+
+                        if (colIndex === 0) {
+                            displayCellValueTotal = "Grand Total (Total Required)";
+                        } else if (column === ingredientQtySumKey) {
+                            const uomForGrandTotalRequired = uomRowDataKey ? grandTotalRow[uomRowDataKey] : undefined;
+                            if (uomForGrandTotalRequired && typeof uomForGrandTotalRequired === 'string' && uomForGrandTotalRequired.trim() !== '' && uomForGrandTotalRequired !== PIVOT_BLANK_MARKER) {
+                                displayCellValueTotal = `${grandTotalRequiredQty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uomForGrandTotalRequired.trim()}`;
+                            } else {
+                                displayCellValueTotal = grandTotalRequiredQty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
+                            }
+                            isNumericOutputColTotalGT = true;
+                        } else {
+                            displayCellValueTotal = PIVOT_BLANK_MARKER;
+                        }
+                        
+                        if(displayCellValueTotal === PIVOT_BLANK_MARKER) displayCellValueTotal = '';
+
+                        return (
+                            <TableCell key={`${column}-gt-total`} className={`whitespace-nowrap ${isNumericOutputColTotalGT ? "text-right" : "text-left"}`}>
+                            {displayCellValueTotal}
+                            </TableCell>
+                        );
+                    })}
+                 </TableRow>
+            )}
           </TableFooter>
         )}
       </Table>
@@ -225,3 +321,4 @@ const DataTable: React.FC<DataTableProps> = ({
 
 
 export default DataTable;
+

@@ -44,7 +44,6 @@ export default function Home() {
 
   const { toast } = useToast();
 
-  // This main processor is used for "View Data" and "Export Sections"
   const { processedData, columns: currentTableColumns, grandTotalRow } = useTableProcessor({
     rawData,
     groupings: defaultGroupings,
@@ -113,6 +112,11 @@ export default function Home() {
          if (result.headers.includes('base_uom_name') && !DEFAULT_IMAGE_PIVOT_SUMMARIES.find(s => s.column === 'base_uom_name')) {
             requiredDefaultPivotCols.push('base_uom_name');
         }
+         // animal_id is crucial for correct animal counting.
+         if (result.headers.includes('animal_id') && !requiredDefaultPivotCols.includes('animal_id')) {
+            requiredDefaultPivotCols.push('animal_id');
+        }
+
 
         const canApplyDefaultImagePivot = requiredDefaultPivotCols.every(col => result.headers.includes(col as string));
 
@@ -123,11 +127,12 @@ export default function Home() {
             if (result.headers.includes('base_uom_name') && !currentViewSummaries.find(s => s.column === 'base_uom_name')) {
                 currentViewSummaries.push({ column: 'base_uom_name', type: 'first'});
             }
-            // Ensure total_animal summary is 'first' for the default view to match image
+
             const totalAnimalSummaryIndex = currentViewSummaries.findIndex(s => s.column === 'total_animal');
             if (totalAnimalSummaryIndex !== -1) {
-                currentViewSummaries[totalAnimalSummaryIndex].type = 'first';
-            } else if (result.headers.includes('total_animal')) {
+                 // The 'first' type for 'total_animal' is now handled by useTableProcessor to count unique animal_ids
+                 currentViewSummaries[totalAnimalSummaryIndex].type = 'first';
+            } else if (result.headers.includes('total_animal') && result.headers.includes('animal_id')) {
                 currentViewSummaries.push({ column: 'total_animal', type: 'first'});
             }
             setDefaultSummaries(currentViewSummaries);
@@ -142,7 +147,12 @@ export default function Home() {
             const fallbackSummaries: SummarizationOption[] = [];
             if (result.headers.includes('ingredient_qty')) fallbackSummaries.push({ column: 'ingredient_qty', type: 'sum' });
             if (result.headers.includes('base_uom_name')) fallbackSummaries.push({ column: 'base_uom_name', type: 'first'});
-            if (result.headers.includes('total_animal')) fallbackSummaries.push({ column: 'total_animal', type: 'first'});
+            if (result.headers.includes('total_animal') && result.headers.includes('animal_id')) {
+                fallbackSummaries.push({ column: 'total_animal', type: 'first'});
+            } else if (result.headers.includes('total_animal')) {
+                 fallbackSummaries.push({ column: 'total_animal', type: 'first'}); // Fallback if animal_id not present
+            }
+
 
             if (fallbackSummaries.length === 0 && result.parsedData.length > 0 && result.headers.length > 0) {
                 const firstDataRow = result.parsedData[0];
@@ -185,22 +195,23 @@ export default function Home() {
     let columnsToExport: string[] = [];
     let grandTotalToExport: DietDataRow | undefined = undefined;
     let reportTitleSuffix = "Report";
+    let isViewDataForPdf = false;
 
     if (activeTab === "extractedData") {
-        dataToExport = processedData.map(row => ({...row}));
+        dataToExport = processedData.map(row => ({...row})); // Shallow copy
         columnsToExport = [...currentTableColumns];
-        grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined;
+        grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined; // Shallow copy
         reportTitleSuffix = "Full Diet Report";
+        isViewDataForPdf = true; // Mark for special PDF handling if needed
     } else if (activeTab === "comparison") {
-        // For comparison, get its specific data
         const comparisonGroupings: GroupingOption[] = DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS
-            .filter(g => g !== 'common_name') // Exclude common_name for comparison tab
+            .filter(g => g !== 'common_name') 
             .map(col => ({ column: col as string }));
         
         const comparisonTableData = calculateProcessedTableData(
             rawData,
             comparisonGroupings,
-            defaultSummaries, // Use the same summaries as View Data for consistency
+            defaultSummaries,
             filters,
             allHeaders,
             hasAppliedFilters,
@@ -238,13 +249,13 @@ export default function Home() {
                  grandTotalToExport[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
             }
         }
-         if (uomKey !== ingredientQtySumKey) {
+         if (uomKey !== ingredientQtySumKey) { // This condition might change if View Data PDF needs UoM
             columnsToExport = columnsToExport.filter(c => c !== uomKey);
         }
     }
     
     if (dataToExport.length > 0 && columnsToExport.length > 0 && hasAppliedFilters) {
-      exportToPdf(dataToExport, columnsToExport, `${reportTitleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab}_report`, grandTotalToExport);
+      exportToPdf(dataToExport, columnsToExport, `${reportTitleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab}_report`, grandTotalToExport, isViewDataForPdf, allHeaders);
       toast({ title: "PDF Download Started", description: `Your ${reportTitleSuffix} PDF is being generated.` });
     } else if (hasAppliedFilters && dataToExport.length === 0) {
       toast({ variant: "destructive", title: "No Data", description: "No data available to export for the current filters." });
@@ -287,7 +298,7 @@ export default function Home() {
      }
 
      if (sectionTableData.processedData.length > 0 && sectionTableData.columns.length > 0 && hasAppliedFilters) {
-      exportToPdf(sectionTableData.processedData, sectionTableData.columns, `Section Report: ${sectionName} - ${rawFileName}`, `${rawFileName}_section_${sectionName.replace(/\s+/g, '_')}`, sectionTableData.grandTotalRow);
+      exportToPdf(sectionTableData.processedData, sectionTableData.columns, `Section Report: ${sectionName} - ${rawFileName}`, `${rawFileName}_section_${sectionName.replace(/\s+/g, '_')}`, sectionTableData.grandTotalRow, false, allHeaders);
       toast({ title: "PDF Download Started", description: `PDF for section ${sectionName} is being generated.` });
     } else {
       toast({ variant: "destructive", title: "No Data", description: `No data available to export for section ${sectionName}. Ensure filters are applied.` });
@@ -346,19 +357,19 @@ export default function Home() {
     if (rawData.length === 0 && allHeaders.length === 0 && hasAppliedFilters) {
         return <Card><CardContent className="p-6 text-center text-destructive">No data or headers extracted from "<strong>{rawFileName}</strong>".</CardContent></Card>;
     }
-    if (processedData.length === 0 && rawData.length > 0 && hasAppliedFilters && !isComparisonTab) { // For View Data & Export
+    
+    // Check for "View Data" and "Comparison" tabs specifically for the "no data for current view" message
+    if (!isExportTab && processedData.length === 0 && rawData.length > 0 && hasAppliedFilters) {
        return <Card><CardContent className="p-6 text-center text-muted-foreground">Filters for "<strong>{rawFileName}</strong>" resulted in no data for the current view.</CardContent></Card>;
     }
 
 
-    // For "View Data", "Export Sections"
-    if (isExportTab) { // This handles "Export Sections"
+    if (isExportTab) { 
       const getSectionData = (sectionNameValue: string) => {
           const rawDataForThisSection = rawData.filter(row => {
             const sectionMatch = String(row.section_name || '').trim() === sectionNameValue;
             if (!sectionMatch) return false;
              return filters.every(filter => {
-                // Use calculateProcessedTableData with disableDisplayBlanking=true for accurate filter value checks
                 const tempProcessed = calculateProcessedTableData([row], [], [], [filter], allHeaders, true, true);
                 const valueAfterProcessing = tempProcessed.filteredData[0]?.[filter.column];
                 const filterValue = filter.value;
@@ -385,11 +396,14 @@ export default function Home() {
                 }
             });
           });
-          // Process this section's data using the main defaultGroupings and defaultSummaries
           return calculateProcessedTableData( rawDataForThisSection, defaultGroupings, defaultSummaries, [], allHeaders, true, false );
       };
 
       const uniqueSectionNames = [...new Set(processedData.map(row => String(row.section_name || PIVOT_BLANK_MARKER).trim()).filter(name => name && name !== PIVOT_BLANK_MARKER && name !== "Grand Total"))].sort();
+       if (uniqueSectionNames.length === 0 && processedData.length === 0 && rawData.length > 0 && hasAppliedFilters) { // No sections, but also no processed data due to filters
+           return <Card><CardContent className="p-6 text-center text-muted-foreground">Filters for "<strong>{rawFileName}</strong>" resulted in no data, so no sections can be displayed.</CardContent></Card>;
+       }
+
 
       return (
         <>
@@ -432,6 +446,7 @@ export default function Home() {
                             columns={sectionTableData.columns}
                             grandTotalRow={sectionTableData.grandTotalRow}
                             allHeaders={allHeaders}
+                            isViewDataTab={false} 
                           />
                          </div>
                       </CardContent>
@@ -450,21 +465,19 @@ export default function Home() {
           </ScrollArea>
         </>
       );
-    } else if (isComparisonTab) { // This block now serves "Comparison" tab
+    } else if (isComparisonTab) { 
         const comparisonGroupings: GroupingOption[] = DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS
-            .filter(g => g !== 'common_name') // Exclude common_name
+            .filter(g => g !== 'common_name') 
             .map(col => ({ column: col as string }));
         
-        // Ensure that defaultSummaries is used, which should include 'total_animal' and 'ingredient_qty'
-        // 'base_uom_name' for display purposes with ingredient_qty
         const comparisonTableData = calculateProcessedTableData(
             rawData,
             comparisonGroupings,
-            defaultSummaries, // Use the same summaries as View Data
+            defaultSummaries,
             filters,
             allHeaders,
             hasAppliedFilters,
-            false // disableDisplayBlanking = false for standard DataTable rendering
+            false 
         );
         
         if (comparisonTableData.processedData.length === 0 && rawData.length > 0 && hasAppliedFilters) {
@@ -484,18 +497,25 @@ export default function Home() {
                 columns={comparisonTableData.columns}
                 grandTotalRow={comparisonTableData.grandTotalRow}
                 allHeaders={allHeaders}
+                isViewDataTab={false} 
               />
             </div>
           );
     } else {  // This block serves "View Data"
       return (
         <div className="flex-1 min-h-0">
-          {/* No specific Download PDF button here for View Data; PDF is for Comparison or Export Sections */}
+           <div className="flex justify-end mb-2">
+             <Button onClick={handleDownloadAllPdf} size="sm" disabled={isLoading || processedData.length === 0 || !hasAppliedFilters}>
+                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                Download PDF
+            </Button>
+          </div>
           <DataTable
             data={processedData}
             columns={currentTableColumns}
             grandTotalRow={grandTotalRow}
             allHeaders={allHeaders}
+            isViewDataTab={true} // Enable two-row display for View Data
           />
         </div>
       );
@@ -573,3 +593,4 @@ export default function Home() {
     
 
     
+
