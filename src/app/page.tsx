@@ -103,8 +103,9 @@ export default function Home() {
         return;
     }
     
-    let baseDataForComparison = (processedData || []).map(row => ({ ...row }));
-    let tempComparisonTableCols = currentTableColumns ? [...currentTableColumns] : [];
+    // Logic specific to preparing data for the Comparison Tab
+    let baseDataForComparison = (processedData || []).map(row => ({ ...row })); // Ensure a deep copy for modification
+    let tempComparisonTableCols = currentTableColumns ? [...currentTableColumns] : []; // Start with a copy
 
     if (parsedActualSpeciesData && parsedActualSpeciesData.length > 0) {
       const speciesLookupKeys = ['site_name', 'section_name', 'user_enclosure_name', 'common_name'];
@@ -164,18 +165,19 @@ export default function Home() {
     
     setDataForComparisonTable(dataWithUOMAppended);
     
+    // Filter out columns not desired for the comparison tab's primary display
     let finalComparisonCols = tempComparisonTableCols.filter(col => 
         !['actual_animal_count', 'base_uom_name_first'].includes(col) && !col.startsWith('total_animal_')
     );
 
     if (selectedComparisonColumn) {
-        const plannedForGroupCol = `Planned Total for Group (${selectedComparisonColumn.replace(/_/g, ' ')})`;
+        // These are just string names for the columns to be added.
+        // The DataTable component will handle rendering based on these names.
         const actualReceivedCol = `Actual Received for Group (${selectedComparisonColumn.replace(/_/g, ' ')})`;
         const groupDifferenceCol = `Group Difference (${selectedComparisonColumn.replace(/_/g, ' ')})`;
         
         const groupColumnsToAdd = [actualReceivedCol, groupDifferenceCol];
         
-        // Ensure selectedComparisonColumn is present for "Planned Total for Group" logic in DataTable
         if (!finalComparisonCols.includes(selectedComparisonColumn)) {
             finalComparisonCols.push(selectedComparisonColumn);
         }
@@ -186,12 +188,9 @@ export default function Home() {
         } else {
             finalComparisonCols.push(...groupColumnsToAdd);
         }
-         // The `selectedComparisonColumn` itself acts as the "Planned for Group" on subtotal rows.
-         // No need to add `plannedForGroupCol` explicitly if `selectedComparisonColumn` is already there.
     }
     
     setComparisonTableColumns([...new Set(finalComparisonCols)]); 
-
 
     if (grandTotalRow) {
       const newGrandTotal = { ...grandTotalRow }; 
@@ -353,7 +352,6 @@ export default function Home() {
   const generateRowKeyForPdf = (row: DietDataRow, relevantColumns: string[]): string => {
     const keyValues: string[] = [];
     for (const col of relevantColumns) {
-       // Exclude dynamically added PDF columns from key generation if they are not original data columns
       if (col.startsWith("Actual ") || col.startsWith("Difference ") || col.startsWith("Planned Total for Group") || col.startsWith("Actual Received for Group") || col.startsWith("Group Difference") || col === 'note') {
         continue;
       }
@@ -363,7 +361,6 @@ export default function Home() {
       } else if (val === undefined || val === null) {
         keyValues.push("___NULL_OR_UNDEFINED___");
       } else {
-        // For keys, use the numeric part if it's a "qty uom" string from comparison tab
         if (activeTab === "comparison" && typeof val === 'string' && relevantColumns.includes(selectedComparisonColumn || '')) {
             const numericPart = parseFloat(val);
             keyValues.push(isNaN(numericPart) ? String(val) : String(numericPart));
@@ -378,14 +375,13 @@ export default function Home() {
   const generateGroupRowKeyForPdf = (row: DietDataRow, groupContextColumns: string[], comparisonCol: string): string => {
     const keyParts: string[] = [];
     groupContextColumns.forEach(gCol => {
-        // Ensure group_name is part of the key for group actuals
         if(groupings.map(g => g.column).includes(gCol) && row[gCol] !== PIVOT_BLANK_MARKER && row[gCol] !== undefined) {
              keyParts.push(String(row[gCol]));
         } else {
-             keyParts.push(''); // Placeholder if not relevant or blank
+             keyParts.push(''); 
         }
     });
-    keyParts.push(comparisonCol); // Add the specific item being compared
+    keyParts.push(comparisonCol); 
     return keyParts.filter(p => p !== '').join('||');
 };
 
@@ -404,12 +400,11 @@ export default function Home() {
         const titleSuffix = "Comparison Report";
         const fileNameSuffix = "comparison_report";
         
-        // Use comparisonTableColumns for key generation consistency with display
         const baseColumnsForKeyGen = comparisonTableColumns.filter(c => !c.startsWith("Actual ") && !c.startsWith("Difference ") && !c.startsWith("Planned Total for Group") && !c.startsWith("Actual Received for Group") && !c.startsWith("Group Difference"));
 
         const dataForPdf = dataForComparisonTable.map(row => {
             const pdfRow = { ...row };
-            const individualRowKey = generateRowKeyForPdf(row, baseColumnsForKeyGen); 
+            const individualRowKey = generateRowKeyForPdf(row, comparisonTableColumns); 
 
             let plannedValueNum: number | undefined;
             const plannedValueFromTable = row[selectedComparisonColumn!]; 
@@ -419,7 +414,6 @@ export default function Home() {
                 plannedValueNum = plannedValueFromTable;
             }
             plannedValueNum = isNaN(plannedValueNum!) ? 0 : plannedValueNum;
-            // pdfRow[selectedComparisonColumn!] already contains the "Qty UOM" string from data prep
 
             const actualValueStr = actualComparisonQuantities[`${individualRowKey}_${selectedComparisonColumn!}`] || '';
             const actualValueNum = parseFloat(actualValueStr);
@@ -433,7 +427,6 @@ export default function Home() {
                 pdfRow[`Difference ${selectedComparisonColumn!}`] = '';
             }
 
-            // Group level actuals and differences
             const groupNameCol = groupings.find(g => g.column === 'group_name')?.column;
             const commonNameCol = groupings.find(g => g.column === 'common_name')?.column;
             const isGroupSubtotalRow = groupNameCol && row[groupNameCol] && row[groupNameCol] !== PIVOT_BLANK_MARKER &&
@@ -442,12 +435,12 @@ export default function Home() {
 
             if (isGroupSubtotalRow) {
                 const groupKey = generateGroupRowKeyForPdf(row, groupings.map(g=>g.column), selectedComparisonColumn!);
-                const actualGroupStr = actualGroupReceivedQuantities[`${groupKey}_${selectedComparisonColumn!}`] || '';
+                const actualGroupStr = actualGroupReceivedQuantities[`${groupKey}_${selectedComparisonColumn!}`] || ''; // Corrected key lookup
                 const actualGroupNum = parseFloat(actualGroupStr);
 
                 pdfRow[`Actual Received for Group (${selectedComparisonColumn!.replace(/_/g, ' ')})`] = actualGroupStr !== '' && !isNaN(actualGroupNum) ? actualGroupNum.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : '';
 
-                const plannedGroupNum = plannedValueNum; // On a group subtotal row, plannedValueNum is the group's planned total
+                const plannedGroupNum = plannedValueNum; 
                 if (actualGroupStr !== '' && !isNaN(actualGroupNum) && plannedGroupNum !== undefined && !isNaN(plannedGroupNum)) {
                     const groupDiffNum = actualGroupNum - plannedGroupNum;
                     pdfRow[`Group Difference (${selectedComparisonColumn!.replace(/_/g, ' ')})`] = parseFloat(groupDiffNum.toFixed(4)).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
@@ -458,7 +451,7 @@ export default function Home() {
             return pdfRow;
         });
 
-        const columnsForPdf = [...comparisonTableColumns]; // Already contains all necessary columns including group ones
+        const columnsForPdf = [...comparisonTableColumns]; 
         
         let grandTotalForPdf: DietDataRow | undefined = undefined;
         if (grandTotalForComparisonTable) {
@@ -468,15 +461,15 @@ export default function Home() {
             const plannedTotalFromGt = grandTotalForComparisonTable[selectedComparisonColumn!]; 
              if (typeof plannedTotalFromGt === 'number') {
                 plannedTotalNum = plannedTotalFromGt;
-                const uomForGrandTotal = String(grandTotalForComparisonTable['base_uom_name_first'] || '').trim(); // UoM was removed from GT display string earlier
-                if (uomForGrandTotal) { // Attempt to find a primary UOM if possible for GT, might be less accurate for mixed UOMs
+                const uomForGrandTotal = String(grandTotalForComparisonTable['base_uom_name_first'] || '').trim();
+                if (uomForGrandTotal) { 
                     grandTotalForPdf[selectedComparisonColumn!] = `${plannedTotalNum.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uOMforGrandTotalPDF(dataForComparisonTable, selectedComparisonColumn!)}`;
                 } else {
                     grandTotalForPdf[selectedComparisonColumn!] = plannedTotalNum.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4});
                 }
             } else { 
-                plannedTotalNum = parseFloat(String(plannedTotalFromGt)); // This should already be numeric from data prep
-                grandTotalForPdf[selectedComparisonColumn!] = String(plannedTotalFromGt ?? ''); // Should be string with UOM
+                plannedTotalNum = parseFloat(String(plannedTotalFromGt).split(' ')[0]); 
+                grandTotalForPdf[selectedComparisonColumn!] = String(plannedTotalFromGt ?? ''); 
             }
             plannedTotalNum = isNaN(plannedTotalNum!) ? 0 : plannedTotalNum;
 
@@ -484,8 +477,8 @@ export default function Home() {
             let totalActualIndividualNum = 0;
             let hasActualsIndividualForGt = false;
             dataForComparisonTable.forEach(dRow => {
-                if (dRow.note !== PIVOT_SUBTOTAL_MARKER) { // Sum only non-subtotal rows for individual actuals
-                    const individualRowKeyGt = generateRowKeyForPdf(dRow, baseColumnsForKeyGen);
+                if (dRow.note !== PIVOT_SUBTOTAL_MARKER) { 
+                    const individualRowKeyGt = generateRowKeyForPdf(dRow, comparisonTableColumns);
                     const actualValStrGt = actualComparisonQuantities[`${individualRowKeyGt}_${selectedComparisonColumn!}`];
                     if (actualValStrGt !== undefined && actualValStrGt !== '') {
                         const actualValNumGt = parseFloat(actualValStrGt);
@@ -498,25 +491,18 @@ export default function Home() {
             });
             grandTotalForPdf[`Actual ${selectedComparisonColumn!}`] = hasActualsIndividualForGt ? parseFloat(totalActualIndividualNum.toFixed(4)).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : "";
             if (hasActualsIndividualForGt && plannedTotalNum !== undefined && !isNaN(plannedTotalNum)) {
-                const diffGt = totalActualIndividualNum - plannedTotalNum; // Compare sum of individual actuals to sum of individual planned
+                const diffGt = totalActualIndividualNum - plannedTotalNum; 
                 grandTotalForPdf[`Difference ${selectedComparisonColumn!}`] = parseFloat(diffGt.toFixed(4)).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
             } else {
                 grandTotalForPdf[`Difference ${selectedComparisonColumn!}`] = "";
             }
 
-            // Grand totals for group-level columns
             let totalActualGroupNum = 0;
             let hasActualsGroupForGt = false;
-            Object.values(actualGroupReceivedQuantities).forEach(valStr => {
-                 if (valStr && valStr.endsWith(`_${selectedComparisonColumn!}`)) { // Ensure it's for the selected column
-                    const actualValNum = parseFloat(valStr.split('_')[0]); // Assuming key doesn't have underscore before value
+            Object.entries(actualGroupReceivedQuantities).forEach(([key, valStr]) => {
+                 if (key.endsWith(`_${selectedComparisonColumn!}`)) { 
+                    const actualValNum = parseFloat(valStr); 
                     if(!isNaN(actualValNum)) {
-                         totalActualGroupNum += actualValNum;
-                         hasActualsGroupForGt = true;
-                    }
-                 } else if (valStr && !valStr.includes('_')) { // Simpler direct value if key format is just value
-                    const actualValNum = parseFloat(valStr);
-                     if(!isNaN(actualValNum)) {
                          totalActualGroupNum += actualValNum;
                          hasActualsGroupForGt = true;
                     }
@@ -525,7 +511,7 @@ export default function Home() {
              grandTotalForPdf[`Actual Received for Group (${selectedComparisonColumn!.replace(/_/g, ' ')})`] = hasActualsGroupForGt ? parseFloat(totalActualGroupNum.toFixed(4)).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4}) : "";
 
             if(hasActualsGroupForGt && plannedTotalNum !== undefined && !isNaN(plannedTotalNum)) {
-                const groupDiffGt = totalActualGroupNum - plannedTotalNum; // Compare sum of group actuals to overall planned total
+                const groupDiffGt = totalActualGroupNum - plannedTotalNum; 
                 grandTotalForPdf[`Group Difference (${selectedComparisonColumn!.replace(/_/g, ' ')})`] = parseFloat(groupDiffGt.toFixed(4)).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4});
             } else {
                 grandTotalForPdf[`Group Difference (${selectedComparisonColumn!.replace(/_/g, ' ')})`] = "";
@@ -538,10 +524,31 @@ export default function Home() {
     }
 
     // Existing PDF logic for other tabs
-    const dataToExport = processedData.map(row => ({...row})); 
-    const columnsToExport = [...currentTableColumns];
-    const grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined;
+    let dataToExport = processedData.map(row => ({...row})); 
+    let columnsToExport = [...currentTableColumns];
+    let grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined;
     const currentTabTitleSuffix = activeTab === "exportSections" ? "Section Report" : "Full Diet Report";
+
+    const ingredientQtySumKey = currentTableColumns.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
+    if (ingredientQtySumKey && !isComparisonMode) { // Apply UoM for View Data / Export Section PDF
+        dataToExport = dataToExport.map(row => {
+            const newRow = {...row};
+            const qty = newRow[ingredientQtySumKey];
+            const uom = newRow['base_uom_name_first'];
+            if (typeof qty === 'number' && typeof uom === 'string' && uom.trim() !== '') {
+                newRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+            }
+            return newRow;
+        });
+        if (grandTotalToExport && grandTotalToExport[ingredientQtySumKey] && typeof grandTotalToExport[ingredientQtySumKey] === 'number') {
+            const qty = grandTotalToExport[ingredientQtySumKey] as number;
+            const uom = grandTotalToExport['base_uom_name_first'];
+            if (typeof uom === 'string' && uom.trim() !== '') {
+                 grandTotalToExport[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+            }
+        }
+    }
+
 
     if (dataToExport.length > 0 && columnsToExport.length > 0 && hasAppliedFilters) {
       exportToPdf(dataToExport, columnsToExport, `${currentTabTitleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab === "exportSections" ? "section" : "full"}_report`, grandTotalToExport);
@@ -551,7 +558,6 @@ export default function Home() {
     }
   };
   
-  // Helper to find a common UOM for Grand Total in PDF, very simplistic
   const uOMforGrandTotalPDF = (data: DietDataRow[], qtyColumn: string): string => {
       if (!data || data.length === 0 || !qtyColumn) return '';
       const uomCounts: Record<string, number> = {};
@@ -563,7 +569,7 @@ export default function Home() {
           if (typeof cellValue === 'string') {
               const parts = cellValue.split(' ');
               if (parts.length > 1) {
-                  const uom = parts.slice(1).join(' '); // Handle UOMs with spaces
+                  const uom = parts.slice(1).join(' '); 
                   if (uom) {
                       uomCounts[uom] = (uomCounts[uom] || 0) + 1;
                       if (uomCounts[uom] > maxCount) {
@@ -584,6 +590,27 @@ export default function Home() {
          columns: [...sectionTableDataInput.columns],
          grandTotalRow: sectionTableDataInput.grandTotalRow ? {...sectionTableDataInput.grandTotalRow} : undefined
      };
+    
+     const ingredientQtySumKey = sectionTableData.columns.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
+     if (ingredientQtySumKey) {
+        sectionTableData.processedData = sectionTableData.processedData.map(row => {
+            const newRow = {...row};
+            const qty = newRow[ingredientQtySumKey];
+            const uom = newRow['base_uom_name_first'];
+            if (typeof qty === 'number' && typeof uom === 'string' && uom.trim() !== '') {
+                newRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+            }
+            return newRow;
+        });
+        if (sectionTableData.grandTotalRow && sectionTableData.grandTotalRow[ingredientQtySumKey] && typeof sectionTableData.grandTotalRow[ingredientQtySumKey] === 'number') {
+            const qty = sectionTableData.grandTotalRow[ingredientQtySumKey] as number;
+            const uom = sectionTableData.grandTotalRow['base_uom_name_first'];
+             if (typeof uom === 'string' && uom.trim() !== '') {
+                 sectionTableData.grandTotalRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+            }
+        }
+     }
+
 
      if (sectionTableData.processedData.length > 0 && sectionTableData.columns.length > 0 && hasAppliedFilters) {
       exportToPdf(sectionTableData.processedData, sectionTableData.columns, `Section Report: ${sectionName} - ${rawFileName}`, `${rawFileName}_section_${sectionName.replace(/\s+/g, '_')}`, sectionTableData.grandTotalRow);
@@ -603,7 +630,7 @@ export default function Home() {
   const handleActualGroupReceivedChange = useCallback((groupKey: string, columnKey: string, value: string) => {
     setActualGroupReceivedQuantities(prev => ({
       ...prev,
-      [`${groupKey}_${columnKey}`]: value,
+      [`${groupKey}_${columnKey}`]: value, // Key for group actuals, e.g., "SiteA||SectionB||Capuchins_ingredient_qty_sum"
     }));
   }, []);
 
@@ -869,6 +896,12 @@ export default function Home() {
                             columns={sectionTableData.columns} 
                             grandTotalRow={sectionTableData.grandTotalRow} 
                             groupingOptions={groupings}
+                            isComparisonMode={false} 
+                            comparisonColumn={null} 
+                            actualQuantities={{}} 
+                            onActualQuantityChange={undefined} 
+                            actualGroupQuantities={{}}
+                            onActualGroupQuantityChange={undefined}
                           />
                          </div>
                       </CardContent>
@@ -1025,15 +1058,3 @@ export default function Home() {
   );
 }
     
-
-    
-
-
-
-
-    
-
-
-
-
-

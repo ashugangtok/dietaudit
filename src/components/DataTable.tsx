@@ -27,14 +27,13 @@ interface DataTableProps {
   comparisonColumn?: string | null;
   actualQuantities?: Record<string, string>; 
   onActualQuantityChange?: (contentBasedKey: string, comparisonColumn: string, value: string) => void;
-  groupingOptions: GroupingOption[]; // Changed from groupingColumns to avoid conflict if any, and to pass full options
+  groupingOptions: GroupingOption[]; 
   actualGroupQuantities?: Record<string, string>;
   onActualGroupQuantityChange?: (groupRowKey: string, comparisonColumn: string, value: string) => void;
 }
 
 const generateRowKey = (row: DietDataRow, allRelevantColumns: string[], isComparison: boolean, comparisonColName: string | null): string => {
   const keyValues: string[] = [];
-  // Use a stable set of columns for the key, excluding dynamic/calculated ones
   const stableCols = allRelevantColumns.filter(c => !c.startsWith("Actual ") && !c.startsWith("Difference ") && !c.startsWith("Planned Total for Group") && !c.startsWith("Actual Received for Group") && !c.startsWith("Group Difference"));
 
   for (const col of stableCols) {
@@ -47,7 +46,7 @@ const generateRowKey = (row: DietDataRow, allRelevantColumns: string[], isCompar
       keyValues.push("___NULL_OR_UNDEFINED___");
     } else {
        if (isComparison && typeof val === 'string' && col === comparisonColName) {
-            const numericPart = parseFloat(val); // Extract number from "Qty UOM" string for key consistency
+            const numericPart = parseFloat(val); 
             keyValues.push(isNaN(numericPart) ? String(val) : String(numericPart));
         } else {
             keyValues.push(String(val));
@@ -61,18 +60,17 @@ const generateGroupRowKey = (row: DietDataRow, groupings: GroupingOption[], comp
     const keyParts: string[] = [];
     const groupNameColumn = groupings.find(g => g.column === 'group_name')?.column;
 
-    if (!groupNameColumn) return `nogroup_${comparisonCol}_${Math.random()}`; // Fallback, should not happen if logic is correct
+    if (!groupNameColumn) return `nogroup_${comparisonCol}_${Math.random()}`; 
 
-    // Build key from all groupings up to and including 'group_name'
     for (const gOpt of groupings) {
         const gCol = gOpt.column;
         const val = row[gCol];
         if (val !== PIVOT_BLANK_MARKER && val !== undefined && val !== null) {
             keyParts.push(String(val));
         } else {
-            keyParts.push('__EMPTY_PART__'); // Placeholder for empty parts to maintain key structure if needed
+            keyParts.push('__EMPTY_PART__'); 
         }
-        if (gCol === groupNameColumn) break; // Stop after group_name
+        if (gCol === groupNameColumn) break; 
     }
     keyParts.push(comparisonCol);
     return keyParts.join('||');
@@ -102,13 +100,12 @@ const DataTable: React.FC<DataTableProps> = ({
   }
 
   const effectiveDisplayColumns = useMemo(() => {
-    let colsToDisplay = [...columns];
+    let colsToDisplay = [...columns]; // `columns` prop already reflects tab-specific column list
     if (isComparisonMode && comparisonColumn && columns.includes(comparisonColumn)) {
       const plannedColIndex = colsToDisplay.indexOf(comparisonColumn);
       const actualIndividualCol = `Actual ${comparisonColumn}`;
       const diffIndividualCol = `Difference ${comparisonColumn}`;
       
-      // Ensure these individual comparison columns are only added once
       if (!colsToDisplay.includes(actualIndividualCol)) {
           if (plannedColIndex !== -1) {
             colsToDisplay.splice(plannedColIndex + 1, 0, actualIndividualCol);
@@ -125,8 +122,17 @@ const DataTable: React.FC<DataTableProps> = ({
            }
       }
     }
-    // Group-level columns are assumed to be already in `columns` from page.tsx if active
-    colsToDisplay = colsToDisplay.filter(col => col !== 'note' && col !== 'base_uom_name_first');
+    // Group-level columns like "Actual Received for Group" are expected to be in `columns` prop if in comparison mode
+    // Filtering for 'note' and 'base_uom_name_first' is done if they are not needed for display logic
+    // For non-comparison mode, 'base_uom_name_first' IS used for UoM concatenation, so it shouldn't be filtered here for those tabs.
+    // page.tsx controls which columns are passed to DataTable.
+    // If 'base_uom_name_first' is not in the `columns` prop for non-comparison, it won't be an issue.
+    // If it *is* needed (as it is for View Data/Export Section for UoM concat), it must *not* be filtered here.
+    // useTableProcessor already removes it from its returned `columns` if it's purely internal.
+    // So, this filter is likely redundant or might cause issues if not handled carefully.
+    // For now, let's assume `columns` prop is exactly what needs to be considered for display.
+    // The filter for 'note' is generally safe.
+    colsToDisplay = colsToDisplay.filter(col => col !== 'note');
     return colsToDisplay;
   }, [columns, isComparisonMode, comparisonColumn]);
 
@@ -146,7 +152,7 @@ const DataTable: React.FC<DataTableProps> = ({
   }
 
   const dietNameColumnKey = 'diet_name';
-  const ingredientQtySumKey = columns.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum')) || 'ingredient_qty_sum';
+  // const ingredientQtySumKey = columns.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum')) || 'ingredient_qty_sum';
   const baseUomNameFirstKey = 'base_uom_name_first';
 
 
@@ -160,11 +166,11 @@ const DataTable: React.FC<DataTableProps> = ({
               let headerText = column;
                if (column.startsWith('total_animal_') && !isComparisonMode) {
                  headerText = 'Total Animal';
-               } else if (column.startsWith('Planned Total for Group')) {
+               } else if (isComparisonMode && column.startsWith('Planned Total for Group')) { // Only apply for comparison mode
                   headerText = `Planned Group Total`;
-               } else if (column.startsWith('Actual Received for Group')) {
+               } else if (isComparisonMode && column.startsWith('Actual Received for Group')) { // Only apply for comparison mode
                   headerText = `Actual Group Received`;
-               } else if (column.startsWith('Group Difference')) {
+               } else if (isComparisonMode && column.startsWith('Group Difference')) { // Only apply for comparison mode
                   headerText = `Group Diff.`;
                } else {
                  headerText = column.replace(/_/g, ' ');
@@ -192,7 +198,6 @@ const DataTable: React.FC<DataTableProps> = ({
             
             let isGroupSubtotalRow = false;
             if (isComparisonMode && comparisonColumn && groupNameCol && row[groupNameCol] && row[groupNameCol] !== PIVOT_BLANK_MARKER && row.note === PIVOT_SUBTOTAL_MARKER) {
-                // Check if the *next* grouping level is blanked out, indicating this is a subtotal for group_name
                 const groupNameIndex = groupingOptions.findIndex(g => g.column === groupNameCol);
                 if (groupNameIndex !== -1 && groupNameIndex < groupingOptions.length -1) {
                     const nextGroupingCol = groupingOptions[groupNameIndex+1].column;
@@ -200,11 +205,9 @@ const DataTable: React.FC<DataTableProps> = ({
                         isGroupSubtotalRow = true;
                     }
                 } else if (groupNameIndex !== -1 && groupingOptions.length === groupNameIndex + 1) {
-                    // group_name is the last grouping, so any subtotal here is a group subtotal
                     isGroupSubtotalRow = true;
                 }
             }
-            // A simpler check if common_name is explicitly blanked for a subtotal
             if (isComparisonMode && comparisonColumn && groupNameCol && row[groupNameCol] && row[groupNameCol] !== PIVOT_BLANK_MARKER && commonNameColKey && row[commonNameColKey] === PIVOT_BLANK_MARKER && row.note === PIVOT_SUBTOTAL_MARKER) {
                  isGroupSubtotalRow = true;
             }
@@ -232,7 +235,7 @@ const DataTable: React.FC<DataTableProps> = ({
                         onChange={(e) => onActualQuantityChange?.(contentBasedKey, comparisonColumn, e.target.value)}
                         className="h-8 text-right w-24"
                         placeholder="Actual"
-                        disabled={row.note === PIVOT_SUBTOTAL_MARKER || isGroupSubtotalRow} // Disable for group subtotals too
+                        disabled={row.note === PIVOT_SUBTOTAL_MARKER || isGroupSubtotalRow} 
                       />
                     );
                   } else if (isComparisonMode && comparisonColumn && column === `Difference ${comparisonColumn}`) {
@@ -266,7 +269,7 @@ const DataTable: React.FC<DataTableProps> = ({
                       }
                   } else if (isComparisonMode && comparisonColumn && column === `Group Difference (${comparisonColumn.replace(/_/g, ' ')})`) {
                       if (isGroupSubtotalRow) {
-                          const plannedGroupValueStr = String(row[comparisonColumn] ?? '0'); // Planned for group is the subtotal value
+                          const plannedGroupValueStr = String(row[comparisonColumn] ?? '0'); 
                           const plannedGroupValue = parseFloat(plannedGroupValueStr);
                           const actualGroupValueStr = actualGroupQuantities[groupRowKeyForActuals] || '';
                           const actualGroupValue = parseFloat(actualGroupValueStr);
@@ -283,18 +286,21 @@ const DataTable: React.FC<DataTableProps> = ({
                       } else {
                           cellContent = '';
                       }
-                  }
-                   else {
+                  } else if (!isComparisonMode && originalColumnName.startsWith('ingredient_qty_') && originalColumnName.endsWith('_sum')) {
+                      // Logic for View Data / Export Section tabs to concatenate UoM
+                      const qtyValue = row[originalColumnName];
+                      const uom = row[baseUomNameFirstKey]; // Assumes base_uom_name_first is on the row from useTableProcessor
+                      if (typeof qtyValue === 'number' && typeof uom === 'string' && uom.trim() !== '') {
+                          cellContent = `${qtyValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                      } else if (typeof qtyValue === 'number') {
+                          cellContent = qtyValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
+                      } else {
+                          cellContent = (qtyValue === undefined || qtyValue === null || qtyValue === PIVOT_BLANK_MARKER ? '' : String(qtyValue));
+                      }
+                  } else {
                     const cellValue = row[originalColumnName];
                     if (cellValue === PIVOT_BLANK_MARKER) {
                       cellContent = '';
-                    } else if (!isComparisonMode && originalColumnName === ingredientQtySumKey && typeof cellValue === 'number') {
-                        const uom = row[baseUomNameFirstKey];
-                        if (uom && typeof uom === 'string' && uom.trim() !== '') {
-                            cellContent = `${cellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
-                        } else {
-                            cellContent = cellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
-                        }
                     } else if (typeof cellValue === 'number') {
                       cellContent = Number.isInteger(cellValue) ? String(cellValue) : cellValue.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4});
                     } else {
@@ -310,11 +316,9 @@ const DataTable: React.FC<DataTableProps> = ({
                     );
                   }
                   
-                  // Align numeric-like columns to the right
                   const isNumericOutputCol = typeof row[originalColumnName] === 'number' || 
-                                          column.startsWith("Actual ") || column.startsWith("Difference ") ||
-                                          column.startsWith("Actual Received for Group") || column.startsWith("Group Difference") ||
-                                          (originalColumnName === ingredientQtySumKey && !isComparisonMode);
+                                          (isComparisonMode && (column.startsWith("Actual ") || column.startsWith("Difference ") || column.startsWith("Actual Received for Group") || column.startsWith("Group Difference"))) ||
+                                          (!isComparisonMode && originalColumnName.startsWith('ingredient_qty_') && originalColumnName.endsWith('_sum'));
 
                   return (
                     <TableCell key={column} className={`whitespace-nowrap ${isNumericOutputCol ? "text-right" : ""}`}>
@@ -337,7 +341,6 @@ const DataTable: React.FC<DataTableProps> = ({
                     let totalActual = 0;
                     let hasActuals = false;
                     data.forEach(dRow => {
-                        // Only sum actuals for non-subtotal rows to avoid double counting if subtotals were ever editable
                         if (dRow.note !== PIVOT_SUBTOTAL_MARKER) {
                             const rowContentKey = generateRowKey(dRow, columns, isComparisonMode, comparisonColumn);
                             const actualValStr = actualQuantities[`${rowContentKey}_${comparisonColumn}`];
@@ -353,7 +356,7 @@ const DataTable: React.FC<DataTableProps> = ({
                     displayCellValue = hasActuals ? parseFloat(totalActual.toFixed(4)).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : "";
                 } else if (isComparisonMode && comparisonColumn && column === `Difference ${comparisonColumn}`) {
                     const plannedTotalFromGt = grandTotalRow[comparisonColumn]; 
-                    const plannedTotal = typeof plannedTotalFromGt === 'number' ? plannedTotalFromGt : parseFloat(String(plannedTotalFromGt ?? '0').split(' ')[0]); // Get numeric part for calc
+                    const plannedTotal = typeof plannedTotalFromGt === 'number' ? plannedTotalFromGt : parseFloat(String(plannedTotalFromGt ?? '0').split(' ')[0]); 
                     
                     let actualTotal = 0;
                     let hasActualsForDiff = false;
@@ -379,33 +382,15 @@ const DataTable: React.FC<DataTableProps> = ({
                 } else if (isComparisonMode && comparisonColumn && column === `Actual Received for Group (${comparisonColumn.replace(/_/g, ' ')})`) {
                     let totalGroupActual = 0;
                     let hasGroupActuals = false;
-                     data.forEach(dRow => {
-                        const groupNameColGT = groupingOptions.find(g => g.column === 'group_name')?.column;
-                        const commonNameColKeyGT = groupingOptions.find(g => g.column === 'common_name')?.column;
-                        let isGroupSubtotalRowGT = false;
-                        if (groupNameColGT && dRow[groupNameColGT] && dRow[groupNameColGT] !== PIVOT_BLANK_MARKER && dRow.note === PIVOT_SUBTOTAL_MARKER) {
-                            const groupNameIndexGT = groupingOptions.findIndex(g => g.column === groupNameColGT);
-                            if (groupNameIndexGT !== -1 && groupNameIndexGT < groupingOptions.length -1) {
-                                const nextGroupingColGT = groupingOptions[groupNameIndexGT+1].column;
-                                if (dRow[nextGroupingColGT] === PIVOT_BLANK_MARKER || dRow[nextGroupingColGT] === undefined) isGroupSubtotalRowGT = true;
-                            } else if (groupNameIndexGT !== -1 && groupingOptions.length === groupNameIndexGT + 1) isGroupSubtotalRowGT = true;
-                        }
-                         if (groupNameColGT && dRow[groupNameColGT] && dRow[groupNameColGT] !== PIVOT_BLANK_MARKER && commonNameColKeyGT && dRow[commonNameColKeyGT] === PIVOT_BLANK_MARKER && dRow.note === PIVOT_SUBTOTAL_MARKER) {
-                            isGroupSubtotalRowGT = true;
-                        }
-
-                        if (isGroupSubtotalRowGT) {
-                             const groupKeyGT = generateGroupRowKey(dRow, groupingOptions, comparisonColumn);
-                             const actualValStr = actualGroupQuantities[groupKeyGT];
-                             if (actualValStr !== undefined && actualValStr !== '') {
-                                 const actualValNum = parseFloat(actualValStr);
-                                 if (!isNaN(actualValNum)) {
-                                     totalGroupActual += actualValNum;
-                                     hasGroupActuals = true;
-                                 }
+                     Object.entries(actualGroupQuantities).forEach(([key, valStr]) => {
+                         if(key.endsWith(`_${comparisonColumn}`)){
+                             const actualValNum = parseFloat(valStr);
+                             if (!isNaN(actualValNum)) {
+                                 totalGroupActual += actualValNum;
+                                 hasGroupActuals = true;
                              }
-                        }
-                    });
+                         }
+                     });
                     displayCellValue = hasGroupActuals ? parseFloat(totalGroupActual.toFixed(4)).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : "";
 
                 } else if (isComparisonMode && comparisonColumn && column === `Group Difference (${comparisonColumn.replace(/_/g, ' ')})`) {
@@ -414,33 +399,15 @@ const DataTable: React.FC<DataTableProps> = ({
                     
                     let actualTotalGroup = 0;
                     let hasActualsForGroupDiff = false;
-                    data.forEach(dRow => {
-                        const groupNameColGT = groupingOptions.find(g => g.column === 'group_name')?.column;
-                        const commonNameColKeyGT = groupingOptions.find(g => g.column === 'common_name')?.column;
-                        let isGroupSubtotalRowGT = false;
-                        if (groupNameColGT && dRow[groupNameColGT] && dRow[groupNameColGT] !== PIVOT_BLANK_MARKER && dRow.note === PIVOT_SUBTOTAL_MARKER) {
-                             const groupNameIndexGT = groupingOptions.findIndex(g => g.column === groupNameColGT);
-                            if (groupNameIndexGT !== -1 && groupNameIndexGT < groupingOptions.length -1) {
-                                const nextGroupingColGT = groupingOptions[groupNameIndexGT+1].column;
-                                if (dRow[nextGroupingColGT] === PIVOT_BLANK_MARKER || dRow[nextGroupingColGT] === undefined) isGroupSubtotalRowGT = true;
-                            } else if (groupNameIndexGT !== -1 && groupingOptions.length === groupNameIndexGT + 1) isGroupSubtotalRowGT = true;
-                        }
-                         if (groupNameColGT && dRow[groupNameColGT] && dRow[groupNameColGT] !== PIVOT_BLANK_MARKER && commonNameColKeyGT && dRow[commonNameColKeyGT] === PIVOT_BLANK_MARKER && dRow.note === PIVOT_SUBTOTAL_MARKER) {
-                            isGroupSubtotalRowGT = true;
-                        }
-
-                        if (isGroupSubtotalRowGT) {
-                             const groupKeyGT = generateGroupRowKey(dRow, groupingOptions, comparisonColumn);
-                             const actualValStr = actualGroupQuantities[groupKeyGT];
-                             if (actualValStr !== undefined && actualValStr !== '') {
-                                 const actualValNum = parseFloat(actualValStr);
-                                 if (!isNaN(actualValNum)) {
-                                     actualTotalGroup += actualValNum;
-                                     hasActualsForGroupDiff = true;
-                                 }
+                     Object.entries(actualGroupQuantities).forEach(([key, valStr]) => {
+                         if(key.endsWith(`_${comparisonColumn}`)){
+                             const actualValNum = parseFloat(valStr);
+                             if (!isNaN(actualValNum)) {
+                                 actualTotalGroup += actualValNum;
+                                 hasActualsForGroupDiff = true;
                              }
-                        }
-                    });
+                         }
+                     });
 
                     if (hasActualsForGroupDiff && !isNaN(plannedTotal)) {
                         const diff = actualTotalGroup - plannedTotal;
@@ -449,7 +416,7 @@ const DataTable: React.FC<DataTableProps> = ({
                         displayCellValue = "";
                     }
                 }
-                else {
+                else { // Handles non-comparison mode and other columns in comparison mode
                     const rawCellValue = grandTotalRow[originalColumnName];
                     if (rawCellValue === PIVOT_BLANK_MARKER) {
                         displayCellValue = "";
@@ -461,22 +428,17 @@ const DataTable: React.FC<DataTableProps> = ({
                          } else {
                              displayCellValue = String(rawCellValue ?? '');
                          }
-                    } else if (!isComparisonMode && originalColumnName === ingredientQtySumKey && typeof rawCellValue === 'number') {
+                    } else if (!isComparisonMode && originalColumnName.startsWith('ingredient_qty_') && originalColumnName.endsWith('_sum') && typeof rawCellValue === 'number') {
+                        // Grand Total UoM concatenation for View Data / Export Section
                         const uom = grandTotalRow[baseUomNameFirstKey]; 
                         if (uom && typeof uom === 'string' && uom.trim() !== '') {
                              displayCellValue = `${rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
                         } else {
                              displayCellValue = rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
                         }
-                    } else if (isComparisonMode && originalColumnName === comparisonColumn && typeof rawCellValue === 'number' && grandTotalRow.note === "Grand Total") {
-                        // For comparison grand total, the value from page.tsx might already be formatted or just numeric
-                        // If it's the main comparison column, use its value (which should be numeric from page.tsx prep)
-                         const uomForGT = data.length > 0 ? String(data[0][baseUomNameFirstKey] || '').trim() : ''; // Attempt to get a UOM
-                         if(uomForGT) {
-                            displayCellValue = `${rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uomForGT}`;
-                         } else {
-                            displayCellValue = rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
-                         }
+                    } else if (isComparisonMode && originalColumnName === comparisonColumn && grandTotalRow.note === "Grand Total") {
+                         // For comparison grand total, page.tsx formats this with UoM if numeric
+                         displayCellValue = String(rawCellValue ?? '');
                     }
                     else if (typeof rawCellValue === 'number') {
                       const numVal = rawCellValue as number;
@@ -488,9 +450,8 @@ const DataTable: React.FC<DataTableProps> = ({
                     }
                 }
                  const isNumericGTOutputCol = typeof grandTotalRow[originalColumnName] === 'number' || 
-                                          column.startsWith("Actual ") || column.startsWith("Difference ") ||
-                                          column.startsWith("Actual Received for Group") || column.startsWith("Group Difference") ||
-                                          (originalColumnName === ingredientQtySumKey && !isComparisonMode);
+                                          (isComparisonMode && (column.startsWith("Actual ") || column.startsWith("Difference ") || column.startsWith("Actual Received for Group") || column.startsWith("Group Difference"))) ||
+                                          (!isComparisonMode && originalColumnName.startsWith('ingredient_qty_') && originalColumnName.endsWith('_sum'));
                  return (
                     <TableCell key={column} className={`whitespace-nowrap ${isNumericGTOutputCol ? "text-right" : ""}`}>
                       {displayCellValue}
@@ -508,5 +469,3 @@ const DataTable: React.FC<DataTableProps> = ({
 };
 
 export default DataTable;
-
-
