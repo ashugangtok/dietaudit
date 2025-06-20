@@ -104,8 +104,8 @@ export default function Home() {
     }
     
     // Logic specific to preparing data for the Comparison Tab
-    let baseDataForComparison = (processedData || []).map(row => ({ ...row })); // Ensure a deep copy for modification
-    let tempComparisonTableCols = currentTableColumns ? [...currentTableColumns] : []; // Start with a copy
+    let baseDataForComparison = (processedData || []).map(row => ({ ...row })); 
+    let tempComparisonTableCols = currentTableColumns ? [...currentTableColumns] : []; 
 
     if (parsedActualSpeciesData && parsedActualSpeciesData.length > 0) {
       const speciesLookupKeys = ['site_name', 'section_name', 'user_enclosure_name', 'common_name'];
@@ -165,14 +165,11 @@ export default function Home() {
     
     setDataForComparisonTable(dataWithUOMAppended);
     
-    // Filter out columns not desired for the comparison tab's primary display
     let finalComparisonCols = tempComparisonTableCols.filter(col => 
         !['actual_animal_count', 'base_uom_name_first'].includes(col) && !col.startsWith('total_animal_')
     );
 
     if (selectedComparisonColumn) {
-        // These are just string names for the columns to be added.
-        // The DataTable component will handle rendering based on these names.
         const actualReceivedCol = `Actual Received for Group (${selectedComparisonColumn.replace(/_/g, ' ')})`;
         const groupDifferenceCol = `Group Difference (${selectedComparisonColumn.replace(/_/g, ' ')})`;
         
@@ -317,9 +314,6 @@ export default function Home() {
                 if (result.headers.includes('ingredient_qty')) {
                     fallbackSummaries.push({ column: 'ingredient_qty', type: 'sum' });
                 }
-                if (result.headers.includes('base_uom_name')) { 
-                    fallbackSummaries.push({ column: 'base_uom_name', type: 'first' });
-                }
                 setSummaries(fallbackSummaries);
             }
         }
@@ -400,8 +394,6 @@ export default function Home() {
         const titleSuffix = "Comparison Report";
         const fileNameSuffix = "comparison_report";
         
-        const baseColumnsForKeyGen = comparisonTableColumns.filter(c => !c.startsWith("Actual ") && !c.startsWith("Difference ") && !c.startsWith("Planned Total for Group") && !c.startsWith("Actual Received for Group") && !c.startsWith("Group Difference"));
-
         const dataForPdf = dataForComparisonTable.map(row => {
             const pdfRow = { ...row };
             const individualRowKey = generateRowKeyForPdf(row, comparisonTableColumns); 
@@ -435,7 +427,7 @@ export default function Home() {
 
             if (isGroupSubtotalRow) {
                 const groupKey = generateGroupRowKeyForPdf(row, groupings.map(g=>g.column), selectedComparisonColumn!);
-                const actualGroupStr = actualGroupReceivedQuantities[`${groupKey}_${selectedComparisonColumn!}`] || ''; // Corrected key lookup
+                const actualGroupStr = actualGroupReceivedQuantities[`${groupKey}_${selectedComparisonColumn!}`] || '';
                 const actualGroupNum = parseFloat(actualGroupStr);
 
                 pdfRow[`Actual Received for Group (${selectedComparisonColumn!.replace(/_/g, ' ')})`] = actualGroupStr !== '' && !isNaN(actualGroupNum) ? actualGroupNum.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : '';
@@ -529,20 +521,22 @@ export default function Home() {
     let grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined;
     const currentTabTitleSuffix = activeTab === "exportSections" ? "Section Report" : "Full Diet Report";
 
+    const baseUomNameFirstKey = 'base_uom_name_first';
     const ingredientQtySumKey = currentTableColumns.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
-    if (ingredientQtySumKey && !isComparisonMode) { // Apply UoM for View Data / Export Section PDF
+
+    if (ingredientQtySumKey && (activeTab === "extractedData" || activeTab === "exportSections")) {
         dataToExport = dataToExport.map(row => {
             const newRow = {...row};
             const qty = newRow[ingredientQtySumKey];
-            const uom = newRow['base_uom_name_first'];
+            const uom = row[baseUomNameFirstKey]; 
             if (typeof qty === 'number' && typeof uom === 'string' && uom.trim() !== '') {
                 newRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
             }
             return newRow;
         });
-        if (grandTotalToExport && grandTotalToExport[ingredientQtySumKey] && typeof grandTotalToExport[ingredientQtySumKey] === 'number') {
+        if (grandTotalToExport && typeof grandTotalToExport[ingredientQtySumKey] === 'number') {
             const qty = grandTotalToExport[ingredientQtySumKey] as number;
-            const uom = grandTotalToExport['base_uom_name_first'];
+            const uom = grandTotalToExport[baseUomNameFirstKey];
             if (typeof uom === 'string' && uom.trim() !== '') {
                  grandTotalToExport[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
             }
@@ -551,7 +545,7 @@ export default function Home() {
 
 
     if (dataToExport.length > 0 && columnsToExport.length > 0 && hasAppliedFilters) {
-      exportToPdf(dataToExport, columnsToExport, `${currentTabTitleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab === "exportSections" ? "section" : "full"}_report`, grandTotalToExport);
+      exportToPdf(dataToExport, columnsToExport.filter(c => c !== baseUomNameFirstKey), `${currentTabTitleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab === "exportSections" ? "section" : "full"}_report`, grandTotalToExport);
       toast({ title: "PDF Download Started", description: `Your ${currentTabTitleSuffix} PDF is being generated.` });
     } else {
       toast({ variant: "destructive", title: "No Data", description: "No data available to export. Apply filters to view data first." });
@@ -592,19 +586,21 @@ export default function Home() {
      };
     
      const ingredientQtySumKey = sectionTableData.columns.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
+     const baseUomNameFirstKey = 'base_uom_name_first';
+
      if (ingredientQtySumKey) {
         sectionTableData.processedData = sectionTableData.processedData.map(row => {
             const newRow = {...row};
             const qty = newRow[ingredientQtySumKey];
-            const uom = newRow['base_uom_name_first'];
+            const uom = newRow[baseUomNameFirstKey];
             if (typeof qty === 'number' && typeof uom === 'string' && uom.trim() !== '') {
                 newRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
             }
             return newRow;
         });
-        if (sectionTableData.grandTotalRow && sectionTableData.grandTotalRow[ingredientQtySumKey] && typeof sectionTableData.grandTotalRow[ingredientQtySumKey] === 'number') {
+        if (sectionTableData.grandTotalRow && typeof sectionTableData.grandTotalRow[ingredientQtySumKey] === 'number') {
             const qty = sectionTableData.grandTotalRow[ingredientQtySumKey] as number;
-            const uom = sectionTableData.grandTotalRow['base_uom_name_first'];
+            const uom = sectionTableData.grandTotalRow[baseUomNameFirstKey];
              if (typeof uom === 'string' && uom.trim() !== '') {
                  sectionTableData.grandTotalRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
             }
@@ -613,7 +609,7 @@ export default function Home() {
 
 
      if (sectionTableData.processedData.length > 0 && sectionTableData.columns.length > 0 && hasAppliedFilters) {
-      exportToPdf(sectionTableData.processedData, sectionTableData.columns, `Section Report: ${sectionName} - ${rawFileName}`, `${rawFileName}_section_${sectionName.replace(/\s+/g, '_')}`, sectionTableData.grandTotalRow);
+      exportToPdf(sectionTableData.processedData, sectionTableData.columns.filter(c => c !== baseUomNameFirstKey), `Section Report: ${sectionName} - ${rawFileName}`, `${rawFileName}_section_${sectionName.replace(/\s+/g, '_')}`, sectionTableData.grandTotalRow);
       toast({ title: "PDF Download Started", description: `PDF for section ${sectionName} is being generated.` });
     } else {
       toast({ variant: "destructive", title: "No Data", description: `No data available to export for section ${sectionName}. Ensure filters are applied.` });
@@ -630,7 +626,7 @@ export default function Home() {
   const handleActualGroupReceivedChange = useCallback((groupKey: string, columnKey: string, value: string) => {
     setActualGroupReceivedQuantities(prev => ({
       ...prev,
-      [`${groupKey}_${columnKey}`]: value, // Key for group actuals, e.g., "SiteA||SectionB||Capuchins_ingredient_qty_sum"
+      [`${groupKey}_${columnKey}`]: value, 
     }));
   }, []);
 
