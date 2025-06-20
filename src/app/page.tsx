@@ -1,3 +1,4 @@
+
 "use client";
 
 import type React from 'react';
@@ -22,7 +23,7 @@ import DataTable from '@/components/DataTable';
 import SimpleFilterPanel from '@/components/SimpleFilterPanel';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import DietWiseLogo from '@/components/DietWiseLogo';
-import { exportToPdf } from '@/lib/pdfUtils'; // General PDF export
+import { exportToPdf } from '@/lib/pdfUtils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { parseExcelFlow } from '@/ai/flows/parse-excel-flow';
@@ -30,7 +31,6 @@ import { Separator } from '@/components/ui/separator';
 import { Table as ShadcnTable, TableBody as ShadcnTableBody, TableCell as ShadcnTableCell, TableHead as ShadcnTableHead, TableHeader as ShadcnTableHeader, TableRow as ShadcnTableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 
-// Types for the new Comparison Tab structure (Excel-like pivot)
 interface ComparisonPageIngredient {
   ingredientName: string;
   qtyPerSpecies: number;
@@ -41,14 +41,15 @@ interface ComparisonPageIngredient {
 interface ComparisonPageType {
   typeName: string;
   ingredients: ComparisonPageIngredient[];
-  plannedQtyTypeTotal: number; // Sum of ingredient.qtyForTotalSpecies for this type
+  plannedQtyTypeTotal: number;
 }
 
 interface ComparisonPageDiet {
-  dietKey: string; // Unique key: dietNameRaw|commonName
+  dietKey: string;
   dietNameRaw: string;
-  commonName: string; // Store common_name for display and keying
-  dietNameDisplay: string; // Includes common_name and animal count
+  commonName: string;
+  mealStartTime: string;
+  dietNameDisplay: string;
   animalCount: number;
   types: ComparisonPageType[];
 }
@@ -56,23 +57,22 @@ interface ComparisonPageDiet {
 interface ComparisonPageGroup {
   groupName: string;
   diets: ComparisonPageDiet[];
-  totalRowsInGroup: number; // Helper for rendering rowspan in the table
+  totalRowsInGroup: number;
 }
 
-
-// Fixed groupings and summaries for initial processing for the new Comparison Tab
 const COMPARISON_TAB_INITIAL_GROUPINGS: GroupingOption[] = [
   { column: 'group_name' },
   { column: 'diet_name' },
-  { column: 'common_name' }, // Added common_name
+  { column: 'common_name' },
+  { column: 'meal_start_time' },
   { column: 'type_name' },
   { column: 'ingredient_name' },
 ];
 
 const COMPARISON_TAB_INITIAL_SUMMARIES: SummarizationOption[] = [
-  { column: 'ingredient_qty', type: 'sum' }, // This will be "qty for 1 Species"
-  { column: 'total_animal', type: 'first' },   // Animal count for the diet-species context
-  { column: 'base_uom_name', type: 'first' }, // UoM for the ingredient
+  { column: 'ingredient_qty', type: 'sum' },
+  { column: 'total_animal', type: 'max' }, // Changed to 'max'
+  { column: 'base_uom_name', type: 'first' },
 ];
 
 
@@ -94,9 +94,8 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [isFileSelected, setIsFileSelected] = useState(false);
 
-  // State for NEW Comparison Tab (Excel-like pivot)
   const [comparisonDisplayData, setComparisonDisplayData] = useState<ComparisonPageGroup[]>([]);
-  const [actualQuantities, setActualQuantities] = useState<Record<string, string>>({}); // Key: see buildActualQtyKey
+  const [actualQuantities, setActualQuantities] = useState<Record<string, string>>({});
 
   const [parsedActualSpeciesData, setParsedActualSpeciesData] = useState<DietDataRow[]>([]);
   const [isLoadingActualSpeciesFile, setIsLoadingActualSpeciesFile] = useState<boolean>(false);
@@ -105,7 +104,6 @@ export default function Home() {
 
   const { toast } = useToast();
 
-  // This hook is for "View Data" and "Export Sections" tabs
   const { processedData, columns: currentTableColumns, grandTotalRow } = useTableProcessor({
     rawData,
     groupings: defaultGroupings,
@@ -127,7 +125,6 @@ export default function Home() {
   }, [isFileSelected, rawData]);
 
 
-  // useEffect for preparing data for the NEW Comparison Tab (Excel-like pivot)
   useEffect(() => {
     if (activeTab === "comparison" && hasAppliedFilters && rawData.length > 0) {
       setIsLoading(true);
@@ -139,7 +136,7 @@ export default function Home() {
           filters,
           allHeaders,
           true,
-          true // disableDisplayBlanking = true to get all context fields
+          true
         );
 
         const groupsMap = new Map<string, ComparisonPageGroup>();
@@ -148,10 +145,11 @@ export default function Home() {
           const groupName = String(row.group_name || 'Unknown Group');
           const dietNameRaw = String(row.diet_name || 'Unknown Diet');
           const commonName = String(row.common_name || 'Unknown Species');
+          const mealStartTime = String(row.meal_start_time || 'N/A');
           const typeName = String(row.type_name || 'Unknown Type');
           const ingredientName = String(row.ingredient_name || 'Unknown Ingredient');
-          
-          const animalCount = parseInt(String(row.total_animal_first), 10) || 0;
+
+          const animalCount = parseInt(String(row.total_animal_max), 10) || 0; // Read from total_animal_max
           const qtyPerSpecies = parseFloat(String(row.ingredient_qty_sum)) || 0;
           const uom = String(row.base_uom_name_first || '');
 
@@ -159,18 +157,19 @@ export default function Home() {
             groupsMap.set(groupName, { groupName, diets: [], totalRowsInGroup: 0 });
           }
           const currentGroup = groupsMap.get(groupName)!;
-          
-          const dietKey = `${dietNameRaw}|${commonName}`;
 
-          let currentDiet = currentGroup.diets.find(d => d.dietKey === dietKey && d.animalCount === animalCount);
+          const dietKey = `${dietNameRaw}|${commonName}|${mealStartTime}`;
+
+          let currentDiet = currentGroup.diets.find(d => d.dietKey === dietKey);
           if (!currentDiet) {
-            currentDiet = { 
+            currentDiet = {
               dietKey,
-              dietNameRaw, 
+              dietNameRaw,
               commonName,
-              dietNameDisplay: `${dietNameRaw} - ${commonName} (${animalCount})`, 
-              animalCount, 
-              types: [] 
+              mealStartTime,
+              dietNameDisplay: `${dietNameRaw} - ${commonName} (${animalCount}) - Meal: ${mealStartTime}`,
+              animalCount,
+              types: []
             };
             currentGroup.diets.push(currentDiet);
           }
@@ -181,7 +180,7 @@ export default function Home() {
             currentDiet.types.push(currentType);
           }
 
-          const qtyForTotalSpecies = parseFloat((qtyPerSpecies * animalCount).toFixed(4));
+          const qtyForTotalSpecies = parseFloat((qtyPerSpecies * currentDiet.animalCount).toFixed(4));
           currentType.ingredients.push({
             ingredientName,
             qtyPerSpecies: parseFloat(qtyPerSpecies.toFixed(4)),
@@ -192,18 +191,21 @@ export default function Home() {
 
         groupsMap.forEach(group => {
           group.totalRowsInGroup = 0;
-          group.diets.sort((a,b) => a.dietNameDisplay.localeCompare(b.dietNameDisplay));
+          group.diets.sort((a,b) => {
+            const nameComp = a.dietNameDisplay.localeCompare(b.dietNameDisplay);
+            if (nameComp !== 0) return nameComp;
+            return a.mealStartTime.localeCompare(b.mealStartTime);
+          });
           group.diets.forEach(diet => {
             diet.types.sort((a,b) => a.typeName.localeCompare(b.typeName));
             diet.types.forEach(type => {
               type.ingredients.sort((a,b) => a.ingredientName.localeCompare(b.ingredientName));
               type.plannedQtyTypeTotal = parseFloat(type.ingredients.reduce((sum, ing) => sum + ing.qtyForTotalSpecies, 0).toFixed(4));
-              // For rowspan: each type adds its ingredients + 1 subtotal row
-              group.totalRowsInGroup += type.ingredients.length + 1; 
+              group.totalRowsInGroup += type.ingredients.length + 1;
             });
           });
         });
-        
+
         const finalDisplayData = Array.from(groupsMap.values()).sort((a,b) => a.groupName.localeCompare(b.groupName));
         setComparisonDisplayData(finalDisplayData);
 
@@ -215,7 +217,7 @@ export default function Home() {
         setIsLoading(false);
       }
     } else if (activeTab === "comparison" && (!hasAppliedFilters || rawData.length === 0)) {
-        setComparisonDisplayData([]); // Clear data if filters not applied or no raw data
+        setComparisonDisplayData([]);
     }
   }, [activeTab, hasAppliedFilters, rawData, filters, allHeaders, toast]);
 
@@ -231,7 +233,7 @@ export default function Home() {
     setFilters([]);
     setHasAppliedFilters(false);
     setIsFileSelected(true);
-    setActiveTab("extractedData"); 
+    setActiveTab("extractedData");
     setActualQuantities({});
     setParsedActualSpeciesData([]);
     setComparisonDisplayData([]);
@@ -275,7 +277,7 @@ export default function Home() {
     }
 
     setIsLoading(true);
-    setActualQuantities({}); 
+    setActualQuantities({});
 
     try {
         const result = await parseExcelFlow({ excelFileBase64: rawFileBase64, originalFileName: rawFileName });
@@ -291,7 +293,7 @@ export default function Home() {
 
         setRawData(result.parsedData);
         setAllHeaders(result.headers);
-        
+
         const requiredDefaultPivotCols = [
             ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => col as string),
             ...DEFAULT_IMAGE_PIVOT_SUMMARIES.map(s => s.column)
@@ -316,12 +318,12 @@ export default function Home() {
                 setDefaultGroupings(availableFallbackGroupings.length > 0
                     ? availableFallbackGroupings.slice(0,3).map(col => ({ column: col as string }))
                     : result.headers.length > 0 ? [{ column: result.headers[0] }] : []);
-                
+
                 const fallbackSummaries: SummarizationOption[] = [];
                 if (result.headers.includes('ingredient_qty')) {
                     fallbackSummaries.push({ column: 'ingredient_qty', type: 'sum' });
                 }
-                 if (result.headers.includes('base_uom_name')) { 
+                 if (result.headers.includes('base_uom_name')) {
                     fallbackSummaries.push({ column: 'base_uom_name', type: 'first'});
                 }
                 if (result.headers.includes('total_animal')) {
@@ -333,7 +335,7 @@ export default function Home() {
 
         setFilters(newFilters);
         setHasAppliedFilters(true);
-        
+
         if (result.parsedData.length === 0 && result.headers.length > 0) {
             toast({ variant: "default", title: "File Parsed: Contains Only Headers", description: "The Excel file seems to contain only headers and no data rows. Filters applied."});
         } else if (result.parsedData.length === 0 && result.headers.length === 0 ) {
@@ -356,12 +358,12 @@ export default function Home() {
     }
   }, [isFileSelected, rawFileBase64, rawFileName, toast]);
 
-  const buildActualQtyKey = (groupName: string, dietNameRaw: string, commonName: string, typeName: string, ingredientName?: string) => {
-    let key = `${groupName}|${dietNameRaw}|${commonName}|${typeName}`;
+  const buildActualQtyKey = (groupName: string, dietNameRaw: string, commonName: string, mealStartTime: string, typeName: string, ingredientName?: string) => {
+    let key = `${groupName}|${dietNameRaw}|${commonName}|${mealStartTime}|${typeName}`;
     if (ingredientName) {
       key += `|${ingredientName}`;
     } else {
-      key += `|__TYPE_SUBTOTAL__`; // Special marker for type-level actuals
+      key += `|__TYPE_SUBTOTAL__`;
     }
     return key;
   };
@@ -389,33 +391,33 @@ export default function Home() {
 
             group.diets.forEach((diet, dietIdx) => {
                 if (dietIdx > 0) currentY += 15;
-                 if (currentY > doc.internal.pageSize.height - 80 && group.diets.length > 1) { 
+                 if (currentY > doc.internal.pageSize.height - 80 && group.diets.length > 1) {
                     doc.addPage();
                     currentY = 40;
                      doc.setFontSize(14);
                      doc.text(`Group: ${group.groupName} (Continued)`, 40, 30);
                 }
                 doc.setFontSize(12);
-                doc.text(`Diet/Species: ${diet.dietNameDisplay}`, 40, currentY); // Updated label
+                doc.text(`Diet/Species/Meal: ${diet.dietNameDisplay}`, 40, currentY);
                 currentY += 20;
 
                 diet.types.forEach((type, typeIdx) => {
                     if (typeIdx > 0) currentY += 10;
-                     if (currentY > doc.internal.pageSize.height - 100) { 
+                     if (currentY > doc.internal.pageSize.height - 100) {
                         doc.addPage();
                         currentY = 40;
                          doc.setFontSize(14);
                         doc.text(`Group: ${group.groupName} (Continued)`, 40, 30);
                         currentY += 20;
                         doc.setFontSize(12);
-                        doc.text(`Diet/Species: ${diet.dietNameDisplay} (Continued)`, 40, currentY); // Updated label
+                        doc.text(`Diet/Species/Meal: ${diet.dietNameDisplay} (Continued)`, 40, currentY);
                         currentY += 20;
                     }
                     const head = [['Type Name', 'Ingredient Name', 'Qty/Species', 'Qty/Total', 'Qty to Receive', 'Qty Received', 'Difference']];
                     const body = [];
 
                     type.ingredients.forEach(ing => {
-                        const actualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, type.typeName, ing.ingredientName);
+                        const actualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName, ing.ingredientName);
                         const actualQtyStr = actualQuantities[actualKey] || '';
                         const actualQtyNum = parseFloat(actualQtyStr);
                         let diffStr = '';
@@ -423,18 +425,17 @@ export default function Home() {
                             diffStr = (actualQtyNum - ing.qtyForTotalSpecies).toFixed(4);
                         }
                         body.push([
-                            ing === type.ingredients[0] ? type.typeName : '', // Show type_name only for the first ingredient of the type
+                            ing === type.ingredients[0] ? type.typeName : '',
                             ing.ingredientName,
                             ing.qtyPerSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''),
                             ing.qtyForTotalSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''),
-                            ing.qtyForTotalSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''), // Qty to Receive = Planned for ingredient
+                            ing.qtyForTotalSpecies.toFixed(4) + (ing.uom ? ` ${ing.uom}` : ''),
                             actualQtyStr,
                             diffStr
                         ]);
                     });
 
-                    // Subtotal row for the type
-                    const actualTypeKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, type.typeName);
+                    const actualTypeKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName);
                     const actualTypeQtyStr = actualQuantities[actualTypeKey] || '';
                     const actualTypeQtyNum = parseFloat(actualTypeQtyStr);
                     let diffTypeStr = '';
@@ -450,7 +451,7 @@ export default function Home() {
                         { content: actualTypeQtyStr, styles: { fontStyle: 'bold', halign: 'right', fillColor: [230,230,230] } },
                         { content: diffTypeStr, styles: { fontStyle: 'bold', halign: 'right', fillColor: [230,230,230] } }
                     ]);
-                    
+
                     autoTable(doc, {
                         head: head,
                         body: body,
@@ -465,12 +466,12 @@ export default function Home() {
                             6: { cellWidth: 60, halign: 'right' },
                         },
                         didParseCell: function (data) {
-                            if (data.column.index === 6) { 
+                            if (data.column.index === 6) {
                                  const cellRawValue = data.cell.raw;
                                  if (cellRawValue !== null && cellRawValue !== undefined && String(cellRawValue).trim() !== '') {
                                     const numericValue = parseFloat(String(cellRawValue));
                                     if (!isNaN(numericValue)) {
-                                        if (numericValue < 0) data.cell.styles.textColor = [220, 53, 69]; 
+                                        if (numericValue < 0) data.cell.styles.textColor = [220, 53, 69];
                                         else if (numericValue > 0) data.cell.styles.textColor = [0, 123, 255];
                                     }
                                 }
@@ -490,20 +491,19 @@ export default function Home() {
         return;
     }
 
-    // PDF export for "View Data" and "Export Sections" (remains largely the same)
     let dataToExport: DietDataRow[] = [];
     let columnsToExport: string[] = [];
     let grandTotalToExport: DietDataRow | undefined = undefined;
 
     if (activeTab === "extractedData" || activeTab === "exportSections") {
-        dataToExport = processedData.map(row => ({...row})); 
-        columnsToExport = [...currentTableColumns]; 
-        grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined; 
+        dataToExport = processedData.map(row => ({...row}));
+        columnsToExport = [...currentTableColumns];
+        grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined;
 
         const ingredientQtySumKey = columnsToExport.find(k => k.startsWith('ingredient_qty_') && k.endsWith('_sum'));
         const uomKey = columnsToExport.find(k => k.startsWith('base_uom_name_') && k.endsWith('_first'));
 
-        if (ingredientQtySumKey && uomKey && allHeaders.includes('base_uom_name')) { 
+        if (ingredientQtySumKey && uomKey && allHeaders.includes('base_uom_name')) {
             dataToExport = dataToExport.map(row => {
                 const newRow = {...row};
                 const qty = newRow[ingredientQtySumKey];
@@ -520,7 +520,7 @@ export default function Home() {
                      grandTotalToExport[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
                 }
             }
-             if (uomKey !== ingredientQtySumKey) { 
+             if (uomKey !== ingredientQtySumKey) {
                 columnsToExport = columnsToExport.filter(c => c !== uomKey);
             }
         }
@@ -546,11 +546,11 @@ export default function Home() {
      const ingredientQtySumKey = sectionTableData.columns.find(k => k.startsWith('ingredient_qty_') && k.endsWith('_sum'));
      const uomKey = sectionTableData.columns.find(k => k.startsWith('base_uom_name_') && k.endsWith('_first'));
 
-     if (ingredientQtySumKey && uomKey && allHeaders.includes('base_uom_name')) { 
+     if (ingredientQtySumKey && uomKey && allHeaders.includes('base_uom_name')) {
         sectionTableData.processedData = sectionTableData.processedData.map(row => {
-            const newRow = {...row}; 
+            const newRow = {...row};
             const qty = newRow[ingredientQtySumKey];
-            const uom = newRow[uomKey]; 
+            const uom = newRow[uomKey];
             if (typeof qty === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
                 newRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
             }
@@ -558,7 +558,7 @@ export default function Home() {
         });
         if (sectionTableData.grandTotalRow && typeof sectionTableData.grandTotalRow[ingredientQtySumKey] === 'number') {
             const qty = sectionTableData.grandTotalRow[ingredientQtySumKey] as number;
-            const uom = sectionTableData.grandTotalRow[uomKey]; 
+            const uom = sectionTableData.grandTotalRow[uomKey];
              if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
                  sectionTableData.grandTotalRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
             }
@@ -589,13 +589,14 @@ export default function Home() {
                 const groupRecord: any = {
                     group_id: group.groupName,
                     diet_name: diet.dietNameRaw,
-                    species: diet.commonName, // Added species
+                    species: diet.commonName,
+                    meal_time: diet.mealStartTime,
                     type_name: type.typeName,
-                    animal_count: diet.animalCount, // Added animal count for this diet/species
+                    animal_count: diet.animalCount,
                     ingredients: [],
                 };
-                
-                const actualTypeKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, type.typeName);
+
+                const actualTypeKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName);
                 const actualTypeQtyStr = actualQuantities[actualTypeKey] || '';
                 if(actualTypeQtyStr !== '') {
                     groupRecord.type_actual_qty = parseFloat(actualTypeQtyStr) || null;
@@ -603,9 +604,9 @@ export default function Home() {
                 }
 
                 type.ingredients.forEach(ing => {
-                    const actualIngKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, type.typeName, ing.ingredientName);
+                    const actualIngKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName, ing.ingredientName);
                     const actualIngQtyStr = actualQuantities[actualIngKey] || '';
-                    
+
                     groupRecord.ingredients.push({
                         name: ing.ingredientName,
                         planned_qty_per_species: ing.qtyPerSpecies,
@@ -631,12 +632,12 @@ export default function Home() {
   const year = new Date().getFullYear();
 
   const renderContentForDataTabs = (isExportTab: boolean, isComparisonTab: boolean = false) => {
-    if (isLoading && !isComparisonTab) { 
+    if (isLoading && !isComparisonTab) {
       return (
         <Card><CardHeader><CardTitle>Processing...</CardTitle></CardHeader><CardContent className="p-6 flex justify-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></CardContent></Card>
       );
     }
-     if (isComparisonTab && isLoading) { 
+     if (isComparisonTab && isLoading) {
       return (
         <Card><CardHeader><CardTitle>Structuring Comparison Data...</CardTitle></CardHeader><CardContent className="p-6 flex justify-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></CardContent></Card>
       );
@@ -661,13 +662,13 @@ export default function Home() {
     }
 
     if (!isComparisonTab) {
-        if (rawData.length === 0 && allHeaders.length > 0 && hasAppliedFilters) { 
+        if (rawData.length === 0 && allHeaders.length > 0 && hasAppliedFilters) {
             return <Card><CardContent className="p-6 text-center text-muted-foreground">File "<strong>{rawFileName}</strong>" contains only headers.</CardContent></Card>;
         }
-        if (rawData.length === 0 && allHeaders.length === 0 && hasAppliedFilters) { 
+        if (rawData.length === 0 && allHeaders.length === 0 && hasAppliedFilters) {
             return <Card><CardContent className="p-6 text-center text-destructive">No data or headers extracted from "<strong>{rawFileName}</strong>".</CardContent></Card>;
         }
-        if (processedData.length === 0 && rawData.length > 0 && hasAppliedFilters ) { 
+        if (processedData.length === 0 && rawData.length > 0 && hasAppliedFilters ) {
            return <Card><CardContent className="p-6 text-center text-muted-foreground">Filters for "<strong>{rawFileName}</strong>" resulted in no data for the current view.</CardContent></Card>;
         }
     }
@@ -691,7 +692,6 @@ export default function Home() {
               </Card>
             );
         }
-        // Helper function to render table rows with correct rowspan logic
         const renderComparisonRows = () => {
             const rows: JSX.Element[] = [];
             comparisonDisplayData.forEach((group) => {
@@ -699,8 +699,7 @@ export default function Home() {
                 group.diets.forEach((diet) => {
                     let isFirstRowOfDiet = true;
                     diet.types.forEach((type) => {
-                        // Type subtotal row first
-                        const typeActualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, type.typeName);
+                        const typeActualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName);
                         const typeActualQtyStr = actualQuantities[typeActualKey] || '';
                         const typeActualQtyNum = parseFloat(typeActualQtyStr);
                         let typeDiff = NaN;
@@ -714,15 +713,15 @@ export default function Home() {
                                 {isFirstRowOfDiet && <ShadcnTableCell rowSpan={diet.types.reduce((acc, t) => acc + t.ingredients.length + 1, 0)}>{diet.dietNameDisplay}</ShadcnTableCell>}
                                 <ShadcnTableCell>{type.typeName}</ShadcnTableCell>
                                 <ShadcnTableCell className="text-right italic">SUBTOTAL</ShadcnTableCell>
-                                <ShadcnTableCell className="text-right"></ShadcnTableCell> {/* Qty/Species blank */}
-                                <ShadcnTableCell className="text-right"></ShadcnTableCell> {/* Qty/Total blank */}
+                                <ShadcnTableCell className="text-right"></ShadcnTableCell>
+                                <ShadcnTableCell className="text-right"></ShadcnTableCell>
                                 <ShadcnTableCell className="text-right">{type.plannedQtyTypeTotal.toFixed(4)}</ShadcnTableCell>
                                 <ShadcnTableCell className="text-right">
                                     <Input
                                         type="number" step="any"
                                         value={typeActualQtyStr}
                                         onChange={(e) => handleActualQuantityChange(typeActualKey, e.target.value)}
-                                        className="h-8 text-right w-full min-w-[80px]"                                    
+                                        className="h-8 text-right w-full min-w-[80px]"
                                     />
                                 </ShadcnTableCell>
                                 <ShadcnTableCell className={`text-right ${typeDiff < 0 ? 'text-red-600' : typeDiff > 0 ? 'text-blue-600' : ''}`}>
@@ -730,11 +729,11 @@ export default function Home() {
                                 </ShadcnTableCell>
                             </ShadcnTableRow>
                         );
-                        isFirstRowOfGroup = false; 
+                        isFirstRowOfGroup = false;
                         let isFirstIngredientOfType = true;
 
                         type.ingredients.forEach((ing) => {
-                            const ingActualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, type.typeName, ing.ingredientName);
+                            const ingActualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName, ing.ingredientName);
                             const ingActualQtyStr = actualQuantities[ingActualKey] || '';
                             const ingActualQtyNum = parseFloat(ingActualQtyStr);
                             let ingDiff = NaN;
@@ -743,10 +742,7 @@ export default function Home() {
                             }
                             rows.push(
                                 <ShadcnTableRow key={ingActualKey}>
-                                    {/* No group_name cell after its span */}
-                                    {/* No diet_name cell after its span */}
-                                     {isFirstIngredientOfType && <ShadcnTableCell>{type.typeName}</ShadcnTableCell>}
-                                     {!isFirstIngredientOfType && <ShadcnTableCell>{/* Empty for type span */}</ShadcnTableCell>}
+                                     {isFirstIngredientOfType && <ShadcnTableCell rowSpan={type.ingredients.length}>{type.typeName}</ShadcnTableCell>}
                                     <ShadcnTableCell>{ing.ingredientName}</ShadcnTableCell>
                                     <ShadcnTableCell className="text-right">{ing.qtyPerSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
                                     <ShadcnTableCell className="text-right">{ing.qtyForTotalSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
@@ -764,15 +760,15 @@ export default function Home() {
                                     </ShadcnTableCell>
                                 </ShadcnTableRow>
                             );
-                            isFirstIngredientOfType = false; 
+                            isFirstIngredientOfType = false;
                         });
-                        isFirstRowOfDiet = false; 
+                        isFirstRowOfDiet = false;
                     });
                 });
             });
             return rows;
         };
-        
+
         return (
           <div className="flex flex-col flex-1 min-h-0 space-y-4">
             <div className="flex justify-between items-start gap-4">
@@ -781,8 +777,8 @@ export default function Home() {
                 <div className="flex flex-col items-end space-y-2">
                      <FileUpload
                         onFileSelected={handleActualSpeciesFileSelectedCallback}
-                        onProcessing={setIsLoadingActualSpeciesFile} 
-                        disabled={isLoadingActualSpeciesFile || !hasAppliedFilters} 
+                        onProcessing={setIsLoadingActualSpeciesFile}
+                        disabled={isLoadingActualSpeciesFile || !hasAppliedFilters}
                     />
                     {parsedActualSpeciesData.length > 0 && (
                         <p className="text-xs text-green-600">"{actualSpeciesFileName}" loaded ({parsedActualSpeciesData.length} rows).</p>
@@ -805,7 +801,7 @@ export default function Home() {
                     <ShadcnTableHeader className="sticky top-0 bg-muted z-10">
                         <ShadcnTableRow>
                             <ShadcnTableHead className="border border-muted px-2 py-1 w-[150px]">Group Name</ShadcnTableHead>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[250px]">Diet / Species</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[300px]">Diet / Species / Meal</ShadcnTableHead>
                             <ShadcnTableHead className="border border-muted px-2 py-1 w-[150px]">Type Name</ShadcnTableHead>
                             <ShadcnTableHead className="border border-muted px-2 py-1 w-[200px]">Ingredient Name</ShadcnTableHead>
                             <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[120px]">Qty/1 Species</ShadcnTableHead>
@@ -833,10 +829,10 @@ export default function Home() {
              return filters.every(filter => {
                 const valueAfterProcessing = calculateProcessedTableData([row], [], [], [filter], allHeaders, true, false).filteredData[0]?.[filter.column];
                 const filterValue = filter.value;
-                const normalizedRowValue = String(valueAfterProcessing ?? '').toLowerCase(); 
+                const normalizedRowValue = String(valueAfterProcessing ?? '').toLowerCase();
 
                 if (valueAfterProcessing === undefined || valueAfterProcessing === null || String(valueAfterProcessing).trim() === '') {
-                     return filter.type === 'equals' && (filterValue === '' || filterValue === null); 
+                     return filter.type === 'equals' && (filterValue === '' || filterValue === null);
                 }
                 switch (filter.type) {
                   case 'equals': return normalizedRowValue === String(filterValue).toLowerCase();
@@ -845,7 +841,7 @@ export default function Home() {
                   case 'range_number':
                     if (Array.isArray(filterValue) && filterValue.length === 2) {
                       const [min, max] = filterValue.map(v => parseFloat(String(v)));
-                      const numericRowValue = parseFloat(String(valueAfterProcessing)); 
+                      const numericRowValue = parseFloat(String(valueAfterProcessing));
                       if (isNaN(numericRowValue)) return false;
                       const minCheck = isNaN(min) || numericRowValue >= min;
                       const maxCheck = isNaN(max) || numericRowValue <= max;
@@ -895,13 +891,13 @@ export default function Home() {
                           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />} PDF
                         </Button>
                       </CardHeader>
-                      <CardContent className="min-h-0 pt-0 p-0"> 
-                         <div style={{ height: 'auto', maxHeight: '600px', overflowY: 'auto' }}> 
+                      <CardContent className="min-h-0 pt-0 p-0">
+                         <div style={{ height: 'auto', maxHeight: '600px', overflowY: 'auto' }}>
                           <DataTable
                             data={sectionTableData.processedData}
                             columns={sectionTableData.columns}
                             grandTotalRow={sectionTableData.grandTotalRow}
-                            allHeaders={allHeaders} 
+                            allHeaders={allHeaders}
                           />
                          </div>
                       </CardContent>
@@ -920,14 +916,14 @@ export default function Home() {
           </ScrollArea>
         </>
       );
-    } else { 
+    } else {
       return (
-        <div className="flex-1 min-h-0"> 
+        <div className="flex-1 min-h-0">
           <DataTable
-            data={processedData} 
-            columns={currentTableColumns} 
-            grandTotalRow={grandTotalRow} 
-            allHeaders={allHeaders} 
+            data={processedData}
+            columns={currentTableColumns}
+            grandTotalRow={grandTotalRow}
+            allHeaders={allHeaders}
           />
         </div>
       );
@@ -940,8 +936,8 @@ export default function Home() {
       <header className="px-4 py-3 border-b flex items-center justify-between">
         <DietWiseLogo />
       </header>
-      <div className="px-4 py-2 border-b flex-1 min-h-0 flex flex-col"> 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full h-full flex flex-col"> 
+      <div className="px-4 py-2 border-b flex-1 min-h-0 flex flex-col">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full h-full flex flex-col">
           <TabsList className="bg-muted p-1 rounded-md grid grid-cols-4">
             <TabsTrigger value="uploadExcel" className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><FileSpreadsheet className="h-4 w-4"/>Upload Excel</TabsTrigger>
             <TabsTrigger value="extractedData" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><TableIcon className="h-4 w-4" />View Data</TabsTrigger>
@@ -949,7 +945,7 @@ export default function Home() {
             <TabsTrigger value="comparison" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-accent/50 rounded-sm flex items-center justify-center gap-2"><BarChartHorizontalBig className="h-4 w-4"/>Comparison</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="uploadExcel" className="mt-2 flex-1 overflow-y-auto"> 
+          <TabsContent value="uploadExcel" className="mt-2 flex-1 overflow-y-auto">
             <div className="container mx-auto flex flex-col items-center justify-center space-y-8 py-10">
               {!isFileSelected && !isLoading && (
                 <div className="text-center space-y-4">
@@ -976,9 +972,9 @@ export default function Home() {
             </div>
           </TabsContent>
 
-          
+
           <TabsContent value="extractedData" className="mt-2 flex flex-col flex-1 min-h-0">
-             <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4"> 
+             <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
                 <SimpleFilterPanel
                     rawData={rawData}
                     allHeaders={allHeaders}
@@ -1026,4 +1022,6 @@ export default function Home() {
     </main>
   );
 }
+    
+
     
