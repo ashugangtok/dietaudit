@@ -41,7 +41,7 @@ export function calculateProcessedTableData(
   filtersToApply: FilterOption[],
   allHeadersForData: string[],
   shouldProcessData: boolean,
-  disableDisplayBlanking: boolean = false // New parameter
+  disableDisplayBlanking: boolean = false 
 ): ProcessedTableData {
 
   const internalFilteredDataResult = (() => {
@@ -52,7 +52,7 @@ export function calculateProcessedTableData(
         const rowValue = getColumnValueInternal(row, filter.column);
         
         if (rowValue === '' && filter.type === 'equals' && filter.value === '') return true;
-        if (rowValue === '') return false;
+        if (rowValue === '' && filter.type !== 'equals' ) return false;
 
 
         const filterValue = filter.value;
@@ -100,12 +100,19 @@ export function calculateProcessedTableData(
   })();
 
   const processedDataAndColumnsResult = ((): { data: DietDataRow[], dynamicColumns: string[], grandTotalRow?: DietDataRow } => {
-    if (!shouldProcessData) {
+    if (!shouldProcessData || rawDataToProcess.length === 0 && allHeadersForData.length === 0) {
       return { data: [], dynamicColumns: allHeadersForData.length > 0 ? allHeadersForData : [], grandTotalRow: undefined };
     }
-
+    
     let dataToProcess: DietDataRow[] = [...internalFilteredDataResult];
-    let dynamicColumns: string[] = dataToProcess.length > 0 && dataToProcess[0] ? Object.keys(dataToProcess[0]) : (allHeadersForData.length > 0 ? allHeadersForData : []);
+    let dynamicColumns: string[] = [];
+    if (dataToProcess.length > 0 && dataToProcess[0]) {
+        dynamicColumns = Object.keys(dataToProcess[0]);
+    } else if (allHeadersForData.length > 0) {
+        dynamicColumns = allHeadersForData;
+    }
+
+
     let grandTotalRow: DietDataRow | undefined = undefined;
     let baseUomNameFirstSummaryKey = ''; 
 
@@ -162,7 +169,7 @@ export function calculateProcessedTableData(
         return 0;
       });
       
-      if (!disableDisplayBlanking) { // Apply blanking only if not disabled
+      if (!disableDisplayBlanking) { 
         let lastRowKeyValues: (string | number | undefined)[] = [];
         dataToProcess = dataToProcess.map((row, rowIndex) => {
           if (rowIndex === 0) {
@@ -284,7 +291,7 @@ export function calculateProcessedTableData(
                     representativeRow[summary.name] = summaryValue;
                 });
                 
-                if (dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey)) {
+                if (!disableDisplayBlanking && dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey)) {
                     let representativeDietContextKey = '';
                     for (let i = 0; i <= dietNameGroupIndex; i++) {
                         representativeDietContextKey += (representativeRow[groupingColNames[i]] || '') + '||';
@@ -302,16 +309,20 @@ export function calculateProcessedTableData(
                     }
                 }
 
-                if (groupingColNames.includes(commonNameColumnKey)) {
+                if (!disableDisplayBlanking && groupingColNames.includes(commonNameColumnKey)) {
                     const originalCommonNameInRow = representativeRow[commonNameColumnKey]; 
                     let totalAnimalCountForDisplay: number | string | undefined = undefined;
                     const totalAnimalSumKey = summaryColDetails.find(s => s.originalColumn === 'total_animal' && s.type === 'sum')?.name;
                     const totalAnimalAvgKey = summaryColDetails.find(s => s.originalColumn === 'total_animal' && s.type === 'average')?.name;
+                    const totalAnimalFirstKey = summaryColDetails.find(s => s.originalColumn === 'total_animal' && s.type === 'first')?.name;
+
 
                     if (totalAnimalSumKey && representativeRow[totalAnimalSumKey] !== undefined && (typeof representativeRow[totalAnimalSumKey] === 'number' || (typeof representativeRow[totalAnimalSumKey] === 'string' && String(representativeRow[totalAnimalSumKey]).trim() !== '' && !isNaN(parseFloat(representativeRow[totalAnimalSumKey] as string))))) {
                         totalAnimalCountForDisplay = representativeRow[totalAnimalSumKey];
                     } else if (totalAnimalAvgKey && representativeRow[totalAnimalAvgKey] !== undefined && (typeof representativeRow[totalAnimalAvgKey] === 'number' || (typeof representativeRow[totalAnimalAvgKey] === 'string' && String(representativeRow[totalAnimalAvgKey]).trim() !== '' && !isNaN(parseFloat(representativeRow[totalAnimalAvgKey] as string))))) {
                         totalAnimalCountForDisplay = representativeRow[totalAnimalAvgKey];
+                    } else if (totalAnimalFirstKey && representativeRow[totalAnimalFirstKey] !== undefined && (typeof representativeRow[totalAnimalFirstKey] === 'number' || (typeof representativeRow[totalAnimalFirstKey] === 'string' && String(representativeRow[totalAnimalFirstKey]).trim() !== '' && !isNaN(parseFloat(representativeRow[totalAnimalFirstKey] as string))))) {
+                        totalAnimalCountForDisplay = representativeRow[totalAnimalFirstKey];
                     }
                     
                     if (originalCommonNameInRow !== undefined && 
@@ -355,7 +366,7 @@ export function calculateProcessedTableData(
                 return 0;
             });
 
-            if (!disableDisplayBlanking && groupingColNames.length > 0) { // Conditionally apply blanking
+            if (!disableDisplayBlanking && groupingColNames.length > 0) { 
                 let lastActualKeyValues: (string | number | undefined)[] = new Array(groupingColNames.length).fill(undefined);
                 const tempProcessedDataForBlanking = [...dataToProcess]; 
                 dataToProcess = tempProcessedDataForBlanking.map((row, rowIndex) => {
@@ -374,7 +385,7 @@ export function calculateProcessedTableData(
                             lastActualKeyValues[i] = currentValue;
                             continue; 
                         }
-                        if (currentValue === lastActualKeyValues[i] && gCol !== 'ingredient_name') {
+                        if (currentValue === lastActualKeyValues[i] && gCol !== 'ingredient_name') { // Don't blank ingredient_name for default view
                             newRow[gCol] = PIVOT_BLANK_MARKER;
                         } else {
                             lastActualKeyValues[i] = currentValue;
@@ -422,6 +433,9 @@ export function calculateProcessedTableData(
             dynamicColumns = summaryColNames; 
         } else { 
           dataToProcess = internalFilteredDataResult;
+          if (internalFilteredDataResult.length === 0 && allHeadersForData.length > 0) {
+            dynamicColumns = allHeadersForData; // Ensure columns are set even if filtered data is empty
+          }
         }
 
         if (summariesToApply.length > 0 && internalFilteredDataResult.length > 0) {
@@ -444,7 +458,7 @@ export function calculateProcessedTableData(
                          case 'sum': totalValue = numericValues.reduce((acc, val) => acc + val, 0); break;
                          case 'average': totalValue = numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length; break;
                          case 'count': totalValue = numericValues.length; break;
-                         case 'first': totalValue = numericValues[0]; break; 
+                         case 'first': totalValue = values.find(v => v !== '' && v !== undefined && v !== null) || ''; break; 
                          case 'max': totalValue = Math.max(...numericValues); break;
                      }
                       if (typeof totalValue === 'number' && (summary.type === 'sum' || summary.type === 'average')) {
@@ -476,17 +490,18 @@ export function calculateProcessedTableData(
     } 
     
     dynamicColumns = dynamicColumns.filter(col => col !== 'note');
-    if (baseUomNameFirstSummaryKey && !isSpecialPivotModeActive && !summariesToApply.some(s => s.name === baseUomNameFirstSummaryKey)) { 
-      // Only filter out UoM if it's not explicitly part of the summaries requested *and* not in special pivot mode
-      // This logic might need refinement if baseUomNameFirstSummaryKey itself is a summary the user wants to see
-      const isUomExplicitlySummarized = summariesToApply.some(s => s.name === baseUomNameFirstSummaryKey);
-      if (!isUomExplicitlySummarized) {
-        dynamicColumns = dynamicColumns.filter(col => col !== baseUomNameFirstSummaryKey);
-      }
+    if (baseUomNameFirstSummaryKey && !isSpecialPivotModeActive) { 
+        const isUomExplicitlySummarized = summariesToApply.some(s => s.name === baseUomNameFirstSummaryKey || (s.column === 'base_uom_name' && s.type === 'first'));
+        if (!isUomExplicitlySummarized && !disableDisplayBlanking) { // Only hide if not explicitly summarized AND blanking is enabled
+            dynamicColumns = dynamicColumns.filter(col => col !== baseUomNameFirstSummaryKey);
+        }
     }
     
-    if (grandTotalRow && !Object.keys(grandTotalRow).some(k => k !== 'note' && grandTotalRow[k] === 'Grand Total')) {
-        const firstColForGT = dynamicColumns.length > 0 ? dynamicColumns[0] : (groupingsToApply.map(g=>g.column).length > 0 ? groupingsToApply.map(g=>g.column)[0] : (summariesToApply.map(s=>`${s.column}_${s.type}`).length > 0 ? summariesToApply.map(s=>`${s.column}_${s.type}`)[0] : undefined));
+    if (grandTotalRow && !Object.keys(grandTotalRow).some(k => k !== 'note' && String(grandTotalRow[k]).toLowerCase().includes("grand total"))) {
+        const firstColForGT = dynamicColumns.length > 0 ? dynamicColumns[0] : 
+                              (groupingsToApply.map(g=>g.column).length > 0 ? groupingsToApply.map(g=>g.column)[0] : 
+                              (summariesToApply.map(s=>`${s.column}_${s.type}`).length > 0 ? summariesToApply.map(s=>`${s.column}_${s.type}`)[0] : undefined));
+        
         if (firstColForGT && grandTotalRow[firstColForGT] !== PIVOT_BLANK_MARKER) { 
              const gtValue = grandTotalRow[firstColForGT];
              if (!String(gtValue).toLowerCase().startsWith("grand total")) {
@@ -496,6 +511,7 @@ export function calculateProcessedTableData(
              grandTotalRow[firstColForGT] = "Grand Total";
         }
     }
+
 
     return { data: dataToProcess, dynamicColumns, grandTotalRow };
   })();
@@ -518,9 +534,6 @@ export function useTableProcessor({
   hasAppliedFilters,
 }: UseTableProcessorProps): ProcessedTableData {
     return useMemo(() => {
-        // When useTableProcessor is called (typically for View Data/Export Section),
-        // we use the default behavior of calculateProcessedTableData (blanking enabled).
         return calculateProcessedTableData(rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters, false);
     }, [rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters]);
 }
-
