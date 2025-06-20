@@ -225,9 +225,9 @@ export function calculateProcessedTableData(
         baseUomNameFirstSummaryKey = summaryColDetails.find(s => s.originalColumn === 'base_uom_name' && s.type === 'first')?.name || '';
         
         dynamicColumns = [...groupingColNames, ...summaryColDetails.map(s => s.name)];
-        // Add the new calculated column key if relevant summaries exist
-        if (dynamicColumns.includes(ingredientQtyFirstSummaryKey) && dynamicColumns.includes(totalAnimalFirstSummaryKey)) {
-            dynamicColumns.push(totalQtyRequiredCalculatedColKey);
+        
+        if (allHeadersForData.includes('ingredient_qty') && allHeadersForData.includes('total_animal') && !dynamicColumns.includes(totalQtyRequiredCalculatedColKey)) {
+             dynamicColumns.push(totalQtyRequiredCalculatedColKey);
         }
 
 
@@ -282,7 +282,7 @@ export function calculateProcessedTableData(
                                 animalIds.add(row.animal_id.trim());
                             }
                         });
-                        summaryValue = animalIds.size > 0 ? animalIds.size : 0; // Ensure 0 if no IDs
+                        summaryValue = animalIds.size > 0 ? animalIds.size : 0; 
                     } else {
                         switch (summary.type) {
                             case 'sum':
@@ -317,8 +317,7 @@ export function calculateProcessedTableData(
                     }
                     representativeRow[summary.name] = summaryValue;
                 });
-
-                // Calculate total_qty_required_calculated
+                
                 if (representativeRow[ingredientQtyFirstSummaryKey] !== undefined && representativeRow[totalAnimalFirstSummaryKey] !== undefined) {
                     const qtyPerAnimal = parseFloat(String(representativeRow[ingredientQtyFirstSummaryKey]));
                     const animalCount = parseFloat(String(representativeRow[totalAnimalFirstSummaryKey]));
@@ -346,7 +345,7 @@ export function calculateProcessedTableData(
                                 String(originalDietNameValue).trim() !== '') {
                                 const speciesCount = speciesSet.size;
                                 const speciesList = Array.from(speciesSet).sort().join(', ');
-                                representativeRow[dietNameColumnKey] = `${String(originalDietNameValue).trim()} (${speciesCount} Species: ${speciesList})`;
+                                representativeRow[dietNameColumnKey] = `${String(originalDietNameValue).trim()}\n(${speciesCount} Species: ${speciesList})`;
                             }
                         }
                     }
@@ -363,7 +362,8 @@ export function calculateProcessedTableData(
                         if (originalCommonNameInRow !== undefined && 
                             originalCommonNameInRow !== PIVOT_BLANK_MARKER && 
                             String(originalCommonNameInRow).trim() !== '' &&
-                            !String(originalCommonNameInRow).includes(' Species:') &&
+                            !String(originalCommonNameInRow).includes(' Species:') && 
+                            !String(originalCommonNameInRow).includes(')\n(') && 
                             totalAnimalCountForDisplay !== undefined && 
                             String(totalAnimalCountForDisplay).trim() !== '') {
                             const numericTotalAnimal = typeof totalAnimalCountForDisplay === 'string' 
@@ -465,8 +465,7 @@ export function calculateProcessedTableData(
                 }
                 summaryRow[summary.name] = summaryValue;
             });
-
-            // Calculate total_qty_required_calculated for the single summary row case
+            
             if (summaryRow[ingredientQtyFirstSummaryKey] !== undefined && summaryRow[totalAnimalFirstSummaryKey] !== undefined) {
                 const qtyPerAnimal = parseFloat(String(summaryRow[ingredientQtyFirstSummaryKey]));
                 const animalCount = parseFloat(String(summaryRow[totalAnimalFirstSummaryKey]));
@@ -488,7 +487,7 @@ export function calculateProcessedTableData(
                 summaryRow[allHeadersForData[0]] = "Overall Summary"; 
             }
             dataToProcess = [summaryRow];
-             // Ensure dynamicColumns for this case includes the calculated column
+            
             dynamicColumns = [...summaryColDetails.map(s => s.name)];
             if (dynamicColumns.includes(ingredientQtyFirstSummaryKey) && dynamicColumns.includes(totalAnimalFirstSummaryKey)) {
                 if(!dynamicColumns.includes(totalQtyRequiredCalculatedColKey)) {
@@ -497,12 +496,10 @@ export function calculateProcessedTableData(
             }
 
         } else {
-          dataToProcess = internalFilteredDataResult;
-          // Calculate total_qty_required_calculated for non-grouped, non-summarized data (raw data display)
-          dataToProcess = dataToProcess.map(row => {
+          dataToProcess = internalFilteredDataResult.map(row => {
             const newRow = {...row};
-            const qtyPerAnimalRaw = parseFloat(String(getColumnValueInternal(row, 'ingredient_qty'))); // Assuming direct column access
-            const animalCountRaw = parseFloat(String(getColumnValueInternal(row, 'total_animal'))); // Assuming direct column access
+            const qtyPerAnimalRaw = parseFloat(String(getColumnValueInternal(row, 'ingredient_qty'))); 
+            const animalCountRaw = parseFloat(String(getColumnValueInternal(row, 'total_animal'))); 
             if (!isNaN(qtyPerAnimalRaw) && !isNaN(animalCountRaw)) {
                  newRow[totalQtyRequiredCalculatedColKey] = parseFloat((qtyPerAnimalRaw * animalCountRaw).toFixed(4));
             } else {
@@ -567,27 +564,8 @@ export function calculateProcessedTableData(
                 }
                 grandTotalRow![summary.name] = totalValue;
             });
-
-            // Calculate grand total for total_qty_required_calculated
+            
             let grandTotalRequiredQtySum = 0;
-            internalFilteredDataResult.forEach(row => { // Use internalFilteredDataResult for sum over all relevant items
-                const qtyPerAnimal = parseFloat(String(getColumnValueInternal(row, 'ingredient_qty'))); // 'ingredient_qty' as base
-                const animalIdsInRowContext = new Set<string>(); // Need to determine animal count for *this specific ingredient's context* if not already summarized
-                                                                // This part is tricky if `total_animal` isn't directly the per-species count here.
-                                                                // For simplicity, if `total_animal_first` exists on `grandTotalRow`, use it.
-                                                                // Otherwise, this sum might be more complex if `internalFilteredDataResult` is not yet grouped by species.
-
-                // For GT, we sum up the per-animal qty * unique animal_id count for that species
-                // This assumes `internalFilteredDataResult` has `animal_id` and `common_name`
-                // This is a simplified sum for the GT. A more accurate GT for total_qty_required_calculated would sum the `total_qty_required_calculated` from `dataToProcess` IF `dataToProcess` has species-level rows
-                 const animalCountForThisRow = parseFloat(String(getColumnValueInternal(row, 'total_animal'))); // Use direct total_animal from row
-                
-                if(!isNaN(qtyPerAnimal) && !isNaN(animalCountForThisRow)) {
-                     // This is tricky: if the internalFilteredDataResult has multiple rows per animal_id for the same ingredient, this will overcount.
-                     // The most robust way is to sum `row[totalQtyRequiredCalculatedColKey]` from the `dataToProcess` if `dataToProcess` is at the correct aggregation level (ingredient per species)
-                }
-            });
-             // Summing already calculated values from `dataToProcess` is safer if `dataToProcess` correctly represents species-ingredient level
             grandTotalRequiredQtySum = dataToProcess.reduce((sum, procRow) => {
                 const val = parseFloat(String(procRow[totalQtyRequiredCalculatedColKey]));
                 return sum + (isNaN(val) ? 0 : val);
@@ -634,12 +612,17 @@ export function calculateProcessedTableData(
         }
     }
     
-    // Ensure the new column is correctly ordered if added
     if (dynamicColumns.includes(totalQtyRequiredCalculatedColKey)) {
         const qtyFirstIndex = dynamicColumns.indexOf(ingredientQtyFirstSummaryKey);
-        if (qtyFirstIndex !== -1 && dynamicColumns.indexOf(totalQtyRequiredCalculatedColKey) !== qtyFirstIndex + 1) {
+        const totalAnimalIndex = dynamicColumns.indexOf(totalAnimalFirstSummaryKey);
+        const targetIndex = Math.max(qtyFirstIndex, totalAnimalIndex);
+
+        if (targetIndex !== -1 && dynamicColumns.indexOf(totalQtyRequiredCalculatedColKey) !== targetIndex + 1) {
             dynamicColumns = dynamicColumns.filter(col => col !== totalQtyRequiredCalculatedColKey);
-            dynamicColumns.splice(qtyFirstIndex + 1, 0, totalQtyRequiredCalculatedColKey);
+            dynamicColumns.splice(targetIndex + 1, 0, totalQtyRequiredCalculatedColKey);
+        } else if (targetIndex === -1 && dynamicColumns.indexOf(totalQtyRequiredCalculatedColKey) === -1) {
+            // If ingredient_qty_first and total_animal_first are not there, but calculation column might be, add it.
+             dynamicColumns.push(totalQtyRequiredCalculatedColKey);
         }
     }
 

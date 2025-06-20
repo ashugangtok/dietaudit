@@ -66,11 +66,11 @@ const DataTable: React.FC<DataTableProps> = ({
 
   const effectiveDisplayColumns = useMemo(() => {
     let displayCols = [...columns];
-    // Hide UoM column if Qty column already includes it, unless it's the only Qty column.
+    
     if (uomRowDataKey && ingredientQtyFirstKey && uomRowDataKey !== ingredientQtyFirstKey) {
-      displayCols = displayCols.filter(col => col !== uomRowDataKey);
+      // displayCols = displayCols.filter(col => col !== uomRowDataKey); // Keep UoM for now
     }
-    // Hide the totalAnimalFirstKey column for the View Data tab
+    
     if (isViewDataTab && totalAnimalFirstKey) {
         displayCols = displayCols.filter(col => col !== totalAnimalFirstKey);
     }
@@ -87,14 +87,14 @@ const DataTable: React.FC<DataTableProps> = ({
 
 
   return (
-    <ScrollArea className="whitespace-nowrap rounded-md border h-full">
+    <ScrollArea className="rounded-md border h-full">
       <Table className="min-w-full">
         <TableCaption>Dietary Data Overview</TableCaption>
         <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
           <TableRow>
             {effectiveDisplayColumns.map((column) => {
               let headerText = column;
-               if (column === totalAnimalFirstKey) { // Should not be displayed in View Data due to filter above, but keep for other tabs if they use this component
+               if (column === totalAnimalFirstKey) { 
                  headerText = 'Animal Count'; 
                } else if (column === ingredientQtyFirstKey) {
                  headerText = 'Qty/Animal'; 
@@ -110,7 +110,7 @@ const DataTable: React.FC<DataTableProps> = ({
                                   .map(word => word.charAt(0).toUpperCase() + word.slice(1))
                                   .join(' ');
                }
-              return (<TableHead key={column} className="font-semibold whitespace-nowrap">{headerText}</TableHead>);
+              return (<TableHead key={column} className="font-semibold">{headerText}</TableHead>);
             })}
           </TableRow>
         </TableHeader>
@@ -158,25 +158,26 @@ const DataTable: React.FC<DataTableProps> = ({
                     cellContent = (cellValue === undefined || cellValue === null ? '' : String(cellValue));
                   }
 
-                  if (column === dietNameColumnKey && typeof cellContent === 'string' && (cellContent.includes('\\n') || (row.note === PIVOT_BLANK_MARKER && String(row[column]).includes('Species')))) {
-                    return (
-                      <TableCell key={`${column}-cell`} className="whitespace-nowrap">
-                        <div style={{ whiteSpace: 'pre-wrap' }}>{cellContent}</div>
-                      </TableCell>
-                    );
-                  }
-
                   const originalColumnName = column.replace(/_sum$|_average$|_count$|_first$|_max$/i, '');
                   const isPotentiallyNumeric = allHeaders.includes(originalColumnName) && 
                                                !['site_name', 'section_name', 'group_name', 'common_name', 'meal_time', 'ingredient_name', 'diet_name', 'type_name', 'base_uom_name'].includes(originalColumnName);
                   
-                  const isNumericOutputCol = (typeof row[column] === 'number' && column !== uomRowDataKey && column !== totalQtyRequiredCalculatedColKey) || 
+                  const isNumericOutputCol = (typeof row[column] === 'number' && column !== uomRowDataKey) || 
                                           (column === ingredientQtyFirstKey && typeof row[column] === 'number') ||
                                           (column === totalQtyRequiredCalculatedColKey && typeof row[column] === 'number') ||
                                           (isPotentiallyNumeric && typeof row[column] === 'number');
 
+
+                  if (column === dietNameColumnKey && typeof cellContent === 'string' && (cellContent.includes('\n') || (row.note === PIVOT_BLANK_MARKER && String(row[column]).includes('Species')))) {
+                    return (
+                      <TableCell key={`${column}-cell`} className={`${isNumericOutputCol ? "text-right" : "text-left"}`}>
+                        <div style={{ whiteSpace: 'pre-wrap' }}>{cellContent}</div>
+                      </TableCell>
+                    );
+                  }
+                  
                   return (
-                    <TableCell key={`${column}-cell`} className={`whitespace-nowrap ${isNumericOutputCol ? "text-right" : "text-left"}`}>
+                    <TableCell key={`${column}-cell`} className={`${isNumericOutputCol ? "text-right" : "text-left"}`}>
                       {cellContent}
                     </TableCell>
                   );
@@ -216,11 +217,20 @@ const DataTable: React.FC<DataTableProps> = ({
                  const isPotentiallyNumericGT = allHeaders.includes(originalColumnNameGT) &&
                                              !['site_name', 'section_name', 'group_name', 'common_name', 'meal_time', 'ingredient_name', 'diet_name', 'type_name', 'base_uom_name'].includes(originalColumnNameGT);
                  
-                 const isNumericGTOutputCol = (typeof grandTotalRow[column] === 'number' && column !== uomRowDataKey && column !== totalQtyRequiredCalculatedColKey) ||
+                 const isNumericGTOutputCol = (typeof grandTotalRow[column] === 'number' && column !== uomRowDataKey) ||
                                           ((column === ingredientQtyFirstKey || column === totalQtyRequiredCalculatedColKey) && typeof grandTotalRow[column] === 'number') ||
                                           (isPotentiallyNumericGT && typeof grandTotalRow[column] === 'number');
+                 
+                 if (column === dietNameColumnKey && typeof displayCellValue === 'string' && displayCellValue.includes('\n')) {
+                    return (
+                        <TableCell key={`${column}-gt`} className={`${isNumericGTOutputCol ? "text-right" : "text-left"}`}>
+                        <div style={{ whiteSpace: 'pre-wrap' }}>{displayCellValue}</div>
+                        </TableCell>
+                    );
+                 }
+
                  return (
-                    <TableCell key={`${column}-gt`} className={`whitespace-nowrap ${isNumericGTOutputCol ? "text-right" : "text-left"}`}>
+                    <TableCell key={`${column}-gt`} className={`${isNumericGTOutputCol ? "text-right" : "text-left"}`}>
                       {displayCellValue}
                     </TableCell>
                   );
@@ -237,3 +247,4 @@ const DataTable: React.FC<DataTableProps> = ({
 
 
 export default DataTable;
+
