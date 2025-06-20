@@ -58,7 +58,7 @@ export const EXPECTED_HEADERS: (keyof DietDataRow)[] = [
   "total_animal", "date", "diet_id", "diet_name", "diet_no",
   "meal_start_time", "meal_end_time", "ingredient_name", "type", "type_name",
   "meal_time", "preparation_type_name", "cut_size_name", "ingredient_qty",
-  "base_uom_name", "actual_animal_count", "animal_id" // Added animal_id
+  "base_uom_name", "actual_animal_count", "animal_id"
 ];
 
 export const NUMERIC_COLUMNS: (keyof DietDataRow)[] = ["total_animal", "ingredient_qty", "actual_animal_count"];
@@ -90,8 +90,8 @@ export const DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
 ];
 
 export const DEFAULT_IMAGE_PIVOT_SUMMARIES: SummarizationOption[] = [
-  { column: 'ingredient_qty', type: 'sum' },
-  { column: 'total_animal', type: 'first' }, // This will now be interpreted as count of unique animal_ids
+  { column: 'ingredient_qty', type: 'first' }, // Changed from 'sum' to 'first'
+  { column: 'total_animal', type: 'first' }, 
   { column: 'base_uom_name', type: 'first' },
 ];
 
