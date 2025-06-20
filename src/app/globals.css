@@ -2,10 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: var(--font-inter), sans-serif;
-}
-
 @layer base {
   :root {
     --background: 210 20% 98%; /* RGB(#FAFCFF) */
@@ -84,6 +80,13 @@ body {
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground font-body antialiased;
+    @apply text-foreground font-body antialiased; /* Removed bg-background */
+    font-family: var(--font-inter), sans-serif;
+    background-image: url('/background.png'); /* Path to your image in the public folder */
+    background-size: cover; /* Cover the entire viewport */
+    background-position: center; /* Center the image */
+    background-repeat: no-repeat; /* Do not repeat the image */
+    background-attachment: fixed; /* Keep the background fixed during scroll */
+    min-height: 100vh; /* Ensure body takes at least full viewport height */
   }
 }
