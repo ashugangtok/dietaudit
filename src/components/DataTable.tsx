@@ -53,7 +53,7 @@ const DataTable: React.FC<DataTableProps> = ({
     return undefined;
   }, [columns, allHeaders]);
 
-  const ingredientQtyFirstKey = useMemo(() => { // Changed from ingredientQtySumKey
+  const ingredientQtyFirstKey = useMemo(() => { 
     return columns.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_first'));
   }, [columns]);
 
@@ -65,12 +65,17 @@ const DataTable: React.FC<DataTableProps> = ({
 
 
   const effectiveDisplayColumns = useMemo(() => {
+    let displayCols = [...columns];
     // Hide UoM column if Qty column already includes it, unless it's the only Qty column.
     if (uomRowDataKey && ingredientQtyFirstKey && uomRowDataKey !== ingredientQtyFirstKey) {
-      return columns.filter(col => col !== uomRowDataKey);
+      displayCols = displayCols.filter(col => col !== uomRowDataKey);
     }
-    return columns;
-  }, [columns, uomRowDataKey, ingredientQtyFirstKey]);
+    // Hide the totalAnimalFirstKey column for the View Data tab
+    if (isViewDataTab && totalAnimalFirstKey) {
+        displayCols = displayCols.filter(col => col !== totalAnimalFirstKey);
+    }
+    return displayCols;
+  }, [columns, uomRowDataKey, ingredientQtyFirstKey, totalAnimalFirstKey, isViewDataTab]);
 
   if (!data.length && !grandTotalRow) {
     return (
@@ -89,9 +94,9 @@ const DataTable: React.FC<DataTableProps> = ({
           <TableRow>
             {effectiveDisplayColumns.map((column) => {
               let headerText = column;
-               if (column.startsWith('total_animal_') && column.endsWith('_first')) {
+               if (column === totalAnimalFirstKey) { // Should not be displayed in View Data due to filter above, but keep for other tabs if they use this component
                  headerText = 'Animal Count'; 
-               } else if (column.startsWith('ingredient_qty_') && column.endsWith('_first')) {
+               } else if (column === ingredientQtyFirstKey) {
                  headerText = 'Qty/Animal'; 
                } else if (column === totalQtyRequiredCalculatedColKey) {
                  headerText = 'Total Qty Required';
