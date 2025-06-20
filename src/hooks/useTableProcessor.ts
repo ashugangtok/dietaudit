@@ -266,40 +266,46 @@ export function calculateProcessedTableData(
                     let summaryValue: string | number = '';
                     const numericValues = values.map(v => parseFloat(String(v))).filter(v => !isNaN(v));
 
-                    switch (summary.type) {
-                        case 'sum':
-                            summaryValue = numericValues.reduce((acc, val) => acc + val, 0);
-                            break;
-                        case 'average':
-                            summaryValue = numericValues.length > 0 ? numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length : 0;
-                            break;
-                        case 'count':
-                            summaryValue = numericValues.length;
-                            break;
-                        case 'first':
-                            summaryValue = getColumnValueInternal(firstRowInGroup, summary.originalColumn);
-                            break;
-                        case 'max':
-                            summaryValue = numericValues.length > 0 ? Math.max(...numericValues) : 0;
-                            break;
-                        default:
-                            summaryValue = '';
+                    if (summary.originalColumn === 'total_animal' && summary.type === 'first') {
+                        const animalIds = new Set<string>();
+                        groupRows.forEach(row => {
+                            if (row.animal_id && typeof row.animal_id === 'string' && row.animal_id.trim() !== '') {
+                                animalIds.add(row.animal_id.trim());
+                            }
+                        });
+                        summaryValue = animalIds.size;
+                    } else {
+                        switch (summary.type) {
+                            case 'sum':
+                                summaryValue = numericValues.reduce((acc, val) => acc + val, 0);
+                                break;
+                            case 'average':
+                                summaryValue = numericValues.length > 0 ? numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length : 0;
+                                break;
+                            case 'count':
+                                summaryValue = numericValues.length;
+                                break;
+                            case 'first':
+                                summaryValue = getColumnValueInternal(firstRowInGroup, summary.originalColumn);
+                                break;
+                            case 'max':
+                                summaryValue = numericValues.length > 0 ? Math.max(...numericValues) : 0;
+                                break;
+                            default:
+                                summaryValue = '';
+                        }
                     }
 
                     if (typeof summaryValue === 'number' && (summary.type === 'sum' || summary.type === 'average')) {
                         summaryValue = parseFloat(summaryValue.toFixed(4));
                     }
-                     // If no numeric values were found for sum, average, max, and it wasn't 'first' or 'count', result should be empty or 0.
-                    if (numericValues.length === 0 && !['first', 'count'].includes(summary.type)) {
+                    if (numericValues.length === 0 && !['first', 'count'].includes(summary.type) && !(summary.originalColumn === 'total_animal' && summary.type === 'first')) {
                          summaryValue = (summary.type === 'sum' || summary.type === 'average' || summary.type === 'max') ? 0 : '';
                     } else if (numericValues.length === 0 && summary.type === 'count') {
-                        summaryValue = 0; // Count is 0 if no numerics
-                    } else if (summary.type === 'first' && (summaryValue === undefined || summaryValue === null) ) {
-                        // For 'first', if getColumnValueInternal returned undefined/null (which it maps to ''), keep as empty string
+                        summaryValue = 0;
+                    } else if (summary.type === 'first' && (summaryValue === undefined || summaryValue === null) && !(summary.originalColumn === 'total_animal' && summary.type === 'first')) {
                         summaryValue = '';
                     }
-
-
                     representativeRow[summary.name] = summaryValue;
                 });
                 
@@ -324,11 +330,11 @@ export function calculateProcessedTableData(
 
                     if (groupingColNames.includes(commonNameColumnKey)) {
                         const originalCommonNameInRow = representativeRow[commonNameColumnKey];
-                        const totalAnimalSummaryKey = summaryColDetails.find(s => s.originalColumn === 'total_animal' && (s.type === 'first' || s.type === 'sum' || s.type === 'max'))?.name;
+                        const totalAnimalSummaryKey = summaryColDetails.find(s => s.originalColumn === 'total_animal' && s.type === 'first')?.name; // It's 'first' by config, but logic changed
                         let totalAnimalCountForDisplay: number | string | undefined = undefined;
 
                         if (totalAnimalSummaryKey && representativeRow[totalAnimalSummaryKey] !== undefined) {
-                            totalAnimalCountForDisplay = representativeRow[totalAnimalSummaryKey];
+                            totalAnimalCountForDisplay = representativeRow[totalAnimalSummaryKey]; // This is now unique animal_id count
                         }
                         
                         if (originalCommonNameInRow !== undefined && 
@@ -340,7 +346,7 @@ export function calculateProcessedTableData(
                             const numericTotalAnimal = typeof totalAnimalCountForDisplay === 'string' 
                                                         ? parseFloat(totalAnimalCountForDisplay) 
                                                         : totalAnimalCountForDisplay;
-                            if (typeof numericTotalAnimal === 'number' && !isNaN(numericTotalAnimal) && numericTotalAnimal > 0) { // Only append if count > 0
+                            if (typeof numericTotalAnimal === 'number' && !isNaN(numericTotalAnimal) && numericTotalAnimal >= 0) { 
                                  representativeRow[commonNameColumnKey] = `${String(originalCommonNameInRow).trim()} (${numericTotalAnimal})`;
                             }
                         }
@@ -401,29 +407,39 @@ export function calculateProcessedTableData(
         } else if (summariesToApply.length > 0 && internalFilteredDataResult.length > 0) {
             const summaryRow: DietDataRow = { note: "Overall Summary" };
             summaryColDetails.forEach(summary => {
-                const values = internalFilteredDataResult.map(row => getColumnValueInternal(row, summary.originalColumn));
                 let summaryValue: string | number = '';
-                 const numericValues = values.map(v => parseFloat(String(v))).filter(v => !isNaN(v));
-                 if (numericValues.length > 0) {
-                     switch (summary.type) {
-                         case 'sum': summaryValue = numericValues.reduce((acc, val) => acc + val, 0); break;
-                         case 'average': summaryValue = numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length; break;
-                         case 'count': summaryValue = numericValues.length; break;
-                         case 'first': summaryValue = getColumnValueInternal(internalFilteredDataResult[0], summary.originalColumn); break;
-                         case 'max': summaryValue = Math.max(...numericValues); break;
+                if (summary.originalColumn === 'total_animal' && summary.type === 'first') {
+                    const animalIds = new Set<string>();
+                    internalFilteredDataResult.forEach(row => {
+                        if (row.animal_id && typeof row.animal_id === 'string' && row.animal_id.trim() !== '') {
+                            animalIds.add(row.animal_id.trim());
+                        }
+                    });
+                    summaryValue = animalIds.size;
+                } else {
+                    const values = internalFilteredDataResult.map(row => getColumnValueInternal(row, summary.originalColumn));
+                    const numericValues = values.map(v => parseFloat(String(v))).filter(v => !isNaN(v));
+                    if (numericValues.length > 0) {
+                         switch (summary.type) {
+                             case 'sum': summaryValue = numericValues.reduce((acc, val) => acc + val, 0); break;
+                             case 'average': summaryValue = numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length; break;
+                             case 'count': summaryValue = numericValues.length; break;
+                             case 'first': summaryValue = getColumnValueInternal(internalFilteredDataResult[0], summary.originalColumn); break;
+                             case 'max': summaryValue = Math.max(...numericValues); break;
+                         }
+                         if (typeof summaryValue === 'number' && (summary.type === 'sum' || summary.type === 'average')) {
+                            summaryValue = parseFloat(summaryValue.toFixed(4));
+                         }
+                     } else if (summary.type === 'count') {
+                         summaryValue = 0;
+                     } else { 
+                         if (summary.type === 'first' && internalFilteredDataResult.length > 0) {
+                             summaryValue = getColumnValueInternal(internalFilteredDataResult[0], summary.originalColumn);
+                         } else {
+                             summaryValue = ''; 
+                         }
                      }
-                     if (typeof summaryValue === 'number' && (summary.type === 'sum' || summary.type === 'average')) {
-                        summaryValue = parseFloat(summaryValue.toFixed(4));
-                     }
-                 } else if (summary.type === 'count') {
-                     summaryValue = 0;
-                 } else { // For 'first' or if no numerics for sum/avg/max
-                     if (summary.type === 'first' && internalFilteredDataResult.length > 0) {
-                         summaryValue = getColumnValueInternal(internalFilteredDataResult[0], summary.originalColumn);
-                     } else {
-                         summaryValue = ''; // Default for sum/avg/max with no numerics
-                     }
-                 }
+                }
                 summaryRow[summary.name] = summaryValue;
             });
             
@@ -456,30 +472,40 @@ export function calculateProcessedTableData(
             }
 
             summaryColDetails.forEach(summary => {
-                const values = internalFilteredDataResult.map(row => getColumnValueInternal(row, summary.originalColumn));
                 let totalValue: string | number = '';
-                const numericValues = values.map(v => parseFloat(String(v))).filter(v => !isNaN(v));
+                if (summary.originalColumn === 'total_animal' && summary.type === 'first') {
+                    const animalIds = new Set<string>();
+                    internalFilteredDataResult.forEach(row => {
+                        if (row.animal_id && typeof row.animal_id === 'string' && row.animal_id.trim() !== '') {
+                            animalIds.add(row.animal_id.trim());
+                        }
+                    });
+                    totalValue = animalIds.size;
+                } else {
+                    const values = internalFilteredDataResult.map(row => getColumnValueInternal(row, summary.originalColumn));
+                    const numericValues = values.map(v => parseFloat(String(v))).filter(v => !isNaN(v));
 
-                 if (numericValues.length > 0) {
-                     switch (summary.type) {
-                         case 'sum': totalValue = numericValues.reduce((acc, val) => acc + val, 0); break;
-                         case 'average': totalValue = numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length; break;
-                         case 'count': totalValue = numericValues.length; break;
-                         case 'first': totalValue = getColumnValueInternal(internalFilteredDataResult[0], summary.originalColumn); break;
-                         case 'max': totalValue = Math.max(...numericValues); break;
-                     }
-                      if (typeof totalValue === 'number' && (summary.type === 'sum' || summary.type === 'average')) {
-                        totalValue = parseFloat(totalValue.toFixed(4));
-                     }
-                 } else if (summary.type === 'count') {
-                     totalValue = 0;
-                 } else {
-                     if (summary.type === 'first' && internalFilteredDataResult.length > 0) {
-                        totalValue = getColumnValueInternal(internalFilteredDataResult[0], summary.originalColumn);
+                     if (numericValues.length > 0) {
+                         switch (summary.type) {
+                             case 'sum': totalValue = numericValues.reduce((acc, val) => acc + val, 0); break;
+                             case 'average': totalValue = numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length; break;
+                             case 'count': totalValue = numericValues.length; break;
+                             case 'first': totalValue = getColumnValueInternal(internalFilteredDataResult[0], summary.originalColumn); break;
+                             case 'max': totalValue = Math.max(...numericValues); break;
+                         }
+                          if (typeof totalValue === 'number' && (summary.type === 'sum' || summary.type === 'average')) {
+                            totalValue = parseFloat(totalValue.toFixed(4));
+                         }
+                     } else if (summary.type === 'count') {
+                         totalValue = 0;
                      } else {
-                        totalValue = '';
+                         if (summary.type === 'first' && internalFilteredDataResult.length > 0) {
+                            totalValue = getColumnValueInternal(internalFilteredDataResult[0], summary.originalColumn);
+                         } else {
+                            totalValue = '';
+                         }
                      }
-                 }
+                }
                 grandTotalRow![summary.name] = totalValue;
             });
 
@@ -519,7 +545,6 @@ export function calculateProcessedTableData(
         }
     }
 
-
     return { data: dataToProcess, dynamicColumns, grandTotalRow };
   })();
 
@@ -544,5 +569,4 @@ export function useTableProcessor({
         return calculateProcessedTableData(rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters, false);
     }, [rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters]);
 }
-
     
