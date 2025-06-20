@@ -67,15 +67,18 @@ const DataTable: React.FC<DataTableProps> = ({
   const effectiveDisplayColumns = useMemo(() => {
     let displayCols = [...columns];
     
-    if (uomRowDataKey && ingredientQtyFirstKey && uomRowDataKey !== ingredientQtyFirstKey) {
-      // displayCols = displayCols.filter(col => col !== uomRowDataKey); // Keep UoM for now
+    const hasQtyPerAnimalCol = ingredientQtyFirstKey && columns.includes(ingredientQtyFirstKey);
+    const hasTotalQtyRequiredCol = columns.includes(totalQtyRequiredCalculatedColKey);
+
+    if (uomRowDataKey && (hasQtyPerAnimalCol || hasTotalQtyRequiredCol)) {
+        displayCols = displayCols.filter(col => col !== uomRowDataKey);
     }
     
-    if (isViewDataTab && totalAnimalFirstKey) {
+    if (isViewDataTab && totalAnimalFirstKey && columns.includes(totalAnimalFirstKey)) {
         displayCols = displayCols.filter(col => col !== totalAnimalFirstKey);
     }
     return displayCols;
-  }, [columns, uomRowDataKey, ingredientQtyFirstKey, totalAnimalFirstKey, isViewDataTab]);
+  }, [columns, uomRowDataKey, ingredientQtyFirstKey, totalAnimalFirstKey, isViewDataTab, totalQtyRequiredCalculatedColKey]);
 
   if (!data.length && !grandTotalRow) {
     return (
