@@ -3,7 +3,7 @@
 
 import { useMemo } from 'react';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption } from '@/types';
-import { NUMERIC_COLUMNS, DATE_COLUMNS, PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER, SPECIAL_PIVOT_UOM_ROW_GROUPINGS, SPECIAL_PIVOT_UOM_COLUMN_FIELD, SPECIAL_PIVOT_UOM_VALUE_FIELD, DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS } from '@/types';
+import { NUMERIC_COLUMNS, DATE_COLUMNS, PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER, SPECIAL_PIVOT_UOM_ROW_GROUPINGS, SPECIAL_PIVOT_UOM_COLUMN_FIELD, SPECIAL_PIVOT_UOM_VALUE_FIELD, DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS, DEFAULT_IMAGE_PIVOT_SUMMARIES } from '@/types';
 
 interface UseTableProcessorProps {
   rawData: DietDataRow[];
@@ -40,7 +40,8 @@ export function calculateProcessedTableData(
   summariesToApply: SummarizationOption[],
   filtersToApply: FilterOption[],
   allHeadersForData: string[],
-  shouldProcessData: boolean
+  shouldProcessData: boolean,
+  disableDisplayBlanking: boolean = false // New parameter
 ): ProcessedTableData {
 
   const internalFilteredDataResult = (() => {
@@ -160,25 +161,29 @@ export function calculateProcessedTableData(
         }
         return 0;
       });
-      let lastRowKeyValues: (string | number | undefined)[] = [];
-      dataToProcess = dataToProcess.map((row, rowIndex) => {
-        if (rowIndex === 0) {
-          lastRowKeyValues = rowKeyColumns.map(col => row[col]);
-          return row;
-        }
-        const currentRowKeyValues = rowKeyColumns.map(col => row[col]);
-        const newRow = { ...row };
-        let sameAsLast = true;
-        for (let i = 0; i < rowKeyColumns.length; i++) {
-          if (sameAsLast && currentRowKeyValues[i] === lastRowKeyValues[i]) {
-            newRow[rowKeyColumns[i]] = PIVOT_BLANK_MARKER;
-          } else {
-            sameAsLast = false;
+      
+      if (!disableDisplayBlanking) { // Apply blanking only if not disabled
+        let lastRowKeyValues: (string | number | undefined)[] = [];
+        dataToProcess = dataToProcess.map((row, rowIndex) => {
+          if (rowIndex === 0) {
+            lastRowKeyValues = rowKeyColumns.map(col => row[col]);
+            return row;
           }
-        }
-        lastRowKeyValues = currentRowKeyValues;
-        return newRow;
-      });
+          const currentRowKeyValues = rowKeyColumns.map(col => row[col]);
+          const newRow = { ...row };
+          let sameAsLast = true;
+          for (let i = 0; i < rowKeyColumns.length; i++) {
+            if (sameAsLast && currentRowKeyValues[i] === lastRowKeyValues[i]) {
+              newRow[rowKeyColumns[i]] = PIVOT_BLANK_MARKER;
+            } else {
+              sameAsLast = false;
+            }
+          }
+          lastRowKeyValues = currentRowKeyValues;
+          return newRow;
+        });
+      }
+
       if (dataToProcess.length > 0) {
         grandTotalRow = { note: "Grand Total" };
         if (rowKeyColumns.length > 0) {
@@ -272,7 +277,7 @@ export function calculateProcessedTableData(
                         }
                     } else if (summary.type === 'count') {
                         summaryValue = 0; 
-                    } else { // Handle non-numeric summaries like 'first' for text
+                    } else { 
                         const firstNonEmpty = values.find(v => v !== '' && v !== undefined && v !== null);
                         summaryValue = summary.type === 'first' ? (firstNonEmpty !== undefined ? String(firstNonEmpty) : '') : '';
                     }
@@ -312,7 +317,7 @@ export function calculateProcessedTableData(
                     if (originalCommonNameInRow !== undefined && 
                         originalCommonNameInRow !== PIVOT_BLANK_MARKER && 
                         String(originalCommonNameInRow).trim() !== '' &&
-                        !String(originalCommonNameInRow).includes(' Species:\n') && // Avoid re-wrapping if diet_name logic already did
+                        !String(originalCommonNameInRow).includes(' Species:\n') && 
                         totalAnimalCountForDisplay !== undefined && 
                         String(totalAnimalCountForDisplay).trim() !== '') {
                         const numericTotalAnimal = typeof totalAnimalCountForDisplay === 'string' 
@@ -324,10 +329,6 @@ export function calculateProcessedTableData(
                     }
                 }
                 
-                // NOTE: UoM concatenation for ingredient_qty_sum is REMOVED from here.
-                // It will be handled by DataTable for display, or page.tsx for PDF.
-                // ingredient_qty_sum remains numeric. base_uom_name_first is available on representativeRow.
-
                 result.push(representativeRow);
             });
             
@@ -354,10 +355,10 @@ export function calculateProcessedTableData(
                 return 0;
             });
 
-            if (groupingColNames.length > 0) {
+            if (!disableDisplayBlanking && groupingColNames.length > 0) { // Conditionally apply blanking
                 let lastActualKeyValues: (string | number | undefined)[] = new Array(groupingColNames.length).fill(undefined);
-                const tempProcessedData = [...dataToProcess]; 
-                dataToProcess = tempProcessedData.map((row, rowIndex) => {
+                const tempProcessedDataForBlanking = [...dataToProcess]; 
+                dataToProcess = tempProcessedDataForBlanking.map((row, rowIndex) => {
                     const newRow = { ...row };
                     if (rowIndex === 0) {
                         groupingColNames.forEach((gCol, i) => {
@@ -383,7 +384,7 @@ export function calculateProcessedTableData(
                     return newRow;
                 });
             }
-        } else if (summariesToApply.length > 0 && internalFilteredDataResult.length > 0) { // Only summaries, no groupings
+        } else if (summariesToApply.length > 0 && internalFilteredDataResult.length > 0) { 
             const summaryRow: DietDataRow = { note: "Overall Summary" };
             summaryColDetails.forEach(summary => {
                 const values = internalFilteredDataResult.map(row => getColumnValueInternal(row, summary.originalColumn));
@@ -409,9 +410,6 @@ export function calculateProcessedTableData(
                 summaryRow[summary.name] = summaryValue;
             });
             
-            // NOTE: UoM concatenation for overall summary (if any) is also removed from here.
-            // It will be handled by DataTable display or PDF prep in page.tsx.
-
             if (dynamicColumns.length > 0 && !summaryColNames.includes(dynamicColumns[0])) {
                 summaryRow[dynamicColumns[0]] = "Overall Summary";
             } else if (dynamicColumns.length > 0 && summaryColNames.includes(dynamicColumns[0])) {
@@ -422,7 +420,7 @@ export function calculateProcessedTableData(
             }
             dataToProcess = [summaryRow];
             dynamicColumns = summaryColNames; 
-        } else { // No groupings and no summaries, just filtered raw data
+        } else { 
           dataToProcess = internalFilteredDataResult;
         }
 
@@ -454,14 +452,13 @@ export function calculateProcessedTableData(
                      }
                  } else if (summary.type === 'count') {
                      totalValue = 0;
-                 } else { // Handle non-numeric summaries for grand total
+                 } else { 
                     const firstNonEmpty = values.find(v => v !== '' && v !== undefined && v !== null);
                     totalValue = summary.type === 'first' ? (firstNonEmpty !== undefined ? String(firstNonEmpty) : '') : '';
                  }
-                grandTotalRow![summary.name] = totalValue; // `ingredient_qty_sum` remains numeric here.
+                grandTotalRow![summary.name] = totalValue; 
             });
 
-            // If no groupings, the "Grand Total" label might need special handling for the first summary column.
             if (groupingColNames.length === 0 && summaryColNames.length > 0 && grandTotalRow) {
                 const firstSummaryColName = summaryColNames[0];
                 const originalGrandTotalValue = grandTotalRow[firstSummaryColName];
@@ -479,8 +476,13 @@ export function calculateProcessedTableData(
     } 
     
     dynamicColumns = dynamicColumns.filter(col => col !== 'note');
-    if (baseUomNameFirstSummaryKey && !isSpecialPivotModeActive) { 
+    if (baseUomNameFirstSummaryKey && !isSpecialPivotModeActive && !summariesToApply.some(s => s.name === baseUomNameFirstSummaryKey)) { 
+      // Only filter out UoM if it's not explicitly part of the summaries requested *and* not in special pivot mode
+      // This logic might need refinement if baseUomNameFirstSummaryKey itself is a summary the user wants to see
+      const isUomExplicitlySummarized = summariesToApply.some(s => s.name === baseUomNameFirstSummaryKey);
+      if (!isUomExplicitlySummarized) {
         dynamicColumns = dynamicColumns.filter(col => col !== baseUomNameFirstSummaryKey);
+      }
     }
     
     if (grandTotalRow && !Object.keys(grandTotalRow).some(k => k !== 'note' && grandTotalRow[k] === 'Grand Total')) {
@@ -516,7 +518,9 @@ export function useTableProcessor({
   hasAppliedFilters,
 }: UseTableProcessorProps): ProcessedTableData {
     return useMemo(() => {
-        return calculateProcessedTableData(rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters);
+        // When useTableProcessor is called (typically for View Data/Export Section),
+        // we use the default behavior of calculateProcessedTableData (blanking enabled).
+        return calculateProcessedTableData(rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters, false);
     }, [rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters]);
 }
 

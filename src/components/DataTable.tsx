@@ -22,7 +22,6 @@ interface DataTableProps {
   columns: string[]; 
   grandTotalRow?: DietDataRow;
   isLoading?: boolean;
-  groupingOptions: GroupingOption[]; 
   allHeaders: string[]; 
 }
 
@@ -32,7 +31,6 @@ const DataTable: React.FC<DataTableProps> = ({
   columns,
   grandTotalRow,
   isLoading,
-  groupingOptions = [], 
   allHeaders,
 }) => {
   if (isLoading) {
@@ -44,9 +42,16 @@ const DataTable: React.FC<DataTableProps> = ({
     );
   }
 
+  const uomSummaryConfig = useMemo(() => {
+    return DEFAULT_IMAGE_PIVOT_SUMMARIES.find(s => s.column === 'base_uom_name' && s.type === 'first');
+  }, []);
+  const uomRowDataKey = uomSummaryConfig ? `${uomSummaryConfig.column}_${uomSummaryConfig.type}` : 'base_uom_name_first';
+
+
   const effectiveDisplayColumns = useMemo(() => {
-    return columns.filter(col => col !== 'note' && !col.endsWith('base_uom_name_first'));
-  }, [columns]);
+    // Hide the UoM column if it exists as a separate summarized column, as it will be combined
+    return columns.filter(col => col !== uomRowDataKey);
+  }, [columns, uomRowDataKey]);
 
   if (!data.length && !grandTotalRow) {
     return (
@@ -57,9 +62,7 @@ const DataTable: React.FC<DataTableProps> = ({
   }
   
   const dietNameColumnKey = 'diet_name'; 
-  const uomRowDataKey = allHeaders.includes('base_uom_name') ? DEFAULT_IMAGE_PIVOT_SUMMARIES.find(s => s.column === 'base_uom_name' && s.type === 'first')?.name || 'base_uom_name_first' : undefined;
   
-
   return (
     <ScrollArea className="whitespace-nowrap rounded-md border h-full">
       <Table className="min-w-full">
@@ -97,7 +100,7 @@ const DataTable: React.FC<DataTableProps> = ({
                   let cellContent: React.ReactNode;
                   const cellValue = row[column];
 
-                  if (column.startsWith('ingredient_qty_') && column.endsWith('_sum') && uomRowDataKey && row[uomRowDataKey]) {
+                  if (column.startsWith('ingredient_qty_') && column.endsWith('_sum') && allHeaders.includes('base_uom_name') && row[uomRowDataKey]) {
                       const qtyValue = cellValue;
                       const uom = row[uomRowDataKey];
                       if (typeof qtyValue === 'number' && typeof uom === 'string' && uom.trim() !== '') {
@@ -147,7 +150,7 @@ const DataTable: React.FC<DataTableProps> = ({
 
                 if (colIndex === 0 && (rawCellValue === undefined || rawCellValue === null || String(rawCellValue).trim().toLowerCase() === "grand total" || grandTotalRow.note === "Grand Total")) {
                      displayCellValue = "Grand Total";
-                } else if (column.startsWith('ingredient_qty_') && column.endsWith('_sum') && uomRowDataKey && grandTotalRow[uomRowDataKey] && typeof rawCellValue === 'number') {
+                } else if (column.startsWith('ingredient_qty_') && column.endsWith('_sum') && allHeaders.includes('base_uom_name') && grandTotalRow[uomRowDataKey] && typeof rawCellValue === 'number') {
                     const uom = grandTotalRow[uomRowDataKey]; 
                     if (uom && typeof uom === 'string' && uom.trim() !== '') {
                          displayCellValue = `${rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
@@ -186,3 +189,4 @@ const DataTable: React.FC<DataTableProps> = ({
 
 
 export default DataTable;
+
