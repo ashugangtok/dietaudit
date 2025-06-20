@@ -71,7 +71,7 @@ const COMPARISON_TAB_INITIAL_GROUPINGS: GroupingOption[] = [
 
 const COMPARISON_TAB_INITIAL_SUMMARIES: SummarizationOption[] = [
   { column: 'ingredient_qty', type: 'sum' },
-  { column: 'total_animal', type: 'max' }, // Changed to 'max'
+  { column: 'total_animal', type: 'first' }, // Changed to 'first'
   { column: 'base_uom_name', type: 'first' },
 ];
 
@@ -149,7 +149,7 @@ export default function Home() {
           const typeName = String(row.type_name || 'Unknown Type');
           const ingredientName = String(row.ingredient_name || 'Unknown Ingredient');
 
-          const animalCount = parseInt(String(row.total_animal_max), 10) || 0; // Read from total_animal_max
+          const animalCount = parseInt(String(row.total_animal_first), 10) || 0; // Read from total_animal_first
           const qtyPerSpecies = parseFloat(String(row.ingredient_qty_sum)) || 0;
           const uom = String(row.base_uom_name_first || '');
 
@@ -192,8 +192,10 @@ export default function Home() {
         groupsMap.forEach(group => {
           group.totalRowsInGroup = 0;
           group.diets.sort((a,b) => {
-            const nameComp = a.dietNameDisplay.localeCompare(b.dietNameDisplay);
-            if (nameComp !== 0) return nameComp;
+            const nameCompA = `${a.dietNameRaw}-${a.commonName}`;
+            const nameCompB = `${b.dietNameRaw}-${b.commonName}`;
+            const dietComp = nameCompA.localeCompare(nameCompB);
+            if (dietComp !== 0) return dietComp;
             return a.mealStartTime.localeCompare(b.mealStartTime);
           });
           group.diets.forEach(diet => {
@@ -201,7 +203,7 @@ export default function Home() {
             diet.types.forEach(type => {
               type.ingredients.sort((a,b) => a.ingredientName.localeCompare(b.ingredientName));
               type.plannedQtyTypeTotal = parseFloat(type.ingredients.reduce((sum, ing) => sum + ing.qtyForTotalSpecies, 0).toFixed(4));
-              group.totalRowsInGroup += type.ingredients.length + 1;
+              group.totalRowsInGroup += type.ingredients.length + 1; // +1 for the type subtotal row
             });
           });
         });
@@ -466,13 +468,13 @@ export default function Home() {
                             6: { cellWidth: 60, halign: 'right' },
                         },
                         didParseCell: function (data) {
-                            if (data.column.index === 6) {
+                            if (data.column.index === 6) { // Difference column
                                  const cellRawValue = data.cell.raw;
                                  if (cellRawValue !== null && cellRawValue !== undefined && String(cellRawValue).trim() !== '') {
                                     const numericValue = parseFloat(String(cellRawValue));
                                     if (!isNaN(numericValue)) {
-                                        if (numericValue < 0) data.cell.styles.textColor = [220, 53, 69];
-                                        else if (numericValue > 0) data.cell.styles.textColor = [0, 123, 255];
+                                        if (numericValue < 0) data.cell.styles.textColor = [220, 53, 69]; // Red
+                                        else if (numericValue > 0) data.cell.styles.textColor = [0, 123, 255]; // Blue
                                     }
                                 }
                             }
@@ -587,32 +589,28 @@ export default function Home() {
         group.diets.forEach(diet => {
             diet.types.forEach(type => {
                 const groupRecord: any = {
-                    group_id: group.groupName,
-                    diet_name: diet.dietNameRaw,
-                    species: diet.commonName,
-                    meal_time: diet.mealStartTime,
-                    type_name: type.typeName,
-                    animal_count: diet.animalCount,
+                    group_id: group.groupName, // Matches user's suggested JSON
+                    species: diet.commonName, // Matches user's suggested JSON
+                    meal_time: diet.mealStartTime, // Matches user's suggested JSON
+                    // diet_name: diet.dietNameRaw, // Not in user's JSON, but might be useful context
+                    // type_name: type.typeName, // Not in user's JSON
+                    // animal_count: diet.animalCount, // Not in user's JSON
                     ingredients: [],
                 };
 
-                const actualTypeKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName);
-                const actualTypeQtyStr = actualQuantities[actualTypeKey] || '';
-                if(actualTypeQtyStr !== '') {
-                    groupRecord.type_actual_qty = parseFloat(actualTypeQtyStr) || null;
-                    groupRecord.type_planned_qty = type.plannedQtyTypeTotal;
-                }
+                // Add actual qty for type subtotal if user requested such a field
+                // For now, focusing on ingredient level as per primary request
 
                 type.ingredients.forEach(ing => {
                     const actualIngKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName, ing.ingredientName);
                     const actualIngQtyStr = actualQuantities[actualIngKey] || '';
 
                     groupRecord.ingredients.push({
-                        name: ing.ingredientName,
-                        planned_qty_per_species: ing.qtyPerSpecies,
-                        planned_qty_total_species: ing.qtyForTotalSpecies,
-                        uom: ing.uom,
-                        actual_qty: actualIngQtyStr !== '' ? (parseFloat(actualIngQtyStr) || null) : null,
+                        name: ing.ingredientName, // Matches user's suggested JSON
+                        planned_qty: ing.qtyForTotalSpecies, // Matches user's suggested 'planned_qty' for total animals
+                        actual_qty: actualIngQtyStr !== '' ? (parseFloat(actualIngQtyStr) || null) : null, // Matches user's suggested JSON
+                        // uom: ing.uom, // Not in user's JSON but might be useful
+                        // planned_qty_per_species: ing.qtyPerSpecies, // Not in user's JSON
                     });
                 });
                 dataToSave.push(groupRecord);
@@ -683,7 +681,7 @@ export default function Home() {
               <Card className="flex-1">
                 <CardHeader>
                     <CardTitle>Comparison - No Data Matches Filters or Structure</CardTitle>
-                    <CardDescription>Adjust filters or check data. Ensure group, diet, common_name, type, and ingredient columns are present.</CardDescription>
+                    <CardDescription>Adjust filters or check data. Ensure group, diet, common_name, type, and ingredient columns are present and data exists for the current filter selection.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 text-center text-muted-foreground">
                     <AlertCircle className="h-12 w-12 text-destructive/50 mx-auto mb-4" />
@@ -708,15 +706,15 @@ export default function Home() {
                         }
 
                         rows.push(
-                            <ShadcnTableRow key={`${typeActualKey}_subtotal`} className="bg-green-100 dark:bg-green-900/50 font-semibold">
-                                {isFirstRowOfGroup && <ShadcnTableCell rowSpan={group.totalRowsInGroup}>{group.groupName}</ShadcnTableCell>}
-                                {isFirstRowOfDiet && <ShadcnTableCell rowSpan={diet.types.reduce((acc, t) => acc + t.ingredients.length + 1, 0)}>{diet.dietNameDisplay}</ShadcnTableCell>}
-                                <ShadcnTableCell>{type.typeName}</ShadcnTableCell>
-                                <ShadcnTableCell className="text-right italic">SUBTOTAL</ShadcnTableCell>
-                                <ShadcnTableCell className="text-right"></ShadcnTableCell>
-                                <ShadcnTableCell className="text-right"></ShadcnTableCell>
-                                <ShadcnTableCell className="text-right">{type.plannedQtyTypeTotal.toFixed(4)}</ShadcnTableCell>
-                                <ShadcnTableCell className="text-right">
+                            <ShadcnTableRow key={`${typeActualKey}_subtotal`} className="bg-muted/50 dark:bg-muted/30 font-semibold hover:bg-muted">
+                                {isFirstRowOfGroup && <ShadcnTableCell rowSpan={group.totalRowsInGroup} className="border align-top pt-2">{group.groupName}</ShadcnTableCell>}
+                                {isFirstRowOfDiet && <ShadcnTableCell rowSpan={diet.types.reduce((acc, t) => acc + t.ingredients.length + 1, 0)} className="border align-top pt-2">{diet.dietNameDisplay}</ShadcnTableCell>}
+                                <ShadcnTableCell className="border text-left italic">Mix: {type.typeName}</ShadcnTableCell>
+                                <ShadcnTableCell className="border text-right italic">SUBTOTAL (Mix)</ShadcnTableCell>
+                                <ShadcnTableCell className="border text-right"></ShadcnTableCell>
+                                <ShadcnTableCell className="border text-right"></ShadcnTableCell>
+                                <ShadcnTableCell className="border text-right">{type.plannedQtyTypeTotal.toFixed(4)}</ShadcnTableCell>
+                                <ShadcnTableCell className="border text-right">
                                     <Input
                                         type="number" step="any"
                                         value={typeActualQtyStr}
@@ -724,13 +722,14 @@ export default function Home() {
                                         className="h-8 text-right w-full min-w-[80px]"
                                     />
                                 </ShadcnTableCell>
-                                <ShadcnTableCell className={`text-right ${typeDiff < 0 ? 'text-red-600' : typeDiff > 0 ? 'text-blue-600' : ''}`}>
+                                <ShadcnTableCell className={`border text-right ${typeDiff < 0 ? 'text-red-600 dark:text-red-400' : typeDiff > 0 ? 'text-blue-600 dark:text-blue-400' : ''}`}>
                                     {!isNaN(typeDiff) ? typeDiff.toFixed(4) : ''}
                                 </ShadcnTableCell>
                             </ShadcnTableRow>
                         );
-                        isFirstRowOfGroup = false;
-                        let isFirstIngredientOfType = true;
+                        isFirstRowOfGroup = false; // After the first row of any kind within the group, this becomes false.
+                        
+                        let isFirstIngredientOfTypeForDietDisplay = true; // For diet display rowSpan calc
 
                         type.ingredients.forEach((ing) => {
                             const ingActualKey = buildActualQtyKey(group.groupName, diet.dietNameRaw, diet.commonName, diet.mealStartTime, type.typeName, ing.ingredientName);
@@ -741,13 +740,16 @@ export default function Home() {
                                 ingDiff = ingActualQtyNum - ing.qtyForTotalSpecies;
                             }
                             rows.push(
-                                <ShadcnTableRow key={ingActualKey}>
-                                     {isFirstIngredientOfType && <ShadcnTableCell rowSpan={type.ingredients.length}>{type.typeName}</ShadcnTableCell>}
-                                    <ShadcnTableCell>{ing.ingredientName}</ShadcnTableCell>
-                                    <ShadcnTableCell className="text-right">{ing.qtyPerSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
-                                    <ShadcnTableCell className="text-right">{ing.qtyForTotalSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
-                                    <ShadcnTableCell className="text-right">{ing.qtyForTotalSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
-                                    <ShadcnTableCell className="text-right">
+                                <ShadcnTableRow key={ingActualKey} className="hover:bg-accent/10">
+                                     {/* Group Name and Diet Name cells are only rendered if isFirstRowOfGroup/Diet is true due to rowSpan above */}
+                                     {/* This cell is for typeName. It should not be displayed again if already shown by subtotal row */}
+                                     {/* So, we need to ensure the layout implies it belongs to the subtotal row context */}
+                                    <ShadcnTableCell className="border text-left pl-4">{type.typeName === "Unknown Type" ? "" : type.typeName}</ShadcnTableCell>
+                                    <ShadcnTableCell className="border text-left">{ing.ingredientName}</ShadcnTableCell>
+                                    <ShadcnTableCell className="border text-right">{ing.qtyPerSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
+                                    <ShadcnTableCell className="border text-right">{ing.qtyForTotalSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
+                                    <ShadcnTableCell className="border text-right">{ing.qtyForTotalSpecies.toFixed(4)} {ing.uom}</ShadcnTableCell>
+                                    <ShadcnTableCell className="border text-right">
                                         <Input
                                             type="number" step="any"
                                             value={ingActualQtyStr}
@@ -755,14 +757,14 @@ export default function Home() {
                                             className="h-8 text-right w-full min-w-[80px]"
                                         />
                                     </ShadcnTableCell>
-                                    <ShadcnTableCell className={`text-right ${ingDiff < 0 ? 'text-red-600' : ingDiff > 0 ? 'text-blue-600' : ''}`}>
+                                    <ShadcnTableCell className={`border text-right ${ingDiff < 0 ? 'text-red-600 dark:text-red-400' : ingDiff > 0 ? 'text-blue-600 dark:text-blue-400' : ''}`}>
                                         {!isNaN(ingDiff) ? ingDiff.toFixed(4) : ''}
                                     </ShadcnTableCell>
                                 </ShadcnTableRow>
                             );
-                            isFirstIngredientOfType = false;
+                             isFirstIngredientOfTypeForDietDisplay = false; 
                         });
-                        isFirstRowOfDiet = false;
+                        isFirstRowOfDiet = false; // After the first type within a diet, this becomes false
                     });
                 });
             });
@@ -781,7 +783,7 @@ export default function Home() {
                         disabled={isLoadingActualSpeciesFile || !hasAppliedFilters}
                     />
                     {parsedActualSpeciesData.length > 0 && (
-                        <p className="text-xs text-green-600">"{actualSpeciesFileName}" loaded ({parsedActualSpeciesData.length} rows).</p>
+                        <p className="text-xs text-green-600 dark:text-green-400">"{actualSpeciesFileName}" loaded ({parsedActualSpeciesData.length} rows).</p>
                     )}
                 </div>
                 <div className="flex flex-col items-end space-y-2">
@@ -798,12 +800,12 @@ export default function Home() {
 
             <ScrollArea className="flex-1 -mx-4 px-4">
                 <ShadcnTable className="min-w-full border-collapse border border-muted">
-                    <ShadcnTableHeader className="sticky top-0 bg-muted z-10">
+                    <ShadcnTableHeader className="sticky top-0 bg-card z-10">
                         <ShadcnTableRow>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[150px]">Group Name</ShadcnTableHead>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[300px]">Diet / Species / Meal</ShadcnTableHead>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[150px]">Type Name</ShadcnTableHead>
-                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[200px]">Ingredient Name</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[150px] text-left">Group Name</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[300px] text-left">Diet / Species / Meal</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[150px] text-left">Type Name</ShadcnTableHead>
+                            <ShadcnTableHead className="border border-muted px-2 py-1 w-[200px] text-left">Ingredient Name</ShadcnTableHead>
                             <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[120px]">Qty/1 Species</ShadcnTableHead>
                             <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[120px]">Qty/Total Species</ShadcnTableHead>
                             <ShadcnTableHead className="border border-muted px-2 py-1 text-right w-[120px]">Qty to be Received</ShadcnTableHead>
@@ -812,7 +814,13 @@ export default function Home() {
                         </ShadcnTableRow>
                     </ShadcnTableHeader>
                     <ShadcnTableBody>
-                        {renderComparisonRows()}
+                        {comparisonDisplayData.length > 0 ? renderComparisonRows() : (
+                            <ShadcnTableRow>
+                                <ShadcnTableCell colSpan={9} className="text-center py-10 text-muted-foreground">
+                                    No comparison data to display. Apply filters to process your Excel file.
+                                </ShadcnTableCell>
+                            </ShadcnTableRow>
+                        )}
                     </ShadcnTableBody>
                 </ShadcnTable>
             </ScrollArea>
