@@ -22,7 +22,7 @@ import {
 } from '@/types';
 import FileUpload from '@/components/FileUpload';
 import DataTable from '@/components/DataTable';
-import InteractiveFilters from '@/components/InteractiveFilters';
+import SimpleFilterPanel from '@/components/SimpleFilterPanel';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import DietWiseLogo from '@/components/DietWiseLogo';
 import { exportToPdf } from '@/lib/pdfUtils';
@@ -103,7 +103,6 @@ export default function Home() {
         return;
     }
     
-    // Logic specific to preparing data for the Comparison Tab
     let baseDataForComparison = (processedData || []).map(row => ({ ...row })); 
     let tempComparisonTableCols = currentTableColumns ? [...currentTableColumns] : []; 
 
@@ -285,6 +284,7 @@ export default function Home() {
         setRawData(result.parsedData);
         setAllHeaders(result.headers);
 
+        // Determine default groupings and summaries
         const requiredDefaultPivotCols = [
             ...DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS.map(col => col as string),
             ...DEFAULT_IMAGE_PIVOT_SUMMARIES.map(s => s.column) 
@@ -515,37 +515,42 @@ export default function Home() {
         return;
     }
 
-    // Existing PDF logic for other tabs
-    let dataToExport = processedData.map(row => ({...row})); 
-    let columnsToExport = [...currentTableColumns];
-    let grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined;
-    const currentTabTitleSuffix = activeTab === "exportSections" ? "Section Report" : "Full Diet Report";
+    let dataToExport: DietDataRow[] = [];
+    let columnsToExport: string[] = [];
+    let grandTotalToExport: DietDataRow | undefined = undefined;
 
-    const baseUomNameFirstKey = 'base_uom_name_first';
-    const ingredientQtySumKey = currentTableColumns.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
+    if (activeTab === "extractedData" || activeTab === "exportSections") {
+        dataToExport = processedData.map(row => ({...row}));
+        columnsToExport = [...currentTableColumns];
+        grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined;
 
-    if (ingredientQtySumKey && (activeTab === "extractedData" || activeTab === "exportSections")) {
-        dataToExport = dataToExport.map(row => {
-            const newRow = {...row};
-            const qty = newRow[ingredientQtySumKey];
-            const uom = row[baseUomNameFirstKey]; 
-            if (typeof qty === 'number' && typeof uom === 'string' && uom.trim() !== '') {
-                newRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+        const baseUomNameFirstKey = 'base_uom_name_first';
+        const ingredientQtySumKey = currentTableColumns.find(col => col.startsWith('ingredient_qty_') && col.endsWith('_sum'));
+
+        if(ingredientQtySumKey) {
+            dataToExport = dataToExport.map(row => {
+                const newRow = {...row};
+                const qty = newRow[ingredientQtySumKey];
+                const uom = row[baseUomNameFirstKey];
+                if (typeof qty === 'number' && typeof uom === 'string' && uom.trim() !== '') {
+                    newRow[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                }
+                return newRow;
+            });
+            if (grandTotalToExport && typeof grandTotalToExport[ingredientQtySumKey] === 'number') {
+                const qty = grandTotalToExport[ingredientQtySumKey] as number;
+                const uom = grandTotalToExport[baseUomNameFirstKey];
+                if (typeof uom === 'string' && uom.trim() !== '') {
+                     grandTotalToExport[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                }
             }
-            return newRow;
-        });
-        if (grandTotalToExport && typeof grandTotalToExport[ingredientQtySumKey] === 'number') {
-            const qty = grandTotalToExport[ingredientQtySumKey] as number;
-            const uom = grandTotalToExport[baseUomNameFirstKey];
-            if (typeof uom === 'string' && uom.trim() !== '') {
-                 grandTotalToExport[ingredientQtySumKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
-            }
+            columnsToExport = columnsToExport.filter(c => c !== baseUomNameFirstKey);
         }
     }
-
-
+    
+    const currentTabTitleSuffix = activeTab === "exportSections" ? "Section Report" : "Full Diet Report";
     if (dataToExport.length > 0 && columnsToExport.length > 0 && hasAppliedFilters) {
-      exportToPdf(dataToExport, columnsToExport.filter(c => c !== baseUomNameFirstKey), `${currentTabTitleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab === "exportSections" ? "section" : "full"}_report`, grandTotalToExport);
+      exportToPdf(dataToExport, columnsToExport, `${currentTabTitleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab === "exportSections" ? "section" : "full"}_report`, grandTotalToExport);
       toast({ title: "PDF Download Started", description: `Your ${currentTabTitleSuffix} PDF is being generated.` });
     } else {
       toast({ variant: "destructive", title: "No Data", description: "No data available to export. Apply filters to view data first." });
@@ -994,16 +999,12 @@ export default function Home() {
 
           <TabsContent value="extractedData" className="mt-2 flex flex-col flex-1 min-h-0">
              <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
-                <InteractiveFilters
+                <SimpleFilterPanel
                     rawData={rawData} 
                     allHeaders={allHeaders} 
                     appliedFilters={filters}
                     onApplyFilters={handleApplyFiltersCallback}
                     disabled={isLoading || !isFileSelected} 
-                    groupings={groupings}
-                    setGroupings={setGroupings}
-                    summaries={summaries}
-                    setSummaries={setSummaries}
                 />
                 {renderContentForDataTabs(false)}
             </div>
@@ -1011,16 +1012,12 @@ export default function Home() {
 
           <TabsContent value="exportSections" className="mt-2 flex flex-col flex-1 min-h-0">
              <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
-                 <InteractiveFilters
+                 <SimpleFilterPanel
                     rawData={rawData}
                     allHeaders={allHeaders}
                     appliedFilters={filters}
                     onApplyFilters={handleApplyFiltersCallback}
                     disabled={isLoading || !isFileSelected}
-                    groupings={groupings}
-                    setGroupings={setGroupings}
-                    summaries={summaries}
-                    setSummaries={setSummaries}
                 />
                 {renderContentForDataTabs(true)}
               </div>
@@ -1028,16 +1025,12 @@ export default function Home() {
 
           <TabsContent value="comparison" className="mt-2 flex flex-col flex-1 min-h-0">
              <div className="flex flex-col flex-1 min-h-0 space-y-4 pt-4">
-                 <InteractiveFilters
+                 <SimpleFilterPanel
                     rawData={rawData} 
                     allHeaders={allHeaders}
                     appliedFilters={filters}
                     onApplyFilters={handleApplyFiltersCallback}
                     disabled={isLoading || !isFileSelected || isLoadingActualSpeciesFile}
-                    groupings={groupings}
-                    setGroupings={setGroupings}
-                    summaries={summaries}
-                    setSummaries={setSummaries}
                 />
                 {renderContentForDataTabs(false, true)}
               </div>
