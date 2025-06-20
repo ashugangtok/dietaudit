@@ -3,7 +3,7 @@
 
 import { useMemo } from 'react';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption } from '@/types';
-import { NUMERIC_COLUMNS, DATE_COLUMNS, PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER, SPECIAL_PIVOT_UOM_ROW_GROUPINGS, SPECIAL_PIVOT_UOM_COLUMN_FIELD, SPECIAL_PIVOT_UOM_VALUE_FIELD, DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS, DEFAULT_IMAGE_PIVOT_SUMMARIES } from '@/types';
+import { NUMERIC_COLUMNS, DATE_COLUMNS, PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER, SPECIAL_PIVOT_UOM_ROW_GROUPINGS, SPECIAL_PIVOT_UOM_COLUMN_FIELD, SPECIAL_PIVOT_UOM_VALUE_FIELD } from '@/types'; // Removed DEFAULT_IMAGE specific imports as they are handled in page.tsx
 
 interface UseTableProcessorProps {
   rawData: DietDataRow[];
@@ -41,7 +41,7 @@ export function calculateProcessedTableData(
   filtersToApply: FilterOption[],
   allHeadersForData: string[],
   shouldProcessData: boolean,
-  disableDisplayBlanking: boolean = false 
+  disableDisplayBlanking: boolean = false // Added optional param
 ): ProcessedTableData {
 
   const internalFilteredDataResult = (() => {
@@ -100,7 +100,7 @@ export function calculateProcessedTableData(
   })();
 
   const processedDataAndColumnsResult = ((): { data: DietDataRow[], dynamicColumns: string[], grandTotalRow?: DietDataRow } => {
-    if (!shouldProcessData || rawDataToProcess.length === 0 && allHeadersForData.length === 0) {
+    if (!shouldProcessData || (rawDataToProcess.length === 0 && allHeadersForData.length === 0)) {
       return { data: [], dynamicColumns: allHeadersForData.length > 0 ? allHeadersForData : [], grandTotalRow: undefined };
     }
     
@@ -210,7 +210,7 @@ export function calculateProcessedTableData(
           grandTotalRow![pivotColValue] = parseFloat(total.toFixed(2));
         });
       }
-    } else { 
+    } else { // Standard processing (View Data, Export Sections, and base for Comparison)
         const groupingColNames = groupingsToApply.map(g => g.column);
         const summaryColDetails = summariesToApply.map(s => ({
             name: `${s.column}_${s.type}`, 
@@ -218,13 +218,9 @@ export function calculateProcessedTableData(
             type: s.type,
         }));
         
-        const uomSummaryDetail = summaryColDetails.find(s => s.originalColumn === 'base_uom_name' && s.type === 'first');
-        if (uomSummaryDetail) {
-            baseUomNameFirstSummaryKey = uomSummaryDetail.name;
-        }
-
-        const summaryColNames = summaryColDetails.map(s => s.name);
-        dynamicColumns = [...groupingColNames, ...summaryColNames];
+        baseUomNameFirstSummaryKey = summaryColDetails.find(s => s.originalColumn === 'base_uom_name' && s.type === 'first')?.name || '';
+        
+        dynamicColumns = [...groupingColNames, ...summaryColDetails.map(s => s.name)];
 
         if (groupingColNames.length > 0 && internalFilteredDataResult.length > 0) {
             const grouped = new Map<string, DietDataRow[]>();
@@ -236,12 +232,13 @@ export function calculateProcessedTableData(
 
             const result: DietDataRow[] = [];
             
+            // For diet_name species list and common_name animal count formatting (only if !disableDisplayBlanking)
+            const speciesPerDietContext = new Map<string, Set<string>>();
             const dietNameColumnKey = 'diet_name';
             const commonNameColumnKey = 'common_name';
             const dietNameGroupIndex = groupingColNames.indexOf(dietNameColumnKey);
-            
-            const speciesPerDietContext = new Map<string, Set<string>>();
-            if (dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey)) {
+
+            if (!disableDisplayBlanking && dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey)) {
                 internalFilteredDataResult.forEach(rawRow => {
                     let contextKey = '';
                     for (let i = 0; i <= dietNameGroupIndex; i++) {
@@ -275,7 +272,7 @@ export function calculateProcessedTableData(
                             case 'sum': summaryValue = numericValues.reduce((acc, val) => acc + val, 0); break;
                             case 'average': summaryValue = numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length; break;
                             case 'count': summaryValue = numericValues.length; break;
-                            case 'first': summaryValue = numericValues[0]; break;
+                            case 'first': summaryValue = numericValues[0]; break; 
                             case 'max': summaryValue = Math.max(...numericValues); break;
                             default: summaryValue = ''; 
                         }
@@ -285,83 +282,77 @@ export function calculateProcessedTableData(
                     } else if (summary.type === 'count') {
                         summaryValue = 0; 
                     } else { 
-                        const firstNonEmpty = values.find(v => v !== '' && v !== undefined && v !== null);
-                        summaryValue = summary.type === 'first' ? (firstNonEmpty !== undefined ? String(firstNonEmpty) : '') : '';
+                        const firstNonEmptyStringValue = values.find(v => v !== '' && v !== undefined && v !== null);
+                        if (summary.type === 'first') {
+                            summaryValue = firstNonEmptyStringValue !== undefined ? String(firstNonEmptyStringValue) : '';
+                        } else {
+                            summaryValue = ''; // For sum/avg/max if no numeric values, default to empty or handle as error
+                        }
                     }
                     representativeRow[summary.name] = summaryValue;
                 });
                 
-                if (!disableDisplayBlanking && dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey)) {
-                    let representativeDietContextKey = '';
-                    for (let i = 0; i <= dietNameGroupIndex; i++) {
-                        representativeDietContextKey += (representativeRow[groupingColNames[i]] || '') + '||';
+                if (!disableDisplayBlanking) {
+                    // Format diet_name with species list
+                    if (dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey)) {
+                        let representativeDietContextKey = '';
+                        for (let i = 0; i <= dietNameGroupIndex; i++) {
+                            representativeDietContextKey += (representativeRow[groupingColNames[i]] || '') + '||';
+                        }
+                        const speciesSet = speciesPerDietContext.get(representativeDietContextKey);
+                        if (speciesSet && speciesSet.size > 0) {
+                            const originalDietNameValue = representativeRow[dietNameColumnKey]; 
+                            if (originalDietNameValue !== undefined && 
+                                originalDietNameValue !== PIVOT_BLANK_MARKER && 
+                                String(originalDietNameValue).trim() !== '') {
+                                const speciesCount = speciesSet.size;
+                                const speciesList = Array.from(speciesSet).sort().join(', '); // Comma separated for conciseness
+                                representativeRow[dietNameColumnKey] = `${String(originalDietNameValue).trim()} (${speciesCount} Species: ${speciesList})`;
+                            }
+                        }
                     }
-                    const speciesSet = speciesPerDietContext.get(representativeDietContextKey);
-                    if (speciesSet && speciesSet.size > 0) {
-                        const originalDietNameValue = representativeRow[dietNameColumnKey]; 
-                        if (originalDietNameValue !== undefined && 
-                            originalDietNameValue !== PIVOT_BLANK_MARKER && 
-                            String(originalDietNameValue).trim() !== '') {
-                            const speciesCount = speciesSet.size;
-                            const speciesList = Array.from(speciesSet).sort().join('\n');
-                            representativeRow[dietNameColumnKey] = `${String(originalDietNameValue).trim()} (${speciesCount} Species:\n${speciesList})`;
+
+                    // Format common_name with animal count
+                    if (groupingColNames.includes(commonNameColumnKey)) {
+                        const originalCommonNameInRow = representativeRow[commonNameColumnKey]; 
+                        const totalAnimalSummaryKey = summaryColDetails.find(s => s.originalColumn === 'total_animal' && (s.type === 'first' || s.type === 'sum' || s.type === 'max'))?.name;
+                        let totalAnimalCountForDisplay: number | string | undefined = undefined;
+
+                        if (totalAnimalSummaryKey && representativeRow[totalAnimalSummaryKey] !== undefined) {
+                            totalAnimalCountForDisplay = representativeRow[totalAnimalSummaryKey];
+                        }
+                        
+                        if (originalCommonNameInRow !== undefined && 
+                            originalCommonNameInRow !== PIVOT_BLANK_MARKER && 
+                            String(originalCommonNameInRow).trim() !== '' &&
+                            !String(originalCommonNameInRow).includes(' Species:') && // Avoid double annotation
+                            totalAnimalCountForDisplay !== undefined && 
+                            String(totalAnimalCountForDisplay).trim() !== '') {
+                            const numericTotalAnimal = typeof totalAnimalCountForDisplay === 'string' 
+                                                        ? parseFloat(totalAnimalCountForDisplay) 
+                                                        : totalAnimalCountForDisplay;
+                            if (typeof numericTotalAnimal === 'number' && !isNaN(numericTotalAnimal)) {
+                                 representativeRow[commonNameColumnKey] = `${String(originalCommonNameInRow).trim()} (${numericTotalAnimal})`;
+                            }
                         }
                     }
                 }
-
-                if (!disableDisplayBlanking && groupingColNames.includes(commonNameColumnKey)) {
-                    const originalCommonNameInRow = representativeRow[commonNameColumnKey]; 
-                    let totalAnimalCountForDisplay: number | string | undefined = undefined;
-                    const totalAnimalSumKey = summaryColDetails.find(s => s.originalColumn === 'total_animal' && s.type === 'sum')?.name;
-                    const totalAnimalAvgKey = summaryColDetails.find(s => s.originalColumn === 'total_animal' && s.type === 'average')?.name;
-                    const totalAnimalFirstKey = summaryColDetails.find(s => s.originalColumn === 'total_animal' && s.type === 'first')?.name;
-
-
-                    if (totalAnimalSumKey && representativeRow[totalAnimalSumKey] !== undefined && (typeof representativeRow[totalAnimalSumKey] === 'number' || (typeof representativeRow[totalAnimalSumKey] === 'string' && String(representativeRow[totalAnimalSumKey]).trim() !== '' && !isNaN(parseFloat(representativeRow[totalAnimalSumKey] as string))))) {
-                        totalAnimalCountForDisplay = representativeRow[totalAnimalSumKey];
-                    } else if (totalAnimalAvgKey && representativeRow[totalAnimalAvgKey] !== undefined && (typeof representativeRow[totalAnimalAvgKey] === 'number' || (typeof representativeRow[totalAnimalAvgKey] === 'string' && String(representativeRow[totalAnimalAvgKey]).trim() !== '' && !isNaN(parseFloat(representativeRow[totalAnimalAvgKey] as string))))) {
-                        totalAnimalCountForDisplay = representativeRow[totalAnimalAvgKey];
-                    } else if (totalAnimalFirstKey && representativeRow[totalAnimalFirstKey] !== undefined && (typeof representativeRow[totalAnimalFirstKey] === 'number' || (typeof representativeRow[totalAnimalFirstKey] === 'string' && String(representativeRow[totalAnimalFirstKey]).trim() !== '' && !isNaN(parseFloat(representativeRow[totalAnimalFirstKey] as string))))) {
-                        totalAnimalCountForDisplay = representativeRow[totalAnimalFirstKey];
-                    }
-                    
-                    if (originalCommonNameInRow !== undefined && 
-                        originalCommonNameInRow !== PIVOT_BLANK_MARKER && 
-                        String(originalCommonNameInRow).trim() !== '' &&
-                        !String(originalCommonNameInRow).includes(' Species:\n') && 
-                        totalAnimalCountForDisplay !== undefined && 
-                        String(totalAnimalCountForDisplay).trim() !== '') {
-                        const numericTotalAnimal = typeof totalAnimalCountForDisplay === 'string' 
-                                                    ? parseFloat(totalAnimalCountForDisplay) 
-                                                    : totalAnimalCountForDisplay;
-                        if (typeof numericTotalAnimal === 'number' && !isNaN(numericTotalAnimal)) {
-                             representativeRow[commonNameColumnKey] = `${String(originalCommonNameInRow).trim()} (${numericTotalAnimal})`;
-                        }
-                    }
-                }
-                
                 result.push(representativeRow);
             });
             
             dataToProcess = result;
 
-            dataToProcess.sort((a, b) => {
+            dataToProcess.sort((a, b) => { // Ensure consistent sorting
                 for (const col of groupingColNames) {
                     const valA = getColumnValueInternal(a, col);
                     const valB = getColumnValueInternal(b, col);
                     if (valA === PIVOT_BLANK_MARKER || valB === PIVOT_BLANK_MARKER) continue;
-                    if (typeof valA === 'string' && typeof valB === 'string') {
-                        const comparison = valA.localeCompare(valB);
-                        if (comparison !== 0) return comparison;
-                    } else if (typeof valA === 'number' && typeof valB === 'number') {
-                        if (valA < valB) return -1;
-                        if (valA > valB) return 1;
-                    } else { 
-                        const strA = String(valA);
-                        const strB = String(valB);
-                        const comparison = strA.localeCompare(strB);
-                        if (comparison !== 0) return comparison;
-                    }
+                    
+                    const strA = String(valA).toLowerCase();
+                    const strB = String(valB).toLowerCase();
+
+                    if (strA < strB) return -1;
+                    if (strA > strB) return 1;
                 }
                 return 0;
             });
@@ -385,10 +376,12 @@ export function calculateProcessedTableData(
                             lastActualKeyValues[i] = currentValue;
                             continue; 
                         }
-                        if (currentValue === lastActualKeyValues[i] && gCol !== 'ingredient_name') { // Don't blank ingredient_name for default view
+                        // Only blank if current value matches last *actual* (non-blanked) value
+                        // AND it's not the ingredient_name column (we always want to show ingredient name)
+                        if (currentValue === lastActualKeyValues[i] && gCol !== 'ingredient_name') { 
                             newRow[gCol] = PIVOT_BLANK_MARKER;
                         } else {
-                            lastActualKeyValues[i] = currentValue;
+                            lastActualKeyValues[i] = currentValue; // Update last actual value
                             baseGroupChanged = true; 
                         }
                     }
@@ -421,20 +414,20 @@ export function calculateProcessedTableData(
                 summaryRow[summary.name] = summaryValue;
             });
             
-            if (dynamicColumns.length > 0 && !summaryColNames.includes(dynamicColumns[0])) {
+            if (dynamicColumns.length > 0 && !summaryColDetails.map(s => s.name).includes(dynamicColumns[0])) {
                 summaryRow[dynamicColumns[0]] = "Overall Summary";
-            } else if (dynamicColumns.length > 0 && summaryColNames.includes(dynamicColumns[0])) {
+            } else if (dynamicColumns.length > 0 && summaryColDetails.map(s => s.name).includes(dynamicColumns[0])) {
                 const firstOriginalCol = summaryColDetails.find(s => s.name === dynamicColumns[0])?.originalColumn || dynamicColumns[0];
                 summaryRow[dynamicColumns[0]] = `Overall ${firstOriginalCol.replace(/_/g, ' ')}`;
             } else if (allHeadersForData.length > 0) {
                 summaryRow[allHeadersForData[0]] = "Overall Summary"; 
             }
             dataToProcess = [summaryRow];
-            dynamicColumns = summaryColNames; 
+            dynamicColumns = summaryColDetails.map(s => s.name); 
         } else { 
           dataToProcess = internalFilteredDataResult;
           if (internalFilteredDataResult.length === 0 && allHeadersForData.length > 0) {
-            dynamicColumns = allHeadersForData; // Ensure columns are set even if filtered data is empty
+            dynamicColumns = allHeadersForData; 
           }
         }
 
@@ -445,7 +438,7 @@ export function calculateProcessedTableData(
                 for (let i = 1; i < groupingColNames.length; i++) {
                     grandTotalRow[groupingColNames[i]] = PIVOT_BLANK_MARKER;
                 }
-            } else if (dynamicColumns.length > 0 && !summaryColNames.includes(dynamicColumns[0])) {
+            } else if (dynamicColumns.length > 0 && !summaryColDetails.map(s => s.name).includes(dynamicColumns[0])) {
                 grandTotalRow[dynamicColumns[0]] = "Grand Total";
             }
 
@@ -458,7 +451,7 @@ export function calculateProcessedTableData(
                          case 'sum': totalValue = numericValues.reduce((acc, val) => acc + val, 0); break;
                          case 'average': totalValue = numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length; break;
                          case 'count': totalValue = numericValues.length; break;
-                         case 'first': totalValue = values.find(v => v !== '' && v !== undefined && v !== null) || ''; break; 
+                         case 'first': totalValue = values.find(v => v !== '' && v !== undefined && v !== null && String(v).trim() !== '') || ''; break; 
                          case 'max': totalValue = Math.max(...numericValues); break;
                      }
                       if (typeof totalValue === 'number' && (summary.type === 'sum' || summary.type === 'average')) {
@@ -467,14 +460,14 @@ export function calculateProcessedTableData(
                  } else if (summary.type === 'count') {
                      totalValue = 0;
                  } else { 
-                    const firstNonEmpty = values.find(v => v !== '' && v !== undefined && v !== null);
+                    const firstNonEmpty = values.find(v => v !== '' && v !== undefined && v !== null && String(v).trim() !== '');
                     totalValue = summary.type === 'first' ? (firstNonEmpty !== undefined ? String(firstNonEmpty) : '') : '';
                  }
                 grandTotalRow![summary.name] = totalValue; 
             });
 
-            if (groupingColNames.length === 0 && summaryColNames.length > 0 && grandTotalRow) {
-                const firstSummaryColName = summaryColNames[0];
+            if (groupingColNames.length === 0 && summaryColDetails.length > 0 && grandTotalRow) {
+                const firstSummaryColName = summaryColDetails[0].name;
                 const originalGrandTotalValue = grandTotalRow[firstSummaryColName];
                 const summaryColForGT = summaryColDetails.find(s => s.name === firstSummaryColName)?.originalColumn.replace(/_/g, ' ') || firstSummaryColName;
 
@@ -489,11 +482,18 @@ export function calculateProcessedTableData(
         }
     } 
     
+    // Filter out 'note' and potentially 'base_uom_name_first' if it's not for special pivot and blanking is not disabled.
     dynamicColumns = dynamicColumns.filter(col => col !== 'note');
-    if (baseUomNameFirstSummaryKey && !isSpecialPivotModeActive) { 
-        const isUomExplicitlySummarized = summariesToApply.some(s => s.name === baseUomNameFirstSummaryKey || (s.column === 'base_uom_name' && s.type === 'first'));
-        if (!isUomExplicitlySummarized && !disableDisplayBlanking) { // Only hide if not explicitly summarized AND blanking is enabled
-            dynamicColumns = dynamicColumns.filter(col => col !== baseUomNameFirstSummaryKey);
+    if (baseUomNameFirstSummaryKey && !isSpecialPivotModeActive && !disableDisplayBlanking) { 
+        // Only hide UoM column if it's not the primary quantity column and not a special pivot
+        const isUomExplicitlySummarizedAndNotQty = summariesToApply.some(s => 
+            s.name === baseUomNameFirstSummaryKey && 
+            !s.name.startsWith('ingredient_qty_') // Don't hide if it *is* the main quantity display column
+        );
+        if (isUomExplicitlySummarizedAndNotQty) {
+            // This logic might be too aggressive if 'base_uom_name_first' is also part of default summaries
+            // and is intended to be displayed in some contexts.
+            // For now, let DataTable handle UoM concatenation internally to avoid removing the UoM column here.
         }
     }
     
@@ -511,7 +511,6 @@ export function calculateProcessedTableData(
              grandTotalRow[firstColForGT] = "Grand Total";
         }
     }
-
 
     return { data: dataToProcess, dynamicColumns, grandTotalRow };
   })();
@@ -534,6 +533,9 @@ export function useTableProcessor({
   hasAppliedFilters,
 }: UseTableProcessorProps): ProcessedTableData {
     return useMemo(() => {
+        // When this hook is called from page.tsx for "View Data" or "Export Sections",
+        // disableDisplayBlanking will be false (default), enabling the desired display formatting.
         return calculateProcessedTableData(rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters, false);
     }, [rawData, groupings, summaries, filters, allHeaders, hasAppliedFilters]);
 }
+

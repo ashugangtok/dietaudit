@@ -14,15 +14,15 @@ import {
   TableCaption,
 } from '@/components/ui/table';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import type { DietDataRow, GroupingOption, SummarizationOption } from '@/types';
-import { PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER, DEFAULT_IMAGE_PIVOT_SUMMARIES } from '@/types';
+import type { DietDataRow } from '@/types';
+import { PIVOT_BLANK_MARKER, DEFAULT_IMAGE_PIVOT_SUMMARIES } from '@/types'; // Added DEFAULT_IMAGE_PIVOT_SUMMARIES
 
 interface DataTableProps {
   data: DietDataRow[];
   columns: string[]; 
   grandTotalRow?: DietDataRow;
   isLoading?: boolean;
-  allHeaders: string[]; 
+  allHeaders: string[]; // Added allHeaders to help find UoM column
 }
 
 
@@ -31,7 +31,7 @@ const DataTable: React.FC<DataTableProps> = ({
   columns,
   grandTotalRow,
   isLoading,
-  allHeaders,
+  allHeaders, // Destructure allHeaders
 }) => {
   if (isLoading) {
     return (
@@ -42,15 +42,29 @@ const DataTable: React.FC<DataTableProps> = ({
     );
   }
 
+  // Determine the key for UoM data on row objects, typically 'base_uom_name_first'
+  // This depends on how summaries are configured in page.tsx (should include base_uom_name_first for UoM display)
   const uomSummaryConfig = useMemo(() => {
-    return DEFAULT_IMAGE_PIVOT_SUMMARIES.find(s => s.column === 'base_uom_name' && s.type === 'first');
-  }, []);
-  const uomRowDataKey = uomSummaryConfig ? `${uomSummaryConfig.column}_${uomSummaryConfig.type}` : 'base_uom_name_first';
+    // Check if base_uom_name is part of the original headers to ensure it's a valid column to summarize
+    if (allHeaders.includes('base_uom_name')) {
+        // This attempts to find how 'base_uom_name' was summarized.
+        // For default view, page.tsx ensures `base_uom_name_first` is part of defaultSummaries.
+        // It's safer to rely on a consistent naming convention like `base_uom_name_first`.
+        return DEFAULT_IMAGE_PIVOT_SUMMARIES.find(s => s.column === 'base_uom_name' && s.type === 'first') || 
+               { name: 'base_uom_name_first', column: 'base_uom_name', type: 'first' }; // Fallback to expected name
+    }
+    return undefined;
+  }, [allHeaders]);
+
+  const uomRowDataKey = uomSummaryConfig ? `${uomSummaryConfig.column}_${uomSummaryConfig.type}` : undefined;
 
 
   const effectiveDisplayColumns = useMemo(() => {
-    // Hide the UoM column if it exists as a separate summarized column, as it will be combined
-    return columns.filter(col => col !== uomRowDataKey);
+    // Hide the UoM column if it exists as a separate summarized column AND it's not the ingredient_qty_sum itself
+    if (uomRowDataKey && columns.includes(uomRowDataKey) && !uomRowDataKey.startsWith('ingredient_qty_')) {
+      return columns.filter(col => col !== uomRowDataKey);
+    }
+    return columns;
   }, [columns, uomRowDataKey]);
 
   if (!data.length && !grandTotalRow) {
@@ -71,17 +85,23 @@ const DataTable: React.FC<DataTableProps> = ({
           <TableRow>
             {effectiveDisplayColumns.map((column) => {
               let headerText = column;
-               if (column.startsWith('total_animal_')) { 
+               // Specific header transformations based on column name patterns
+               if (column.startsWith('total_animal_')) { // Covers total_animal_sum, total_animal_first etc.
                  headerText = 'Total Animal';
-               } else {
+               } else if (column.startsWith('ingredient_qty_') && column.endsWith('_sum')) {
+                 headerText = 'Ingredient Qty (Sum)';
+               } else { // General transformation for other columns
                  headerText = column.replace(/_sum$|_average$|_count$|_first$|_max$/i, '')
                                   .replace(/_/g, ' ')
                                   .split(' ')
                                   .map(word => word.charAt(0).toUpperCase() + word.slice(1))
                                   .join(' ');
-                if (column.endsWith('_sum')) headerText += ""; 
-                 else if (column.endsWith('_average')) headerText += " (Avg)";
+                // Add specific suffixes if needed, though they are often removed by the replace regex above
+                // if (column.endsWith('_sum')) headerText += " (Sum)"; // Already handled by "Ingredient Qty (Sum)"
+                 if (column.endsWith('_average')) headerText += " (Avg)";
                  else if (column.endsWith('_count')) headerText += " (Count)";
+                 // else if (column.endsWith('_first')) headerText += " (First)"; // Often not needed for header display
+                 // else if (column.endsWith('_max')) headerText += " (Max)";
                }
               return (<TableHead key={column} className="font-semibold whitespace-nowrap">{headerText}</TableHead>);
             })}
@@ -89,7 +109,8 @@ const DataTable: React.FC<DataTableProps> = ({
         </TableHeader>
         <TableBody>
           {data.map((row, rowIndex) => {
-            const rowKey = `datarow-${rowIndex}-${JSON.stringify(Object.values(row).join('-'))}`; 
+            // Ensure a unique key for each row, especially if content can be similar
+            const rowKey = `datarow-${rowIndex}-${JSON.stringify(Object.values(row).slice(0, 5).join('-'))}`; 
             return (
               <TableRow
                   key={rowKey}
@@ -100,10 +121,11 @@ const DataTable: React.FC<DataTableProps> = ({
                   let cellContent: React.ReactNode;
                   const cellValue = row[column];
 
-                  if (column.startsWith('ingredient_qty_') && column.endsWith('_sum') && allHeaders.includes('base_uom_name') && row[uomRowDataKey]) {
+                  // UoM Concatenation for ingredient_qty_sum
+                  if (column.startsWith('ingredient_qty_') && column.endsWith('_sum') && uomRowDataKey && row[uomRowDataKey]) {
                       const qtyValue = cellValue;
                       const uom = row[uomRowDataKey];
-                      if (typeof qtyValue === 'number' && typeof uom === 'string' && uom.trim() !== '') {
+                      if (typeof qtyValue === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
                           cellContent = `${qtyValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
                       } else if (typeof qtyValue === 'number') { 
                           cellContent = qtyValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
@@ -120,16 +142,18 @@ const DataTable: React.FC<DataTableProps> = ({
                     cellContent = (cellValue === undefined || cellValue === null ? '' : String(cellValue));
                   }
 
+                  // Special handling for diet_name to preserve newlines for species list
                   if (column === dietNameColumnKey && typeof cellContent === 'string' && cellContent.includes('\n')) {
                     return (
                       <TableCell key={column} className="whitespace-nowrap">
-                        <div style={{ whiteSpace: 'pre' }}>{cellContent}</div>
+                        <div style={{ whiteSpace: 'pre-wrap' }}>{cellContent}</div> {/* Use pre-wrap */}
                       </TableCell>
                     );
                   }
                   
-                  const isNumericOutputCol = typeof row[column] === 'number' || 
-                                          (column.startsWith('ingredient_qty_') && column.endsWith('_sum'));
+                  // Determine if the column (after UoM concat) primarily displays numeric data
+                  const isNumericOutputCol = (typeof row[column] === 'number' && !(column.startsWith('ingredient_qty_') && column.endsWith('_sum'))) || 
+                                          (column.startsWith('ingredient_qty_') && column.endsWith('_sum')); // Ingredient Qty (Sum) with UOM is still right-aligned
                                           
                   return (
                     <TableCell key={column} className={`whitespace-nowrap ${isNumericOutputCol ? "text-right" : ""}`}>
@@ -150,9 +174,9 @@ const DataTable: React.FC<DataTableProps> = ({
 
                 if (colIndex === 0 && (rawCellValue === undefined || rawCellValue === null || String(rawCellValue).trim().toLowerCase() === "grand total" || grandTotalRow.note === "Grand Total")) {
                      displayCellValue = "Grand Total";
-                } else if (column.startsWith('ingredient_qty_') && column.endsWith('_sum') && allHeaders.includes('base_uom_name') && grandTotalRow[uomRowDataKey] && typeof rawCellValue === 'number') {
+                } else if (column.startsWith('ingredient_qty_') && column.endsWith('_sum') && uomRowDataKey && grandTotalRow[uomRowDataKey] && typeof rawCellValue === 'number') {
                     const uom = grandTotalRow[uomRowDataKey]; 
-                    if (uom && typeof uom === 'string' && uom.trim() !== '') {
+                    if (uom && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
                          displayCellValue = `${rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
                     } else { 
                          displayCellValue = rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
@@ -168,7 +192,7 @@ const DataTable: React.FC<DataTableProps> = ({
                   displayCellValue = String(rawCellValue);
                 }
                 
-                 const isNumericGTOutputCol = typeof grandTotalRow[column] === 'number' || 
+                 const isNumericGTOutputCol = (typeof grandTotalRow[column] === 'number' && !(column.startsWith('ingredient_qty_') && column.endsWith('_sum'))) ||
                                           (column.startsWith('ingredient_qty_') && column.endsWith('_sum'));
 
                  return (
