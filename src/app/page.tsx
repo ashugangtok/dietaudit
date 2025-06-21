@@ -7,17 +7,14 @@ import { FileSpreadsheet, FileSearch, TableIcon, Download, Loader2, UploadCloud,
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { useTableProcessor, calculateProcessedTableData } from '@/hooks/useTableProcessor';
-import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption, AuditPageGroup, AuditPageDietContext, AuditPageSpeciesDiet, AuditPageType, AuditPageIngredient } from '@/types';
+import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption } from '@/types';
 import {
     DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS,
     DEFAULT_IMAGE_PIVOT_SUMMARIES,
-    AUDIT_TAB_INITIAL_GROUPINGS,
-    AUDIT_TAB_INITIAL_SUMMARIES,
     PIVOT_BLANK_MARKER,
 } from '@/types';
 import FileUpload from '@/components/FileUpload';
@@ -49,8 +46,7 @@ export default function Home() {
   const [isFileSelected, setIsFileSelected] = useState(false);
 
   // State for Audit Tab
-  const [auditDisplayData, setAuditDisplayData] = useState<AuditPageGroup[]>([]);
-  const [auditActualQuantities, setAuditActualQuantities] = useState<Record<string, string | number>>({});
+  const [auditDisplayData, setAuditDisplayData] = useState<DietDataRow[]>([]);
 
 
   const { toast } = useToast();
@@ -71,7 +67,6 @@ export default function Home() {
         setHasAppliedFilters(false);
         setFilters([]);
         setAuditDisplayData([]);
-        setAuditActualQuantities({});
     }
   }, [isFileSelected, rawData]);
 
@@ -87,7 +82,6 @@ export default function Home() {
     setFilters([]);
     setHasAppliedFilters(false);
     setAuditDisplayData([]);
-    setAuditActualQuantities({});
     setIsFileSelected(true);
     setActiveTab("uploadExcel");
 
@@ -204,148 +198,71 @@ export default function Home() {
 
   // useEffect for processing Audit Tab data
   useEffect(() => {
-    if (activeTab === 'audit' && hasAppliedFilters && rawData.length > 0 && allHeaders.length > 0) {
+    if (activeTab === 'audit' && hasAppliedFilters && rawData.length > 0) {
       setIsLoading(true);
-      const { processedData: auditBaseData } = calculateProcessedTableData(
-        rawData,
-        AUDIT_TAB_INITIAL_GROUPINGS,
-        AUDIT_TAB_INITIAL_SUMMARIES,
-        filters,
-        allHeaders,
-        true, // shouldProcessData
-        true  // disableDisplayBlanking for audit transformation
+
+      // Step 1: Filter raw data based on selected filters
+      const { filteredData } = calculateProcessedTableData(
+        rawData, [], [], filters, allHeaders, true
       );
 
-      const transformedAuditData: AuditPageGroup[] = [];
-      const groupMap = new Map<string, AuditPageGroup>();
+      // Step 2: Calculate total unique animals for each diet group
+      const dietAnimalCountMap = new Map<string, number>();
+      if (allHeaders.includes('animal_id')) {
+          const dietAnimalIdSets = new Map<string, Set<string>>();
+          filteredData.forEach(row => {
+            const key = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
+            if (!dietAnimalIdSets.has(key)) {
+              dietAnimalIdSets.set(key, new Set<string>());
+            }
+            if (row.animal_id) {
+              dietAnimalIdSets.get(key)!.add(String(row.animal_id));
+            }
+          });
+          dietAnimalIdSets.forEach((idSet, key) => {
+            dietAnimalCountMap.set(key, idSet.size);
+          });
+      }
 
-      for (const row of auditBaseData) {
-        const groupName = String(row.group_name || 'Unknown Group');
-        const mealStartTime = String(row.meal_start_time || 'N/A');
-        const dietName = String(row.diet_name || 'Unknown Diet');
-        const speciesName = String(row.common_name || 'Unknown Species');
-        const typeName = String(row.type_name || 'Unknown Type');
-        const ingredientName = String(row.ingredient_name || 'Unknown Ingredient');
+      // Step 3: Get per-ingredient data
+      const auditGroupings: GroupingOption[] = [
+        { column: 'group_name' },
+        { column: 'meal_start_time' },
+        { column: 'diet_name' },
+        { column: 'ingredient_name' },
+      ];
+      const auditSummaries: SummarizationOption[] = [
+        { column: 'ingredient_qty', type: 'first' },
+        { column: 'base_uom_name', type: 'first' },
+      ];
+      const { processedData: ingredientData } = calculateProcessedTableData(
+        filteredData, auditGroupings, auditSummaries, [], allHeaders, true, true
+      );
 
-        const qtyPerSpecies = parseFloat(String(row.ingredient_qty_first || '0'));
-        const animalCount = parseInt(String(row.total_animal_first || '0'), 10);
-        const uom = String(row.base_uom_name_first || '');
-        const qtyForTotalSpecies = qtyPerSpecies * animalCount;
-
-        if (!groupMap.has(groupName)) {
-          groupMap.set(groupName, { groupName, dietContexts: [], totalRowsForGroup: 0 });
-        }
-        const currentGroup = groupMap.get(groupName)!;
-
-        let dietContext = currentGroup.dietContexts.find(dc => dc.mealStartTime === mealStartTime && dc.dietName === dietName);
-        if (!dietContext) {
-          dietContext = { mealStartTime, dietName, speciesBreakdown: [], speciesSummaryText: '', totalRowsInDietContext: 0 };
-          currentGroup.dietContexts.push(dietContext);
-        }
-
-        let speciesDiet = dietContext.speciesBreakdown.find(sd => sd.speciesName === speciesName);
-        if (!speciesDiet) {
-          speciesDiet = { speciesName, animalCount, types: [], totalRowsForSpecies: 0 };
-          dietContext.speciesBreakdown.push(speciesDiet);
-        }
-        // Ensure animalCount is consistently from the species level
-        speciesDiet.animalCount = animalCount;
-
-
-        let auditType = speciesDiet.types.find(t => t.typeName === typeName);
-        if (!auditType) {
-          auditType = { typeName, ingredients: [], plannedQtyTypeTotal: 0, totalRowsForType: 0 };
-          speciesDiet.types.push(auditType);
-        }
-
-        const ingredient: AuditPageIngredient = {
-          ingredientName,
-          qtyPerSpecies,
-          qtyForTotalSpecies,
-          uom
+      // Step 4: Combine data
+      const finalAuditData = ingredientData.map(row => {
+        const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
+        const total_animals = dietAnimalCountMap.get(dietKey) || 0;
+        const qty_per_animal = parseFloat(String(row.ingredient_qty_first)) || 0;
+        
+        return {
+          group_name: row.group_name,
+          meal_start_time: row.meal_start_time,
+          diet_name: row.diet_name,
+          ingredient_name: row.ingredient_name,
+          qty_per_animal: qty_per_animal,
+          total_animals: total_animals,
+          total_qty_required: qty_per_animal * total_animals,
+          unit: row.base_uom_name_first,
         };
-        auditType.ingredients.push(ingredient);
-      }
+      }).filter(row => row.group_name !== PIVOT_BLANK_MARKER && row.ingredient_name !== PIVOT_BLANK_MARKER);
 
-      // Calculate totals and rowspans
-      for (const group of groupMap.values()) {
-        let groupTotalRows = 0;
-        for (const dietCtx of group.dietContexts) {
-          let dietContextTotalRows = 0;
-          const speciesCounts = new Map<string, number>();
-          for (const species of dietCtx.speciesBreakdown) {
-            speciesCounts.set(species.speciesName, species.animalCount);
-            let speciesTotalRows = 0;
-            for (const type of species.types) {
-              type.plannedQtyTypeTotal = type.ingredients.reduce((sum, ing) => sum + ing.qtyForTotalSpecies, 0);
-              type.totalRowsForType = type.ingredients.length + 1; // ingredients + 1 subtotal row
-              speciesTotalRows += type.totalRowsForType;
-            }
-            species.totalRowsForSpecies = speciesTotalRows;
-            dietContextTotalRows += speciesTotalRows;
-          }
-          dietCtx.totalRowsInDietContext = dietContextTotalRows;
-          groupTotalRows += dietContextTotalRows;
-
-          // Create speciesSummaryText
-          const summaryParts: string[] = [];
-          speciesCounts.forEach((count, name) => summaryParts.push(`${name} (${count})`));
-          dietCtx.speciesSummaryText = `${speciesCounts.size} Species: ${summaryParts.join(', ')}`;
-
-        }
-        group.totalRowsForGroup = groupTotalRows;
-        transformedAuditData.push(group);
-      }
-      
-      // Sort for consistent display
-      transformedAuditData.sort((a,b) => a.groupName.localeCompare(b.groupName));
-      transformedAuditData.forEach(group => {
-        group.dietContexts.sort((a,b) => {
-            if (a.mealStartTime.localeCompare(b.mealStartTime) !== 0) {
-                return a.mealStartTime.localeCompare(b.mealStartTime);
-            }
-            return a.dietName.localeCompare(b.dietName);
-        });
-        group.dietContexts.forEach(dc => {
-            dc.speciesBreakdown.sort((a,b) => a.speciesName.localeCompare(b.speciesName));
-            dc.speciesBreakdown.forEach(sd => {
-                sd.types.sort((a,b) => a.typeName.localeCompare(b.typeName));
-                sd.types.forEach(adt => {
-                    adt.ingredients.sort((a,b) => a.ingredientName.localeCompare(b.ingredientName));
-                });
-            });
-        });
-      });
-
-
-      setAuditDisplayData(transformedAuditData);
+      setAuditDisplayData(finalAuditData as DietDataRow[]);
       setIsLoading(false);
     } else if (activeTab === 'audit' && (!hasAppliedFilters || rawData.length === 0)) {
-      setAuditDisplayData([]);
+        setAuditDisplayData([]);
     }
   }, [activeTab, rawData, allHeaders, filters, hasAppliedFilters]);
-
-
-  const buildAuditQtyKey = (
-    groupName: string,
-    dietName: string,
-    mealStartTime: string,
-    speciesName: string,
-    typeName: string,
-    ingredientName?: string
-  ): string => {
-    let key = `${groupName}|${dietName}|${mealStartTime}|${speciesName}|${typeName}`;
-    if (ingredientName) {
-      key += `|${ingredientName}`;
-    } else {
-      key += `|__TYPE_SUBTOTAL__`;
-    }
-    return key;
-  };
-
-  const handleAuditActualQuantityChange = (key: string, value: string | number) => {
-    setAuditActualQuantities(prev => ({ ...prev, [key]: value }));
-  };
 
 
   const handleDownloadAllPdf = () => {
@@ -359,57 +276,17 @@ export default function Home() {
       doc.setFontSize(16);
       doc.text(`Audit Data Report - ${rawFileName}`, 40, 40);
 
-      const head = [['Group Name', 'Start Time', 'Diet Name', 'Species & Animal Count', 'Type Name', 'Ingredient Name', 'Qty/# Species', 'Qty/Total Animals', 'Qty to be Received', 'Qty Received', 'Difference']];
-      const body: (string | number)[][] = [];
-
-      auditDisplayData.forEach(group => {
-        let isFirstRowOfGroup = true;
-        group.dietContexts.forEach(dietCtx => {
-          let isFirstRowOfDiet = true;
-          dietCtx.speciesBreakdown.forEach(species => {
-            let isFirstRowOfSpecies = true;
-            species.types.forEach(type => {
-              let isFirstRowOfType = true;
-              type.ingredients.forEach(ing => {
-                const ingKey = buildAuditQtyKey(group.groupName, dietCtx.dietName, dietCtx.mealStartTime, species.speciesName, type.typeName, ing.ingredientName);
-                const qtyReceivedVal = parseFloat(String(auditActualQuantities[ingKey] || ''));
-                const differenceVal = isNaN(qtyReceivedVal) ? '' : (ing.qtyForTotalSpecies - qtyReceivedVal);
-                
-                body.push([
-                  isFirstRowOfGroup ? group.groupName : '',
-                  isFirstRowOfDiet ? dietCtx.mealStartTime : '',
-                  isFirstRowOfDiet ? `${dietCtx.dietName}\n${dietCtx.speciesSummaryText}` : '',
-                  isFirstRowOfSpecies ? `${species.speciesName} (${species.animalCount})` : '',
-                  isFirstRowOfType ? type.typeName : '',
-                  ing.ingredientName,
-                  `${ing.qtyPerSpecies.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`,
-                  `${ing.qtyForTotalSpecies.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`,
-                  `${ing.qtyForTotalSpecies.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`,
-                  isNaN(qtyReceivedVal) ? '' : `${qtyReceivedVal.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`,
-                  differenceVal === '' ? '' : `${(differenceVal as number).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`,
-                ]);
-                isFirstRowOfGroup = isFirstRowOfDiet = isFirstRowOfSpecies = isFirstRowOfType = false;
-              });
-
-              // Subtotal row for Type
-              const typeKey = buildAuditQtyKey(group.groupName, dietCtx.dietName, dietCtx.mealStartTime, species.speciesName, type.typeName);
-              const qtyReceivedTypeVal = parseFloat(String(auditActualQuantities[typeKey] || ''));
-              const differenceTypeVal = isNaN(qtyReceivedTypeVal) ? '' : (type.plannedQtyTypeTotal - qtyReceivedTypeVal);
-              const uomForType = type.ingredients.length > 0 ? type.ingredients[0].uom : '';
-
-              body.push([
-                '', '', '', '', '',
-                `SUBTOTAL (${type.typeName})`, // Ingredient Name column
-                '', // Qty/# Species
-                '', // Qty/Total Animals
-                `${type.plannedQtyTypeTotal.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uomForType}`,
-                isNaN(qtyReceivedTypeVal) ? '' : `${qtyReceivedTypeVal.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uomForType}`,
-                differenceTypeVal === '' ? '' : `${(differenceTypeVal as number).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uomForType}`,
-              ]);
-            });
-          });
-        });
-      });
+      const head = [['Group Name', 'Start Time', 'Diet Name', 'Ingredient Name', 'Qty Per Animal', 'Total Animals', 'Total Qty Required', 'Unit']];
+      const body: (string | number)[][] = auditDisplayData.map(row => [
+          String(row.group_name || ''),
+          String(row.meal_start_time || ''),
+          String(row.diet_name || ''),
+          String(row.ingredient_name || ''),
+          (typeof row.qty_per_animal === 'number') ? row.qty_per_animal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : '',
+          String(row.total_animals || '0'),
+          (typeof row.total_qty_required === 'number') ? row.total_qty_required.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : '',
+          String(row.unit || ''),
+      ]);
 
       autoTable(doc, {
         head: head,
@@ -417,16 +294,7 @@ export default function Home() {
         startY: 60,
         theme: 'striped',
         headStyles: { fillColor: [38, 153, 153], textColor: [255,255,255] },
-        styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak' },
-        didParseCell: (data) => {
-            if (data.row.section === 'body') {
-                const cellText = String(data.cell.text);
-                if (cellText.startsWith('SUBTOTAL')) {
-                    data.cell.styles.fontStyle = 'bold';
-                    data.cell.styles.fillColor = [230, 230, 230];
-                }
-            }
-        },
+        styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
         didDrawPage: (data) => {
             doc.setFontSize(8);
             doc.text("Page " + doc.internal.getNumberOfPages(), doc.internal.pageSize.width - 50, doc.internal.pageSize.height - 20);
@@ -528,102 +396,26 @@ export default function Home() {
                         <TableHead>Group Name</TableHead>
                         <TableHead>Start Time</TableHead>
                         <TableHead>Diet Name</TableHead>
-                        <TableHead>Species & Animal Count</TableHead>
-                        <TableHead>Type Name</TableHead>
                         <TableHead>Ingredient Name</TableHead>
-                        <TableHead className="text-right">Qty/# Species</TableHead>
-                        <TableHead className="text-right">Qty/Total Animals</TableHead>
-                        <TableHead className="text-right">Qty to be Received</TableHead>
-                        <TableHead className="text-right">Qty Received</TableHead>
-                        <TableHead className="text-right">Difference</TableHead>
+                        <TableHead className="text-right">Qty Per Animal</TableHead>
+                        <TableHead className="text-right">Total Animals</TableHead>
+                        <TableHead className="text-right">Total Qty Required</TableHead>
+                        <TableHead>Unit</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {auditDisplayData.map((group, groupIndex) => (
-                        <React.Fragment key={`group-${group.groupName}-${groupIndex}`}>
-                            {group.dietContexts.map((dietCtx, dietCtxIndex) => (
-                                <React.Fragment key={`dietCtx-${dietCtx.dietName}-${dietCtx.mealStartTime}-${dietCtxIndex}`}>
-                                    {dietCtx.speciesBreakdown.map((species, speciesIndex) => (
-                                        <React.Fragment key={`species-${species.speciesName}-${speciesIndex}`}>
-                                            {species.types.map((type, typeIndex) => (
-                                                <React.Fragment key={`type-${type.typeName}-${typeIndex}`}>
-                                                    {type.ingredients.map((ing, ingIndex) => {
-                                                        const ingKey = buildAuditQtyKey(group.groupName, dietCtx.dietName, dietCtx.mealStartTime, species.speciesName, type.typeName, ing.ingredientName);
-                                                        const qtyReceivedIng = auditActualQuantities[ingKey] || '';
-                                                        const qtyReceivedIngVal = parseFloat(String(qtyReceivedIng));
-                                                        const differenceIng = isNaN(qtyReceivedIngVal)
-                                                            ? ''
-                                                            : `${(ing.qtyForTotalSpecies - qtyReceivedIngVal).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 })}`;
-
-                                                        const qtyPerSpeciesDisplay = `${ing.qtyPerSpecies.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`;
-                                                        const qtyForTotalSpeciesDisplay = `${ing.qtyForTotalSpecies.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`;
-
-                                                        return (
-                                                        <TableRow key={`ing-${ing.ingredientName}-${ingIndex}`}>
-                                                            {ingIndex === 0 && typeIndex === 0 && speciesIndex === 0 && dietCtxIndex === 0 && (
-                                                                <TableCell rowSpan={group.totalRowsForGroup} className="align-top border-r whitespace-pre-wrap">{group.groupName}</TableCell>
-                                                            )}
-                                                            {ingIndex === 0 && typeIndex === 0 && speciesIndex === 0 && (
-                                                                <TableCell rowSpan={dietCtx.totalRowsInDietContext} className="align-top border-r whitespace-pre-wrap">{dietCtx.mealStartTime}</TableCell>
-                                                            )}
-                                                            {ingIndex === 0 && typeIndex === 0 && speciesIndex === 0 && (
-                                                                <TableCell rowSpan={dietCtx.totalRowsInDietContext} className="align-top border-r whitespace-pre-wrap">
-                                                                    <div>{dietCtx.dietName}</div>
-                                                                    <div className="text-xs text-muted-foreground whitespace-pre-wrap">{dietCtx.speciesSummaryText}</div>
-                                                                </TableCell>
-                                                            )}
-                                                            {ingIndex === 0 && typeIndex === 0 && (
-                                                                <TableCell rowSpan={species.totalRowsForSpecies} className="align-top border-r whitespace-pre-wrap">{`${species.speciesName} (${species.animalCount})`}</TableCell>
-                                                            )}
-                                                            {ingIndex === 0 && (
-                                                                <TableCell rowSpan={type.totalRowsForType} className="align-top border-r whitespace-pre-wrap">{type.typeName}</TableCell>
-                                                            )}
-                                                            <TableCell className="border-r">{ing.ingredientName}</TableCell>
-                                                            <TableCell className="text-right border-r">{qtyPerSpeciesDisplay}</TableCell>
-                                                            <TableCell className="text-right border-r">{qtyForTotalSpeciesDisplay}</TableCell>
-                                                            <TableCell className="text-right border-r">{qtyForTotalSpeciesDisplay}</TableCell>
-                                                            <TableCell className="text-right border-r">
-                                                                <Input type="number" value={qtyReceivedIng} onChange={(e) => handleAuditActualQuantityChange(ingKey, e.target.value)} className="h-8 text-right"/>
-                                                            </TableCell>
-                                                            <TableCell className="text-right">
-                                                                {differenceIng}
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    )})}
-                                                    {/* Subtotal Row for Type */}
-                                                    {(() => {
-                                                        const typeKey = buildAuditQtyKey(group.groupName, dietCtx.dietName, dietCtx.mealStartTime, species.speciesName, type.typeName);
-                                                        const qtyReceivedType = auditActualQuantities[typeKey] || '';
-                                                        const qtyReceivedTypeVal = parseFloat(String(qtyReceivedType));
-                                                        const differenceType = isNaN(qtyReceivedTypeVal)
-                                                            ? ''
-                                                            : `${(type.plannedQtyTypeTotal - qtyReceivedTypeVal).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 })}`;
-                                                        const uomForType = type.ingredients.length > 0 ? type.ingredients[0].uom : ''; // Assume consistent UOM within type
-                                                        const plannedQtyTypeTotalDisplay = `${type.plannedQtyTypeTotal.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uomForType}`;
-                                                        
-                                                        return (
-                                                            <TableRow className="font-semibold bg-muted/50">
-                                                                <TableCell className="border-r text-right" colSpan={1}>SUBTOTAL ({type.typeName})</TableCell>
-                                                                <TableCell className="text-right border-r"></TableCell>
-                                                                <TableCell className="text-right border-r"></TableCell>
-                                                                <TableCell className="text-right border-r">{plannedQtyTypeTotalDisplay}</TableCell>
-                                                                <TableCell className="text-right border-r">
-                                                                    <Input type="number" value={qtyReceivedType} onChange={(e) => handleAuditActualQuantityChange(typeKey, e.target.value)} className="h-8 text-right"/>
-                                                                </TableCell>
-                                                                <TableCell className="text-right">
-                                                                    {differenceType}
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        );
-                                                    })()}
-                                                </React.Fragment>
-                                            ))}
-                                        </React.Fragment>
-                                    ))}
-                                </React.Fragment>
-                            ))}
-                        </React.Fragment>
-                    ))}
+                  {auditDisplayData.map((row, index) => (
+                    <TableRow key={index}>
+                      <TableCell>{String(row.group_name || '')}</TableCell>
+                      <TableCell>{String(row.meal_start_time || '')}</TableCell>
+                      <TableCell>{String(row.diet_name || '')}</TableCell>
+                      <TableCell>{String(row.ingredient_name || '')}</TableCell>
+                      <TableCell className="text-right">{(typeof row.qty_per_animal === 'number') ? row.qty_per_animal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : ''}</TableCell>
+                      <TableCell className="text-right">{String(row.total_animals || '0')}</TableCell>
+                      <TableCell className="text-right">{(typeof row.total_qty_required === 'number') ? row.total_qty_required.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : ''}</TableCell>
+                      <TableCell>{String(row.unit || '')}</TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
             </Table>
             <ScrollBar orientation="horizontal" />
