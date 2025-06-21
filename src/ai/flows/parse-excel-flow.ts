@@ -1,15 +1,14 @@
 
 'use server';
 /**
- * @fileOverview A Genkit flow to parse an Excel file from a base64 string.
+ * @fileOverview A server action to parse an Excel file from a base64 string.
  *
  * - parseExcelFlow - Parses a base64 encoded Excel file string and returns structured data.
  * - ParseExcelInput - The input type for the parseExcelFlow.
  * - ParseExcelOutput - The return type for the parseExcelFlow.
  */
 
-import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
+import { z } from 'zod';
 import * as XLSX from 'xlsx';
 import type { DietDataRow } from '@/types';
 
@@ -178,20 +177,3 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
     return { parsedData: [], headers: [], error: errorMessage };
   }
 }
-
-// Genkit flow definition (optional if only calling the function directly as a server action)
-/*
-const parseExcelServerFlow = ai.defineFlow(
-  {
-    name: 'parseExcelServerFlow',
-    inputSchema: ParseExcelInputSchema,
-    outputSchema: ParseExcelOutputSchema,
-  },
-  async (input) => {
-    return parseExcelFlow(input);
-  }
-);
-*/
-
-
-    
