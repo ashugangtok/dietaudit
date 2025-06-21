@@ -15,6 +15,8 @@ interface FileUploadProps {
   disabled?: boolean;
 }
 
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+
 const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, disabled }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileNameDisplay, setFileNameDisplay] = useState<string>("No file chosen");
@@ -25,6 +27,20 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       const file = event.target.files[0];
+
+      if (file.size > MAX_FILE_SIZE) {
+        toast({
+            variant: "destructive",
+            title: "File Too Large",
+            description: `Please select a file smaller than ${MAX_FILE_SIZE / 1024 / 1024}MB.`,
+        });
+        setSelectedFile(null);
+        setFileNameDisplay("No file chosen");
+        if(fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+        return;
+      }
       
       if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || file.type === 'application/vnd.ms-excel' || file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
         setSelectedFile(file);
