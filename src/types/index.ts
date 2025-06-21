@@ -85,7 +85,6 @@ export const DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS: (keyof DietDataRow)[] = [
   'group_name',
   'meal_start_time',
   'diet_name',
-  'common_name',
   'type_name',
   'ingredient_name',
 ];

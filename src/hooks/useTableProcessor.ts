@@ -230,6 +230,40 @@ export function calculateProcessedTableData(
              dynamicColumns.push(totalQtyRequiredCalculatedColKey);
         }
 
+        const speciesAndAnimalCountsPerDiet = new Map<string, Map<string, Set<string>>>();
+        const dietNameColumnKey = 'diet_name';
+        const commonNameColumnKey = 'common_name';
+        const animalIdColumnKey = 'animal_id';
+        const dietNameGroupIndex = groupingColNames.indexOf(dietNameColumnKey);
+
+        if (!disableDisplayBlanking && dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey) && allHeadersForData.includes(animalIdColumnKey)) {
+            internalFilteredDataResult.forEach(rawRow => {
+                let contextKey = '';
+                const keyParts: (string | number | undefined)[] = [];
+                for (let i = 0; i <= dietNameGroupIndex; i++) {
+                   keyParts.push(getColumnValueInternal(rawRow, groupingColNames[i]));
+                }
+                contextKey = keyParts.join('||');
+                
+                if (!speciesAndAnimalCountsPerDiet.has(contextKey)) {
+                    speciesAndAnimalCountsPerDiet.set(contextKey, new Map<string, Set<string>>());
+                }
+                const speciesMap = speciesAndAnimalCountsPerDiet.get(contextKey)!;
+
+                const speciesName = getColumnValueInternal(rawRow, commonNameColumnKey);
+                const animalId = getColumnValueInternal(rawRow, animalIdColumnKey);
+
+                if (typeof speciesName === 'string' && speciesName.trim() !== '') {
+                    if (!speciesMap.has(speciesName)) {
+                        speciesMap.set(speciesName, new Set<string>());
+                    }
+                    if (animalId !== undefined && String(animalId).trim() !== '') {
+                        speciesMap.get(speciesName)!.add(String(animalId));
+                    }
+                }
+            });
+        }
+
 
         if (groupingColNames.length > 0 && internalFilteredDataResult.length > 0) {
             const grouped = new Map<string, DietDataRow[]>();
@@ -240,27 +274,6 @@ export function calculateProcessedTableData(
             });
 
             const result: DietDataRow[] = [];
-            
-            const speciesPerDietContext = new Map<string, Set<string>>();
-            const dietNameColumnKey = 'diet_name';
-            const commonNameColumnKey = 'common_name';
-            const dietNameGroupIndex = groupingColNames.indexOf(dietNameColumnKey);
-
-            if (!disableDisplayBlanking && dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey)) {
-                internalFilteredDataResult.forEach(rawRow => {
-                    let contextKey = '';
-                    for (let i = 0; i <= dietNameGroupIndex; i++) {
-                        contextKey += (getColumnValueInternal(rawRow, groupingColNames[i]) || '') + '||';
-                    }
-                    const speciesName = getColumnValueInternal(rawRow, commonNameColumnKey);
-                    if (typeof speciesName === 'string' && speciesName.trim() !== '') {
-                        if (!speciesPerDietContext.has(contextKey)) {
-                            speciesPerDietContext.set(contextKey, new Set());
-                        }
-                        speciesPerDietContext.get(contextKey)!.add(speciesName.trim());
-                    }
-                });
-            }
             
             grouped.forEach((groupRows) => {
                 const representativeRow: DietDataRow = {};
@@ -332,20 +345,33 @@ export function calculateProcessedTableData(
 
                 
                 if (!disableDisplayBlanking) {
-                    if (dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey)) {
+                    if (dietNameGroupIndex !== -1 && allHeadersForData.includes(commonNameColumnKey) && allHeadersForData.includes(animalIdColumnKey)) {
                         let representativeDietContextKey = '';
+                        const keyParts: (string | number | undefined)[] = [];
                         for (let i = 0; i <= dietNameGroupIndex; i++) {
-                            representativeDietContextKey += (representativeRow[groupingColNames[i]] || '') + '||';
+                            keyParts.push(representativeRow[groupingColNames[i]]);
                         }
-                        const speciesSet = speciesPerDietContext.get(representativeDietContextKey);
-                        if (speciesSet && speciesSet.size > 0) {
+                        representativeDietContextKey = keyParts.join('||');
+
+                        const speciesMap = speciesAndAnimalCountsPerDiet.get(representativeDietContextKey);
+                        if (speciesMap && speciesMap.size > 0) {
                             const originalDietNameValue = representativeRow[dietNameColumnKey];
                             if (originalDietNameValue !== undefined && 
                                 originalDietNameValue !== PIVOT_BLANK_MARKER && 
                                 String(originalDietNameValue).trim() !== '') {
-                                const speciesCount = speciesSet.size;
-                                const speciesList = Array.from(speciesSet).sort().join(', ');
-                                representativeRow[dietNameColumnKey] = `${String(originalDietNameValue).trim()}\n(${speciesCount} Species: ${speciesList})`;
+                                
+                                const speciesCount = speciesMap.size;
+                                const speciesLines: string[] = [];
+                                
+                                const sortedSpecies = Array.from(speciesMap.keys()).sort();
+
+                                for (const speciesName of sortedSpecies) {
+                                    const animalIdSet = speciesMap.get(speciesName)!;
+                                    const animalCount = animalIdSet.size;
+                                    speciesLines.push(`${speciesName} (${animalCount})`);
+                                }
+
+                                representativeRow[dietNameColumnKey] = `${String(originalDietNameValue).trim()} (${speciesCount})\n${speciesLines.join('\n')}`;
                             }
                         }
                     }
