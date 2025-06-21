@@ -226,69 +226,130 @@ export default function Home() {
           });
       }
 
-      // Step 3: Pre-process data to add a 'total_qty_required' field to each row
-      // This is the correct approach: calculate the total required on each raw data row first.
-      const dataWithTotalRequired = filteredData.map(row => {
-        const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
-        const total_animals = dietAnimalCountMap.get(dietKey) || 0;
-        const qty_per_animal = parseFloat(String(row.ingredient_qty)) || 0;
-        return {
-          ...row,
-          // We are creating a temporary column to hold the total required for THIS specific ingredient row.
-          // This prevents summing up animal counts multiple times.
-          total_qty_required_for_row: qty_per_animal * total_animals,
-        };
-      });
-
-      // Step 4: Define groupings and summaries for the pivot view.
-      // We will now SUM the pre-calculated 'total_qty_required_for_row'.
+      // Step 3: Define groupings and summaries to get ONE row per ingredient with its PER-ANIMAL quantity
       const auditGroupings: GroupingOption[] = [
-        { column: 'group_name' },
-        { column: 'meal_start_time' },
-        { column: 'diet_name' },
-        { column: 'type_name' },
-        { column: 'ingredient_name' },
+          { column: 'group_name' },
+          { column: 'meal_start_time' },
+          { column: 'diet_name' },
+          { column: 'type_name' },
+          { column: 'ingredient_name' },
       ];
       const auditSummaries: SummarizationOption[] = [
-        { column: 'total_qty_required_for_row', type: 'sum' },
-        // Also get the UoM to display it correctly.
-        { column: 'base_uom_name', type: 'first' },
+          { column: 'ingredient_qty', type: 'first' }, // Use 'first' to get the per-animal quantity
+          { column: 'base_uom_name', type: 'first' },
       ];
 
-      // Step 5: Process the data into the pivot table format
-      const { processedData: pivotedData, columns: pivotedColumns, grandTotalRow: pivotedGrandTotal } = calculateProcessedTableData(
-        // Use the data with the pre-calculated row totals
-        dataWithTotalRequired, 
-        auditGroupings, 
-        auditSummaries, 
-        [], 
-        // Ensure the new temporary column is included in headers for processing
-        [...allHeaders, 'total_qty_required_for_row'], 
-        true, 
-        false
+      // Step 4: Process the data to get the aggregated, per-ingredient rows (with pivot-style blanking)
+      const { processedData: aggregatedIngredients } = calculateProcessedTableData(
+          filteredData,
+          auditGroupings,
+          auditSummaries,
+          [], // Filters already applied
+          allHeaders,
+          true,
+          false // disableDisplayBlanking = false to get the pivot effect
       );
       
+      // Step 5: Now, calculate the total required for each aggregated row
+      const finalAuditData = aggregatedIngredients.map(row => {
+          // For blanked rows, the grouping values are markers, not actual values. We can't build a key.
+          // The calculation only makes sense for rows that represent an ingredient.
+          // An ingredient row is one that has a non-blank ingredient_name.
+          if (row.ingredient_name && row.ingredient_name !== PIVOT_BLANK_MARKER) {
+              // Re-construct the dietKey from the *original* raw data that this aggregation represents
+              // This is tricky because the aggregated row has blanked values.
+              // A better approach: do the calculation *before* the final pivot-style blanking.
+
+              const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
+              const totalAnimals = dietAnimalCountMap.get(dietKey) || 0;
+              const qtyPerAnimal = parseFloat(String(row.ingredient_qty_first)) || 0;
+              
+              const totalQtyRequired = totalAnimals > 0 ? qtyPerAnimal * totalAnimals : 0;
+              
+              return {
+                  ...row,
+                  total_qty_required_sum: totalQtyRequired,
+              };
+          }
+          return {
+              ...row,
+              total_qty_required_sum: '', // No calculation for subtotal/blanked rows
+          };
+      });
+
+      // To fix the calculation, we need to process in stages.
+      // Stage 1: Get aggregated data without blanking.
+      const { processedData: aggregatedIngredientsNoBlanking } = calculateProcessedTableData(
+          filteredData, auditGroupings, auditSummaries, [], allHeaders, true, true // disableDisplayBlanking = true
+      );
+
+      // Stage 2: Calculate total required on this clean, aggregated data.
+      const dataWithTotals = aggregatedIngredientsNoBlanking.map(row => {
+          const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
+          const totalAnimals = dietAnimalCountMap.get(dietKey) || 0;
+          const qtyPerAnimal = parseFloat(String(row.ingredient_qty_first)) || 0;
+          const totalQtyRequired = qtyPerAnimal * totalAnimals;
+          return { ...row, total_qty_required_sum: totalQtyRequired };
+      });
+      
+      // Stage 3: Now, re-process this data just for the blanking/pivot display effect.
+      // We can't re-run calculateProcessedTableData. We'll have to manually blank it.
+      const finalPivotedDataWithCorrectTotals: DietDataRow[] = [];
+      let lastActualKeyValues: (string | number | undefined)[] = new Array(auditGroupings.length).fill(undefined);
+      dataWithTotals.forEach((row, rowIndex) => {
+        const newRow = { ...row };
+        if (rowIndex === 0) {
+            auditGroupings.forEach((gCol, i) => { lastActualKeyValues[i] = newRow[gCol.column]; });
+            finalPivotedDataWithCorrectTotals.push(newRow);
+            return;
+        }
+
+        let baseGroupChanged = false;
+        for (let i = 0; i < auditGroupings.length; i++) {
+            const gColName = auditGroupings[i].column;
+            const currentValue = newRow[gColName];
+            
+            if (baseGroupChanged) { 
+                lastActualKeyValues[i] = currentValue;
+                continue;
+            }
+
+            if (currentValue === lastActualKeyValues[i]) { 
+                newRow[gColName] = PIVOT_BLANK_MARKER;
+            } else {
+                lastActualKeyValues[i] = currentValue;
+                baseGroupChanged = true;
+            }
+        }
+        finalPivotedDataWithCorrectTotals.push(newRow);
+      });
+      
       // Step 6: Remap column names for display consistency
-      const finalPivotedData = pivotedData.map(row => {
+      const finalPivotedData = finalPivotedDataWithCorrectTotals.map(row => {
         const newRow = {...row};
-        // Rename the summary column to what DataTable expects for "Total"
-        newRow.total_qty_required_sum = newRow.total_qty_required_for_row_sum;
-        delete newRow.total_qty_required_for_row_sum;
         // Clean up blank type names
         if (newRow.type_name === '(blank)') {
             newRow.type_name = '';
         }
+        // remove the per-animal quantity column as it's not in the target view
+        delete newRow.ingredient_qty_first;
         return newRow;
       });
 
-      const finalGrandTotal = pivotedGrandTotal ? { ...pivotedGrandTotal } : undefined;
-      if (finalGrandTotal) {
-        finalGrandTotal.total_qty_required_sum = finalGrandTotal.total_qty_required_for_row_sum;
-        delete finalGrandTotal.total_qty_required_for_row_sum;
-      }
+      // Calculate the grand total from the un-blanked data
+      const grandTotalSum = dataWithTotals.reduce((sum, row) => sum + (row.total_qty_required_sum || 0), 0);
+      const finalGrandTotal = { 
+        note: "Grand Total",
+        group_name: "Grand Total",
+        total_qty_required_sum: grandTotalSum,
+        base_uom_name_first: finalPivotedData.length > 0 ? finalPivotedData[0].base_uom_name_first : '', // Assume consistent UOM for total
+      };
 
-      const finalColumns = pivotedColumns.map(c => c === 'total_qty_required_for_row_sum' ? 'total_qty_required_sum' : c);
-
+      const finalColumns = [
+        ...auditGroupings.map(g => g.column), 
+        'total_qty_required_sum',
+        'base_uom_name_first' // Keep for UoM concatenation
+      ];
 
       setAuditDisplayData(finalPivotedData);
       setAuditColumns(finalColumns);
