@@ -259,7 +259,7 @@ export default function Home() {
                 { column: 'group_name' },
                 { column: 'meal_start_time' },
                 { column: 'diet_name' },
-                { column: 'type' },
+                { column: 'type_name' },
                 { column: 'ingredient_name' },
             ];
             const auditSummaries: SummarizationOption[] = [
@@ -294,8 +294,8 @@ export default function Home() {
                 }
                 
                 // Cleanup
-                if (newRow.type === '(blank)') {
-                    newRow.type = '';
+                if (newRow.type_name === '(blank)') {
+                    newRow.type_name = '';
                 }
 
                 return newRow;
@@ -313,9 +313,9 @@ export default function Home() {
             } | null = null;
 
             for (const row of dataWithFinalTotals) {
-                const typeName = String(row.type || '').toLowerCase().trim();
+                const typeName = String(row.type_name || '').toLowerCase().trim();
                 const isSpecialType = specialTypes.includes(typeName);
-                const groupKey = `${row.group_name}|${row.meal_start_time}|${row.diet_name}|${row.type}`;
+                const groupKey = `${row.group_name}|${row.meal_start_time}|${row.diet_name}|${row.type_name}`;
 
                 // If we are leaving a special group, add its subtotal row before processing the current row
                 if (currentSpecialGroup && currentSpecialGroup.key !== groupKey) {
@@ -324,7 +324,7 @@ export default function Home() {
                         group_name: PIVOT_BLANK_MARKER,
                         meal_start_time: PIVOT_BLANK_MARKER,
                         diet_name: PIVOT_BLANK_MARKER,
-                        type: PIVOT_BLANK_MARKER,
+                        type_name: PIVOT_BLANK_MARKER,
                         ingredient_name: `Subtotal for ${currentSpecialGroup.name}`,
                         total_qty_required_sum: parseFloat(currentSpecialGroup.total.toFixed(4)),
                         base_uom_name_first: currentSpecialGroup.uom,
@@ -351,7 +351,7 @@ export default function Home() {
                     if (!currentSpecialGroup) {
                         currentSpecialGroup = {
                             key: groupKey,
-                            name: String(row.type),
+                            name: String(row.type_name),
                             total: 0,
                             uom: String(row.base_uom_name_first || ''),
                             templateRow: row
@@ -370,7 +370,7 @@ export default function Home() {
                     group_name: PIVOT_BLANK_MARKER,
                     meal_start_time: PIVOT_BLANK_MARKER,
                     diet_name: PIVOT_BLANK_MARKER,
-                    type: PIVOT_BLANK_MARKER,
+                    type_name: PIVOT_BLANK_MARKER,
                     ingredient_name: `Subtotal for ${currentSpecialGroup.name}`,
                     total_qty_required_sum: parseFloat(currentSpecialGroup.total.toFixed(4)),
                     base_uom_name_first: currentSpecialGroup.uom,
@@ -718,4 +718,6 @@ export default function Home() {
   );
 }
     
+    
+
     
