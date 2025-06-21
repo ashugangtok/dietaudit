@@ -53,10 +53,6 @@ export const exportToPdf = (
   
   const body: (string | number)[][] = tableData.map(row => {
     return tableColumns.map(column => {
-      if (column === 'Received Qty' || column === 'Difference') {
-        return '';
-      }
-
       let cellValue = row[column];
       
       if (cellValue === PIVOT_BLANK_MARKER) {

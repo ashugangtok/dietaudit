@@ -418,12 +418,17 @@ export default function Home() {
             }
         }
         
+        // Ensure Received Qty is a string for the PDF
+        if (newRow['Received Qty'] !== undefined) {
+            newRow['Received Qty'] = String(newRow['Received Qty']);
+        }
+
         // Format Difference column
-        if (uomKey && row['Difference'] !== undefined && typeof row['Difference'] === 'number') {
+        if (row['Difference'] !== undefined && typeof row['Difference'] === 'number') {
             const diff = row['Difference'] as number;
-            const uom = row[uomKey];
-             if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                newRow['Difference'] = `${diff.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${getAbbreviatedUom(uom)}`;
+            const uom = (uomKey && row[uomKey]) ? getAbbreviatedUom(String(row[uomKey])) : '';
+             if (uom) {
+                newRow['Difference'] = `${diff.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom}`;
             } else {
                 newRow['Difference'] = diff.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
             }
