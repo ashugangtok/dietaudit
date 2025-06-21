@@ -154,17 +154,21 @@ export async function parseExcelFlow(input: ParseExcelInput): Promise<ParseExcel
         return { parsedData: [], headers: actualHeaders };
     }
     
-    // Potentially large data check:
-    const responsePayloadSize = JSON.stringify({ parsedData, headers: actualHeaders }).length;
+    const responsePayload = { parsedData, headers: actualHeaders };
+    const responsePayloadSize = JSON.stringify(responsePayload).length;
     console.log(`[parseExcelFlow] Estimated response payload size for ${input.originalFileName}: ${responsePayloadSize} bytes.`);
-    if (responsePayloadSize > 4 * 1024 * 1024) { // 4MB, a common server limit for JSON payloads
-        console.warn(`[parseExcelFlow] Response payload for ${input.originalFileName} is very large: ${responsePayloadSize} bytes. This might exceed server limits and cause 'unexpected response'.`);
-        // Consider returning an error or a subset of data if this is a recurring issue.
-        // For now, we'll still attempt to return it.
+    
+    const MAX_PAYLOAD_SIZE = 4 * 1024 * 1024; // 4MB, a common server limit for JSON payloads
+    if (responsePayloadSize > MAX_PAYLOAD_SIZE) {
+        console.error(`[parseExcelFlow] Response payload for ${input.originalFileName} exceeds the ${MAX_PAYLOAD_SIZE / (1024*1024)}MB limit. Size: ${responsePayloadSize} bytes.`);
+        return { 
+            parsedData: [], 
+            headers: [], 
+            error: `The processed file is too large to be sent back to the application (over 4MB). Please use a smaller file.`
+        };
     }
 
-
-    return { parsedData, headers: actualHeaders };
+    return responsePayload;
 
   } catch (err: any) {
     console.error(`[parseExcelFlow] Critical error during Excel processing for file (${input.originalFileName}):`, err);
