@@ -255,7 +255,7 @@ export default function Home() {
                 { column: 'ingredient_name' },
             ];
             const auditSummaries: SummarizationOption[] = [
-                { column: 'ingredient_qty', type: 'sum' }, // Get total per-animal qty
+                { column: 'ingredient_qty', type: 'sum' },
                 { column: 'base_uom_name', type: 'first' },
             ];
 
@@ -275,10 +275,10 @@ export default function Home() {
                 const newRow = { ...row };
                 const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
                 
-                // Calculate final total
-                const totalAnimals = dietGroupAnimalCounts.get(dietKey) || 0;
-                const perAnimalQtySum = parseFloat(String(row.ingredient_qty_sum)) || 0;
-                newRow.total_qty_required_sum = perAnimalQtySum * totalAnimals;
+                // The 'ingredient_qty_sum' is already the total required quantity, as it's the sum of per-animal quantities.
+                // The previous logic incorrectly multiplied this sum again by the animal count.
+                // We just need to ensure the column name is correct for display.
+                newRow.total_qty_required_sum = parseFloat(String(row.ingredient_qty_sum)) || 0;
 
                 // Format diet name with species breakdown
                 const breakdownString = dietToSpeciesBreakdown.get(dietKey);
@@ -314,8 +314,8 @@ export default function Home() {
             // Step 7: Calculate final grand total
             const finalGrandTotal = initialGrandTotal ? { ...initialGrandTotal } : undefined;
             if (finalGrandTotal) {
-                const totalOfTotals = dataWithFinalTotals.reduce((sum, r) => sum + (Number(r.total_qty_required_sum) || 0), 0);
-                finalGrandTotal.total_qty_required_sum = totalOfTotals;
+                // The grand total from the processor is already correct. Just assign it to the display column.
+                finalGrandTotal.total_qty_required_sum = finalGrandTotal.ingredient_qty_sum;
             }
             
             // Step 8: Final cleanup and state update
@@ -529,7 +529,7 @@ export default function Home() {
       <div className="px-4 py-2 border-b flex-1 min-h-0 flex flex-col">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full h-full flex flex-col">
           <TabsList className="bg-muted p-1 rounded-md grid grid-cols-1 sm:grid-cols-3 md:grid-cols-3">
-            <TabsTrigger value="uploadExcel" className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-primary/10 data-[state=inactive]:text-muted-foreground rounded-sm flex items-center justify-center gap-2"><UploadCloud className="h-4 w-4"/>Upcel</TabsTrigger>
+            <TabsTrigger value="uploadExcel" className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-primary/10 data-[state=inactive]:text-muted-foreground rounded-sm flex items-center justify-center gap-2"><UploadCloud className="h-4 w-4"/>Upload</TabsTrigger>
             <TabsTrigger value="extractedData" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-primary/10 data-[state=inactive]:text-muted-foreground rounded-sm flex items-center justify-center gap-2"><TableIcon className="h-4 w-4" />View Data</TabsTrigger>
             <TabsTrigger value="audit" disabled={!isFileSelected && !isLoading} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:hover:bg-primary/10 data-[state=inactive]:text-muted-foreground rounded-sm flex items-center justify-center gap-2"><FileSearch className="h-4 w-4"/>Audit</TabsTrigger>
           </TabsList>
