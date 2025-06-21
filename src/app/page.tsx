@@ -7,7 +7,6 @@ import { FileSpreadsheet, FileSearch, TableIcon, Download, Loader2, UploadCloud 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { useTableProcessor, calculateProcessedTableData } from '@/hooks/useTableProcessor';
 import type { DietDataRow, GroupingOption, SummarizationOption, FilterOption } from '@/types';
@@ -22,8 +21,6 @@ import SimpleFilterPanel from '@/components/SimpleFilterPanel';
 import DietWiseLogo from '@/components/DietWiseLogo';
 import { exportToPdf } from '@/lib/pdfUtils';
 import { parseExcelFlow } from '@/ai/flows/parse-excel-flow';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 
 
 export default function Home() {
@@ -211,7 +208,7 @@ export default function Home() {
         rawData, [], [], filters, allHeaders, true
       );
 
-      // Step 2: Calculate total unique animals for each diet group
+      // Step 2: Calculate total unique animals for each diet group (group_name, meal_start_time, diet_name)
       const dietAnimalCountMap = new Map<string, number>();
       if (allHeaders.includes('animal_id')) {
           const dietAnimalIdSets = new Map<string, Set<string>>();
@@ -230,17 +227,21 @@ export default function Home() {
       }
 
       // Step 3: Pre-process data to add a 'total_qty_required' field to each row
+      // This is the correct approach: calculate the total required on each raw data row first.
       const dataWithTotalRequired = filteredData.map(row => {
         const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
         const total_animals = dietAnimalCountMap.get(dietKey) || 0;
         const qty_per_animal = parseFloat(String(row.ingredient_qty)) || 0;
         return {
           ...row,
-          total_qty_required: qty_per_animal * total_animals,
+          // We are creating a temporary column to hold the total required for THIS specific ingredient row.
+          // This prevents summing up animal counts multiple times.
+          total_qty_required_for_row: qty_per_animal * total_animals,
         };
       });
 
-      // Step 4: Define groupings and summaries for the pivot view
+      // Step 4: Define groupings and summaries for the pivot view.
+      // We will now SUM the pre-calculated 'total_qty_required_for_row'.
       const auditGroupings: GroupingOption[] = [
         { column: 'group_name' },
         { column: 'meal_start_time' },
@@ -249,26 +250,49 @@ export default function Home() {
         { column: 'ingredient_name' },
       ];
       const auditSummaries: SummarizationOption[] = [
-        { column: 'total_qty_required', type: 'sum' },
+        { column: 'total_qty_required_for_row', type: 'sum' },
+        // Also get the UoM to display it correctly.
+        { column: 'base_uom_name', type: 'first' },
       ];
 
       // Step 5: Process the data into the pivot table format
       const { processedData: pivotedData, columns: pivotedColumns, grandTotalRow: pivotedGrandTotal } = calculateProcessedTableData(
-        dataWithTotalRequired, auditGroupings, auditSummaries, [], [...allHeaders, 'total_qty_required'], true, false
+        // Use the data with the pre-calculated row totals
+        dataWithTotalRequired, 
+        auditGroupings, 
+        auditSummaries, 
+        [], 
+        // Ensure the new temporary column is included in headers for processing
+        [...allHeaders, 'total_qty_required_for_row'], 
+        true, 
+        false
       );
       
-      // Handle (blank) type_name - replace with empty string for cleaner display
+      // Step 6: Remap column names for display consistency
       const finalPivotedData = pivotedData.map(row => {
-        if (row.type_name === '(blank)') {
-            return { ...row, type_name: '' };
+        const newRow = {...row};
+        // Rename the summary column to what DataTable expects for "Total"
+        newRow.total_qty_required_sum = newRow.total_qty_required_for_row_sum;
+        delete newRow.total_qty_required_for_row_sum;
+        // Clean up blank type names
+        if (newRow.type_name === '(blank)') {
+            newRow.type_name = '';
         }
-        return row;
+        return newRow;
       });
+
+      const finalGrandTotal = pivotedGrandTotal ? { ...pivotedGrandTotal } : undefined;
+      if (finalGrandTotal) {
+        finalGrandTotal.total_qty_required_sum = finalGrandTotal.total_qty_required_for_row_sum;
+        delete finalGrandTotal.total_qty_required_for_row_sum;
+      }
+
+      const finalColumns = pivotedColumns.map(c => c === 'total_qty_required_for_row_sum' ? 'total_qty_required_sum' : c);
 
 
       setAuditDisplayData(finalPivotedData);
-      setAuditColumns(pivotedColumns);
-      setAuditGrandTotal(pivotedGrandTotal);
+      setAuditColumns(finalColumns);
+      setAuditGrandTotal(finalGrandTotal);
       setIsLoading(false);
     } else if (activeTab === 'audit' && (!hasAppliedFilters || rawData.length === 0)) {
         setAuditDisplayData([]);
@@ -304,9 +328,9 @@ export default function Home() {
     
     const uomKey = columnsToExport.find(k => k.startsWith('base_uom_name_') && k.endsWith('_first'));
     const ingredientQtyFirstKey = columnsToExport.find(k => k.startsWith('ingredient_qty_') && k.endsWith('_first'));
-    const totalQtyRequiredKey = columnsToExport.find(k => k === 'total_qty_required_calculated');
+    const totalQtyRequiredKey = columnsToExport.find(k => k === 'total_qty_required_calculated' || k === 'total_qty_required_sum');
 
-    if (uomKey && (ingredientQtyFirstKey || totalQtyRequiredKey) && allHeaders.includes('base_uom_name')) {
+    if (uomKey && (ingredientQtyFirstKey || totalQtyRequiredKey)) {
         dataToExport = dataToExport.map(row => {
             const newRow = {...row};
             if (ingredientQtyFirstKey && newRow[ingredientQtyFirstKey] !== undefined) {
@@ -318,7 +342,7 @@ export default function Home() {
             }
             if (totalQtyRequiredKey && newRow[totalQtyRequiredKey] !== undefined) {
                 const totalQty = newRow[totalQtyRequiredKey];
-                const uom = row[uomKey]; 
+                const uom = row[uomKey] || (grandTotalToExport ? grandTotalToExport[uomKey] : undefined);
                 if (typeof totalQty === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
                     newRow[totalQtyRequiredKey] = `${totalQty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
                 }
@@ -326,7 +350,7 @@ export default function Home() {
             return newRow;
         });
 
-        if (grandTotalToExport) {
+        if (grandTotalToExport && uomKey) {
             if (ingredientQtyFirstKey && grandTotalToExport[ingredientQtyFirstKey] !== undefined && typeof grandTotalToExport[ingredientQtyFirstKey] === 'number') {
                 const qty = grandTotalToExport[ingredientQtyFirstKey] as number;
                 const uom = grandTotalToExport[uomKey];
@@ -336,7 +360,7 @@ export default function Home() {
             }
             if (totalQtyRequiredKey && grandTotalToExport[totalQtyRequiredKey] !== undefined && typeof grandTotalToExport[totalQtyRequiredKey] === 'number') {
                 const qty = grandTotalToExport[totalQtyRequiredKey] as number;
-                const uom = grandTotalToExport[uomKey]; 
+                const uom = grandTotalToExport[uomKey];
                 if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
                     grandTotalToExport[totalQtyRequiredKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
                 }
