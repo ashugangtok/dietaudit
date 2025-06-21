@@ -328,6 +328,8 @@ export default function Home() {
             const finalColumns = [
                 ...auditGroupings.map(g => g.column), 
                 'total_qty_required_sum',
+                'Received Qty',
+                'Difference',
                 'base_uom_name_first'
             ];
             
@@ -416,9 +418,9 @@ export default function Home() {
       
       const totalQtyKey = 'total_qty_required_sum';
       const totalQtyIndex = pdfColumns.indexOf(totalQtyKey);
-      if (totalQtyIndex !== -1) {
+      if (totalQtyIndex !== -1 && !pdfColumns.includes('Received Qty')) {
           pdfColumns.splice(totalQtyIndex + 1, 0, 'Received Qty', 'Difference');
-      } else {
+      } else if (totalQtyIndex === -1 && !pdfColumns.includes('Received Qty')) {
           pdfColumns.push('Received Qty', 'Difference');
       }
 
