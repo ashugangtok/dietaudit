@@ -208,7 +208,38 @@ export default function Home() {
                 rawData, [], [], filters, allHeaders, true
             );
 
-            // Step 2: Get total animal count per diet group
+            // Step 2: Get species breakdown for each diet group for display
+            const dietToSpeciesBreakdown = new Map<string, string>();
+            if (allHeaders.includes('common_name') && allHeaders.includes('animal_id')) {
+                const dietSpeciesAnimals = new Map<string, Map<string, Set<string>>>();
+                filteredData.forEach(row => {
+                    const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
+                    if (!dietSpeciesAnimals.has(dietKey)) {
+                        dietSpeciesAnimals.set(dietKey, new Map());
+                    }
+                    const speciesMap = dietSpeciesAnimals.get(dietKey)!;
+                    const speciesName = String(row.common_name || 'Unknown');
+                    if (!speciesMap.has(speciesName)) {
+                        speciesMap.set(speciesName, new Set());
+                    }
+                    if (row.animal_id) {
+                        speciesMap.get(speciesName)!.add(String(row.animal_id));
+                    }
+                });
+
+                dietSpeciesAnimals.forEach((speciesMap, dietKey) => {
+                    const dietName = dietKey.split('|')[2] || 'Diet';
+                    const totalSpeciesCount = speciesMap.size;
+                    const breakdownLines = Array.from(speciesMap.entries())
+                        .map(([species, animalSet]) => `${species} (${animalSet.size})`)
+                        .sort();
+                    const header = `${dietName} (${totalSpeciesCount})`;
+                    const finalBreakdownString = [header, ...breakdownLines].join('\n');
+                    dietToSpeciesBreakdown.set(dietKey, finalBreakdownString);
+                });
+            }
+
+            // Step 3: Get total animal count per diet group for calculation
             const dietGroupAnimalCounts = new Map<string, number>();
             if (allHeaders.includes('animal_id')) {
                 const animalsPerDietGroup = new Map<string, Set<string>>();
@@ -226,7 +257,19 @@ export default function Home() {
                 });
             }
 
-            // Step 3: Define groupings and summaries to get ONE row per ingredient *per animal*
+            // Step 4: Process the data
+            const dataWithTotals = filteredData.map(row => {
+                const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
+                const totalAnimals = dietGroupAnimalCounts.get(dietKey) || 0;
+                const qtyPerAnimal = parseFloat(String(row.ingredient_qty)) || 0;
+                return {
+                    ...row,
+                    total_animal_count: totalAnimals,
+                    total_qty_required_sum: qtyPerAnimal * totalAnimals,
+                };
+            });
+            
+            // Step 5: Define final groupings and summaries for the pivot table view
             const auditGroupings: GroupingOption[] = [
                 { column: 'group_name' },
                 { column: 'meal_start_time' },
@@ -235,81 +278,46 @@ export default function Home() {
                 { column: 'ingredient_name' },
             ];
             const auditSummaries: SummarizationOption[] = [
-                { column: 'ingredient_qty', type: 'first' },
+                { column: 'total_qty_required_sum', type: 'sum' },
                 { column: 'base_uom_name', type: 'first' },
             ];
-            
-            // Step 4: Process the data to get the aggregated, per-ingredient rows (without pivot-style blanking).
-            const { processedData: aggregatedIngredients } = calculateProcessedTableData(
-                filteredData,
+
+            const { processedData: finalPivotedDataWithSums, grandTotalRow: finalGrandTotal } = calculateProcessedTableData(
+                dataWithTotals,
                 auditGroupings,
                 auditSummaries,
                 [], // Filters already applied
                 allHeaders,
                 true,
-                true // disableDisplayBlanking = true
+                false // Enable display blanking
             );
 
-            // Step 5: Add total animal count and calculate total qty required for each ingredient
-            const dataWithTotals = aggregatedIngredients.map(row => {
-                const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
-                const totalAnimals = dietGroupAnimalCounts.get(dietKey) || 0;
-                const qtyPerAnimal = parseFloat(String(row.ingredient_qty_first)) || 0;
-                
-                return {
-                    ...row,
-                    total_animal_count: totalAnimals,
-                    total_qty_required_sum: qtyPerAnimal * totalAnimals,
-                };
-            });
-
-            // Step 6: Create final pivoted data with row-spanning look for display
-            const finalPivotedDataWithCorrectTotals: DietDataRow[] = [];
-            let lastActualKeyValues: (string | number | undefined)[] = new Array(auditGroupings.length).fill(undefined);
-
-            dataWithTotals.forEach((row, rowIndex) => {
-                const newRow = { ...row };
-                let baseGroupChanged = false;
-                for (let i = 0; i < auditGroupings.length; i++) {
-                    const gColName = auditGroupings[i].column;
-                    const currentValue = newRow[gColName];
-                    
-                    if (baseGroupChanged) {
-                        lastActualKeyValues[i] = currentValue;
-                        continue;
-                    }
-
-                    if (rowIndex > 0 && currentValue === lastActualKeyValues[i]) {
-                        newRow[gColName] = PIVOT_BLANK_MARKER;
-                    } else {
-                        lastActualKeyValues[i] = currentValue;
-                        baseGroupChanged = true;
+            // Step 6: Apply the species breakdown to the diet name column
+            const finalPivotedData = finalPivotedDataWithSums.map(row => {
+                if (row.diet_name && row.diet_name !== PIVOT_BLANK_MARKER) {
+                    const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
+                    const breakdownString = dietToSpeciesBreakdown.get(dietKey);
+                    if (breakdownString) {
+                        return { ...row, diet_name: breakdownString };
                     }
                 }
-                finalPivotedDataWithCorrectTotals.push(newRow);
-            });
-            
-            // Step 7: Final cleanup and grand total calculation
-            const finalPivotedData = finalPivotedDataWithCorrectTotals.map(row => {
                 const newRow = {...row};
                 if (newRow.type_name === '(blank)') {
                     newRow.type_name = '';
                 }
                 return newRow;
             });
-
-            // The grand total in this view isn't a simple sum, so we omit it.
+            
+            // Step 7: Final cleanup and state update
             const finalColumns = [
                 ...auditGroupings.map(g => g.column), 
-                'ingredient_qty_first', // Qty per animal
-                'total_animal_count', // Total animals for the diet group
-                'total_qty_required_sum', // Total Qty = (Qty Per Animal * Total Animals)
-                'base_uom_name_first' // Unit
+                'total_qty_required_sum',
+                'base_uom_name_first'
             ];
-
+            
             setAuditDisplayData(finalPivotedData);
             setAuditColumns(finalColumns);
-            setAuditGrandTotal(undefined); // No grand total for this view
+            setAuditGrandTotal(finalGrandTotal);
             setIsLoading(false);
         } else if (activeTab === 'audit' && (!hasAppliedFilters || rawData.length === 0)) {
             setAuditDisplayData([]);
