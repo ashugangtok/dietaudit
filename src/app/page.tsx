@@ -3,11 +3,10 @@
 
 import React from 'react';
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { FileSpreadsheet, FileSearch, TableIcon, Download, Loader2, UploadCloud, CheckSquare } from 'lucide-react';
+import { FileSpreadsheet, FileSearch, TableIcon, Download, Loader2, UploadCloud } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { useTableProcessor, calculateProcessedTableData } from '@/hooks/useTableProcessor';
@@ -47,6 +46,8 @@ export default function Home() {
 
   // State for Audit Tab
   const [auditDisplayData, setAuditDisplayData] = useState<DietDataRow[]>([]);
+  const [auditColumns, setAuditColumns] = useState<string[]>([]);
+  const [auditGrandTotal, setAuditGrandTotal] = useState<DietDataRow | undefined>(undefined);
 
 
   const { toast } = useToast();
@@ -67,6 +68,8 @@ export default function Home() {
         setHasAppliedFilters(false);
         setFilters([]);
         setAuditDisplayData([]);
+        setAuditColumns([]);
+        setAuditGrandTotal(undefined);
     }
   }, [isFileSelected, rawData]);
 
@@ -82,6 +85,8 @@ export default function Home() {
     setFilters([]);
     setHasAppliedFilters(false);
     setAuditDisplayData([]);
+    setAuditColumns([]);
+    setAuditGrandTotal(undefined);
     setIsFileSelected(true);
     setActiveTab("uploadExcel");
 
@@ -224,96 +229,72 @@ export default function Home() {
           });
       }
 
-      // Step 3: Get per-ingredient data
+      // Step 3: Pre-process data to add a 'total_qty_required' field to each row
+      const dataWithTotalRequired = filteredData.map(row => {
+        const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
+        const total_animals = dietAnimalCountMap.get(dietKey) || 0;
+        const qty_per_animal = parseFloat(String(row.ingredient_qty)) || 0;
+        return {
+          ...row,
+          total_qty_required: qty_per_animal * total_animals,
+        };
+      });
+
+      // Step 4: Define groupings and summaries for the pivot view
       const auditGroupings: GroupingOption[] = [
         { column: 'group_name' },
         { column: 'meal_start_time' },
         { column: 'diet_name' },
+        { column: 'type_name' },
         { column: 'ingredient_name' },
       ];
       const auditSummaries: SummarizationOption[] = [
-        { column: 'ingredient_qty', type: 'first' },
-        { column: 'base_uom_name', type: 'first' },
+        { column: 'total_qty_required', type: 'sum' },
       ];
-      const { processedData: ingredientData } = calculateProcessedTableData(
-        filteredData, auditGroupings, auditSummaries, [], allHeaders, true, true
+
+      // Step 5: Process the data into the pivot table format
+      const { processedData: pivotedData, columns: pivotedColumns, grandTotalRow: pivotedGrandTotal } = calculateProcessedTableData(
+        dataWithTotalRequired, auditGroupings, auditSummaries, [], [...allHeaders, 'total_qty_required'], true, false
       );
+      
+      // Handle (blank) type_name - replace with empty string for cleaner display
+      const finalPivotedData = pivotedData.map(row => {
+        if (row.type_name === '(blank)') {
+            return { ...row, type_name: '' };
+        }
+        return row;
+      });
 
-      // Step 4: Combine data
-      const finalAuditData = ingredientData.map(row => {
-        const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
-        const total_animals = dietAnimalCountMap.get(dietKey) || 0;
-        const qty_per_animal = parseFloat(String(row.ingredient_qty_first)) || 0;
-        
-        return {
-          group_name: row.group_name,
-          meal_start_time: row.meal_start_time,
-          diet_name: row.diet_name,
-          ingredient_name: row.ingredient_name,
-          qty_per_animal: qty_per_animal,
-          total_animals: total_animals,
-          total_qty_required: qty_per_animal * total_animals,
-          unit: row.base_uom_name_first,
-        };
-      }).filter(row => row.group_name !== PIVOT_BLANK_MARKER && row.ingredient_name !== PIVOT_BLANK_MARKER);
 
-      setAuditDisplayData(finalAuditData as DietDataRow[]);
+      setAuditDisplayData(finalPivotedData);
+      setAuditColumns(pivotedColumns);
+      setAuditGrandTotal(pivotedGrandTotal);
       setIsLoading(false);
     } else if (activeTab === 'audit' && (!hasAppliedFilters || rawData.length === 0)) {
         setAuditDisplayData([]);
+        setAuditColumns([]);
+        setAuditGrandTotal(undefined);
     }
   }, [activeTab, rawData, allHeaders, filters, hasAppliedFilters]);
 
 
   const handleDownloadAllPdf = () => {
-    if (activeTab === 'audit') {
-      if (auditDisplayData.length === 0 || !hasAppliedFilters) {
-        toast({ variant: "destructive", title: "No Data", description: "No data available to export for the audit view." });
-        return;
-      }
-
-      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-      doc.setFontSize(16);
-      doc.text(`Audit Data Report - ${rawFileName}`, 40, 40);
-
-      const head = [['Group Name', 'Start Time', 'Diet Name', 'Ingredient Name', 'Qty Per Animal', 'Total Animals', 'Total Qty Required', 'Unit']];
-      const body: (string | number)[][] = auditDisplayData.map(row => [
-          String(row.group_name || ''),
-          String(row.meal_start_time || ''),
-          String(row.diet_name || ''),
-          String(row.ingredient_name || ''),
-          (typeof row.qty_per_animal === 'number') ? row.qty_per_animal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : '',
-          String(row.total_animals || '0'),
-          (typeof row.total_qty_required === 'number') ? row.total_qty_required.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : '',
-          String(row.unit || ''),
-      ]);
-
-      autoTable(doc, {
-        head: head,
-        body: body,
-        startY: 60,
-        theme: 'striped',
-        headStyles: { fillColor: [38, 153, 153], textColor: [255,255,255] },
-        styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
-        didDrawPage: (data) => {
-            doc.setFontSize(8);
-            doc.text("Page " + doc.internal.getNumberOfPages(), doc.internal.pageSize.width - 50, doc.internal.pageSize.height - 20);
-        },
-      });
-
-      doc.save(`${rawFileName}_audit_report.pdf`);
-      toast({ title: "PDF Download Started", description: "Your Audit Report PDF is being generated." });
-      return;
-    }
-
-    // --- Existing logic for other tabs ---
     let dataToExport: DietDataRow[] = [];
     let columnsToExport: string[] = [];
     let grandTotalToExport: DietDataRow | undefined = undefined;
     let reportTitleSuffix = "Report";
     let isViewDataForPdf = false;
 
-    if (activeTab === "extractedData") { 
+    if (activeTab === 'audit') {
+      if (auditDisplayData.length === 0 || !hasAppliedFilters) {
+        toast({ variant: "destructive", title: "No Data", description: "No data available to export for the audit view." });
+        return;
+      }
+      dataToExport = auditDisplayData;
+      columnsToExport = auditColumns;
+      grandTotalToExport = auditGrandTotal;
+      reportTitleSuffix = "Audit Report";
+    } else if (activeTab === "extractedData") { 
         dataToExport = processedData.map(row => ({...row})); 
         columnsToExport = [...currentTableColumns];
         grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined; 
@@ -389,38 +370,12 @@ export default function Home() {
                 Download PDF
             </Button>
         </div>
-        <ScrollArea className="rounded-md border h-full">
-            <Table className="min-w-full">
-                <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
-                    <TableRow>
-                        <TableHead>Group Name</TableHead>
-                        <TableHead>Start Time</TableHead>
-                        <TableHead>Diet Name</TableHead>
-                        <TableHead>Ingredient Name</TableHead>
-                        <TableHead className="text-right">Qty Per Animal</TableHead>
-                        <TableHead className="text-right">Total Animals</TableHead>
-                        <TableHead className="text-right">Total Qty Required</TableHead>
-                        <TableHead>Unit</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {auditDisplayData.map((row, index) => (
-                    <TableRow key={index}>
-                      <TableCell>{String(row.group_name || '')}</TableCell>
-                      <TableCell>{String(row.meal_start_time || '')}</TableCell>
-                      <TableCell>{String(row.diet_name || '')}</TableCell>
-                      <TableCell>{String(row.ingredient_name || '')}</TableCell>
-                      <TableCell className="text-right">{(typeof row.qty_per_animal === 'number') ? row.qty_per_animal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : ''}</TableCell>
-                      <TableCell className="text-right">{String(row.total_animals || '0')}</TableCell>
-                      <TableCell className="text-right">{(typeof row.total_qty_required === 'number') ? row.total_qty_required.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : ''}</TableCell>
-                      <TableCell>{String(row.unit || '')}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-            </Table>
-            <ScrollBar orientation="horizontal" />
-            <ScrollBar orientation="vertical" />
-        </ScrollArea>
+        <DataTable
+          data={auditDisplayData}
+          columns={auditColumns}
+          grandTotalRow={auditGrandTotal}
+          allHeaders={allHeaders}
+        />
       </div>
     );
   };

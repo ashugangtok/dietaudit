@@ -97,7 +97,9 @@ const DataTable: React.FC<DataTableProps> = ({
           <TableRow>
             {effectiveDisplayColumns.map((column) => {
               let headerText = column;
-               if (column === totalAnimalFirstKey) { 
+               if (column === 'total_qty_required_sum') {
+                 headerText = 'Total';
+               } else if (column === totalAnimalFirstKey) { 
                  headerText = 'Animal Count'; 
                } else if (column === ingredientQtyFirstKey) {
                  headerText = 'Qty/Animal'; 
@@ -168,6 +170,7 @@ const DataTable: React.FC<DataTableProps> = ({
                   const isNumericOutputCol = (typeof row[column] === 'number' && column !== uomRowDataKey) || 
                                           (column === ingredientQtyFirstKey && typeof row[column] === 'number') ||
                                           (column === totalQtyRequiredCalculatedColKey && typeof row[column] === 'number') ||
+                                          (column === 'total_qty_required_sum' && typeof row[column] === 'number') ||
                                           (isPotentiallyNumeric && typeof row[column] === 'number');
 
 
@@ -222,6 +225,7 @@ const DataTable: React.FC<DataTableProps> = ({
                  
                  const isNumericGTOutputCol = (typeof grandTotalRow[column] === 'number' && column !== uomRowDataKey) ||
                                           ((column === ingredientQtyFirstKey || column === totalQtyRequiredCalculatedColKey) && typeof grandTotalRow[column] === 'number') ||
+                                          (column === 'total_qty_required_sum' && typeof grandTotalRow[column] === 'number') ||
                                           (isPotentiallyNumericGT && typeof grandTotalRow[column] === 'number');
                  
                  if (column === dietNameColumnKey && typeof displayCellValue === 'string' && displayCellValue.includes('\n')) {
@@ -250,4 +254,3 @@ const DataTable: React.FC<DataTableProps> = ({
 
 
 export default DataTable;
-
