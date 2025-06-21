@@ -1,7 +1,7 @@
 
 "use client";
 
-import React from 'react'; // Changed from "import type React from 'react';"
+import React from 'react';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { FileSpreadsheet, FileSearch, TableIcon, Download, Loader2, UploadCloud, CheckSquare } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,6 +26,8 @@ import SimpleFilterPanel from '@/components/SimpleFilterPanel';
 import DietWiseLogo from '@/components/DietWiseLogo';
 import { exportToPdf } from '@/lib/pdfUtils';
 import { parseExcelFlow } from '@/ai/flows/parse-excel-flow';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 
 export default function Home() {
@@ -347,21 +349,110 @@ export default function Home() {
 
 
   const handleDownloadAllPdf = () => {
+    if (activeTab === 'audit') {
+      if (auditDisplayData.length === 0 || !hasAppliedFilters) {
+        toast({ variant: "destructive", title: "No Data", description: "No data available to export for the audit view." });
+        return;
+      }
+
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      doc.setFontSize(16);
+      doc.text(`Audit Data Report - ${rawFileName}`, 40, 40);
+
+      const head = [['Group Name', 'Start Time', 'Diet Name', 'Species & Animal Count', 'Type Name', 'Ingredient Name', 'Qty/# Species', 'Qty/Total Animals', 'Qty to be Received', 'Qty Received', 'Difference']];
+      const body: (string | number)[][] = [];
+
+      auditDisplayData.forEach(group => {
+        let isFirstRowOfGroup = true;
+        group.dietContexts.forEach(dietCtx => {
+          let isFirstRowOfDiet = true;
+          dietCtx.speciesBreakdown.forEach(species => {
+            let isFirstRowOfSpecies = true;
+            species.types.forEach(type => {
+              let isFirstRowOfType = true;
+              type.ingredients.forEach(ing => {
+                const ingKey = buildAuditQtyKey(group.groupName, dietCtx.dietName, dietCtx.mealStartTime, species.speciesName, type.typeName, ing.ingredientName);
+                const qtyReceivedVal = parseFloat(String(auditActualQuantities[ingKey] || ''));
+                const differenceVal = isNaN(qtyReceivedVal) ? '' : (ing.qtyForTotalSpecies - qtyReceivedVal);
+                
+                body.push([
+                  isFirstRowOfGroup ? group.groupName : '',
+                  isFirstRowOfDiet ? dietCtx.mealStartTime : '',
+                  isFirstRowOfDiet ? `${dietCtx.dietName}\n${dietCtx.speciesSummaryText}` : '',
+                  isFirstRowOfSpecies ? `${species.speciesName} (${species.animalCount})` : '',
+                  isFirstRowOfType ? type.typeName : '',
+                  ing.ingredientName,
+                  `${ing.qtyPerSpecies.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`,
+                  `${ing.qtyForTotalSpecies.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`,
+                  `${ing.qtyForTotalSpecies.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`,
+                  isNaN(qtyReceivedVal) ? '' : `${qtyReceivedVal.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`,
+                  differenceVal === '' ? '' : `${(differenceVal as number).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`,
+                ]);
+                isFirstRowOfGroup = isFirstRowOfDiet = isFirstRowOfSpecies = isFirstRowOfType = false;
+              });
+
+              // Subtotal row for Type
+              const typeKey = buildAuditQtyKey(group.groupName, dietCtx.dietName, dietCtx.mealStartTime, species.speciesName, type.typeName);
+              const qtyReceivedTypeVal = parseFloat(String(auditActualQuantities[typeKey] || ''));
+              const differenceTypeVal = isNaN(qtyReceivedTypeVal) ? '' : (type.plannedQtyTypeTotal - qtyReceivedTypeVal);
+              const uomForType = type.ingredients.length > 0 ? type.ingredients[0].uom : '';
+
+              body.push([
+                '', '', '', '', '',
+                `SUBTOTAL (${type.typeName})`, // Ingredient Name column
+                '', // Qty/# Species
+                '', // Qty/Total Animals
+                `${type.plannedQtyTypeTotal.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uomForType}`,
+                isNaN(qtyReceivedTypeVal) ? '' : `${qtyReceivedTypeVal.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uomForType}`,
+                differenceTypeVal === '' ? '' : `${(differenceTypeVal as number).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uomForType}`,
+              ]);
+            });
+          });
+        });
+      });
+
+      autoTable(doc, {
+        head: head,
+        body: body,
+        startY: 60,
+        theme: 'striped',
+        headStyles: { fillColor: [38, 153, 153], textColor: [255,255,255] },
+        styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak' },
+        didParseCell: (data) => {
+            if (data.row.section === 'body') {
+                const cellText = String(data.cell.text);
+                if (cellText.startsWith('SUBTOTAL')) {
+                    data.cell.styles.fontStyle = 'bold';
+                    data.cell.styles.fillColor = [230, 230, 230];
+                }
+            }
+        },
+        didDrawPage: (data) => {
+            doc.setFontSize(8);
+            doc.text("Page " + doc.internal.getNumberOfPages(), doc.internal.pageSize.width - 50, doc.internal.pageSize.height - 20);
+        },
+      });
+
+      doc.save(`${rawFileName}_audit_report.pdf`);
+      toast({ title: "PDF Download Started", description: "Your Audit Report PDF is being generated." });
+      return;
+    }
+
+    // --- Existing logic for other tabs ---
     let dataToExport: DietDataRow[] = [];
     let columnsToExport: string[] = [];
     let grandTotalToExport: DietDataRow | undefined = undefined;
     let reportTitleSuffix = "Report";
     let isViewDataForPdf = false;
 
-    if (activeTab === "extractedData" || activeTab === "audit") { // Audit tab now uses View Data export style
+    if (activeTab === "extractedData") { 
         dataToExport = processedData.map(row => ({...row})); 
         columnsToExport = [...currentTableColumns];
         grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined; 
-        reportTitleSuffix = activeTab === "extractedData" ? "Full Diet Report" : "Audit Data Report";
+        reportTitleSuffix = "Full Diet Report";
         isViewDataForPdf = true; 
     }
     
-    // UoM concatenation logic (remains the same as it's useful for all exports)
     const uomKey = columnsToExport.find(k => k.startsWith('base_uom_name_') && k.endsWith('_first'));
     const ingredientQtyFirstKey = columnsToExport.find(k => k.startsWith('ingredient_qty_') && k.endsWith('_first'));
     const totalQtyRequiredKey = columnsToExport.find(k => k === 'total_qty_required_calculated');
@@ -401,10 +492,6 @@ export default function Home() {
                     grandTotalToExport[totalQtyRequiredKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
                 }
             }
-        }
-        
-        if (uomKey && (ingredientQtyFirstKey || totalQtyRequiredKey) && (ingredientQtyFirstKey !== uomKey && totalQtyRequiredKey !== uomKey)) {
-             // Columns to export will be filtered in pdfUtils if separate UOM column needs to be removed
         }
     }
     
@@ -463,7 +550,11 @@ export default function Home() {
                                                     {type.ingredients.map((ing, ingIndex) => {
                                                         const ingKey = buildAuditQtyKey(group.groupName, dietCtx.dietName, dietCtx.mealStartTime, species.speciesName, type.typeName, ing.ingredientName);
                                                         const qtyReceivedIng = auditActualQuantities[ingKey] || '';
-                                                        const differenceIng = auditActualQuantities[`${ingKey}_diff`] || '';
+                                                        const qtyReceivedIngVal = parseFloat(String(qtyReceivedIng));
+                                                        const differenceIng = isNaN(qtyReceivedIngVal)
+                                                            ? ''
+                                                            : `${(ing.qtyForTotalSpecies - qtyReceivedIngVal).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 })}`;
+
                                                         const qtyPerSpeciesDisplay = `${ing.qtyPerSpecies.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`;
                                                         const qtyForTotalSpeciesDisplay = `${ing.qtyForTotalSpecies.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${ing.uom}`;
 
@@ -495,7 +586,7 @@ export default function Home() {
                                                                 <Input type="number" value={qtyReceivedIng} onChange={(e) => handleAuditActualQuantityChange(ingKey, e.target.value)} className="h-8 text-right"/>
                                                             </TableCell>
                                                             <TableCell className="text-right">
-                                                                <Input type="number" value={differenceIng} onChange={(e) => handleAuditActualQuantityChange(`${ingKey}_diff`, e.target.value)} className="h-8 text-right"/>
+                                                                {differenceIng}
                                                             </TableCell>
                                                         </TableRow>
                                                     )})}
@@ -503,7 +594,10 @@ export default function Home() {
                                                     {(() => {
                                                         const typeKey = buildAuditQtyKey(group.groupName, dietCtx.dietName, dietCtx.mealStartTime, species.speciesName, type.typeName);
                                                         const qtyReceivedType = auditActualQuantities[typeKey] || '';
-                                                        const differenceType = auditActualQuantities[`${typeKey}_diff`] || '';
+                                                        const qtyReceivedTypeVal = parseFloat(String(qtyReceivedType));
+                                                        const differenceType = isNaN(qtyReceivedTypeVal)
+                                                            ? ''
+                                                            : `${(type.plannedQtyTypeTotal - qtyReceivedTypeVal).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 })}`;
                                                         const uomForType = type.ingredients.length > 0 ? type.ingredients[0].uom : ''; // Assume consistent UOM within type
                                                         const plannedQtyTypeTotalDisplay = `${type.plannedQtyTypeTotal.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:4})} ${uomForType}`;
                                                         
@@ -517,7 +611,7 @@ export default function Home() {
                                                                     <Input type="number" value={qtyReceivedType} onChange={(e) => handleAuditActualQuantityChange(typeKey, e.target.value)} className="h-8 text-right"/>
                                                                 </TableCell>
                                                                 <TableCell className="text-right">
-                                                                    <Input type="number" value={differenceType} onChange={(e) => handleAuditActualQuantityChange(`${typeKey}_diff`, e.target.value)} className="h-8 text-right"/>
+                                                                    {differenceType}
                                                                 </TableCell>
                                                             </TableRow>
                                                         );
