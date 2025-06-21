@@ -345,6 +345,31 @@ export default function Home() {
         }
     }, [activeTab, rawData, allHeaders, filters, hasAppliedFilters]);
 
+  const handleAuditRowChange = (rowIndex: number, column: string, value: string) => {
+    setAuditDisplayData(prevData => {
+      const newData = [...prevData];
+      const rowToUpdate = { ...newData[rowIndex] };
+
+      if (column === 'Received Qty') {
+        rowToUpdate['Received Qty'] = value;
+
+        const totalRequired = rowToUpdate['total_qty_required_sum'];
+        if (typeof totalRequired === 'number' && value.trim() !== '') {
+          const receivedQty = parseFloat(value);
+          if (!isNaN(receivedQty)) {
+            rowToUpdate['Difference'] = receivedQty - totalRequired;
+          } else {
+            rowToUpdate['Difference'] = undefined;
+          }
+        } else {
+          rowToUpdate['Difference'] = undefined;
+        }
+      }
+      
+      newData[rowIndex] = rowToUpdate;
+      return newData;
+    });
+  };
 
   const handleDownloadAllPdf = () => {
     let dataToExport: DietDataRow[] = [];
@@ -370,42 +395,49 @@ export default function Home() {
     
     const uomKey = columnsToExport.find(k => k.startsWith('base_uom_name_') && k.endsWith('_first'));
     const ingredientQtyFirstKey = columnsToExport.find(k => k.startsWith('ingredient_qty_') && k.endsWith('_first'));
-    const totalQtyRequiredKey = columnsToExport.find(k => k === 'total_qty_required_calculated' || k === 'total_qty_required_sum');
+    const totalQtyRequiredKey = 'total_qty_required_sum';
 
-    if (uomKey && (ingredientQtyFirstKey || totalQtyRequiredKey)) {
-        dataToExport = dataToExport.map(row => {
-            const newRow = {...row};
-            if (ingredientQtyFirstKey && newRow[ingredientQtyFirstKey] !== undefined) {
-                const qtyPerAnimal = newRow[ingredientQtyFirstKey];
-                const uom = row[uomKey];
-                if (typeof qtyPerAnimal === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                    newRow[ingredientQtyFirstKey] = `${qtyPerAnimal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${getAbbreviatedUom(uom)}`;
-                }
+    dataToExport = dataToExport.map(row => {
+        const newRow = {...row};
+        
+        // Format Total column
+        if (uomKey && newRow[totalQtyRequiredKey] !== undefined) {
+            const totalQty = newRow[totalQtyRequiredKey];
+            const uom = row[uomKey] || (grandTotalToExport ? grandTotalToExport[uomKey] : undefined);
+            if (typeof totalQty === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
+                newRow[totalQtyRequiredKey] = `${totalQty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${getAbbreviatedUom(uom)}`;
             }
-            if (totalQtyRequiredKey && newRow[totalQtyRequiredKey] !== undefined) {
-                const totalQty = newRow[totalQtyRequiredKey];
-                const uom = row[uomKey] || (grandTotalToExport ? grandTotalToExport[uomKey] : undefined);
-                if (typeof totalQty === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                    newRow[totalQtyRequiredKey] = `${totalQty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${getAbbreviatedUom(uom)}`;
-                }
-            }
-            return newRow;
-        });
+        }
 
-        if (grandTotalToExport && uomKey) {
-            if (ingredientQtyFirstKey && grandTotalToExport[ingredientQtyFirstKey] !== undefined && typeof grandTotalToExport[ingredientQtyFirstKey] === 'number') {
-                const qty = grandTotalToExport[ingredientQtyFirstKey] as number;
-                const uom = grandTotalToExport[uomKey];
-                if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                    grandTotalToExport[ingredientQtyFirstKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${getAbbreviatedUom(uom)}`;
-                }
+        // Format Qty/Animal if it exists
+        if (ingredientQtyFirstKey && uomKey && newRow[ingredientQtyFirstKey] !== undefined) {
+            const qtyPerAnimal = newRow[ingredientQtyFirstKey];
+            const uom = row[uomKey];
+            if (typeof qtyPerAnimal === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
+                newRow[ingredientQtyFirstKey] = `${qtyPerAnimal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${getAbbreviatedUom(uom)}`;
             }
-            if (totalQtyRequiredKey && grandTotalToExport[totalQtyRequiredKey] !== undefined && typeof grandTotalToExport[totalQtyRequiredKey] === 'number') {
-                const qty = grandTotalToExport[totalQtyRequiredKey] as number;
-                const uom = grandTotalToExport[uomKey];
-                if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                    grandTotalToExport[totalQtyRequiredKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${getAbbreviatedUom(uom)}`;
-                }
+        }
+        
+        // Format Difference column
+        if (uomKey && row['Difference'] !== undefined && typeof row['Difference'] === 'number') {
+            const diff = row['Difference'] as number;
+            const uom = row[uomKey];
+             if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
+                newRow['Difference'] = `${diff.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${getAbbreviatedUom(uom)}`;
+            } else {
+                newRow['Difference'] = diff.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
+            }
+        }
+
+        return newRow;
+    });
+
+    if (grandTotalToExport && uomKey) {
+        if (grandTotalToExport[totalQtyRequiredKey] !== undefined && typeof grandTotalToExport[totalQtyRequiredKey] === 'number') {
+            const qty = grandTotalToExport[totalQtyRequiredKey] as number;
+            const uom = grandTotalToExport[uomKey];
+            if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
+                grandTotalToExport[totalQtyRequiredKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${getAbbreviatedUom(uom)}`;
             }
         }
     }
@@ -416,14 +448,6 @@ export default function Home() {
           pdfColumns = pdfColumns.filter(c => c !== uomKey);
       }
       
-      const totalQtyKey = 'total_qty_required_sum';
-      const totalQtyIndex = pdfColumns.indexOf(totalQtyKey);
-      if (totalQtyIndex !== -1 && !pdfColumns.includes('Received Qty')) {
-          pdfColumns.splice(totalQtyIndex + 1, 0, 'Received Qty', 'Difference');
-      } else if (totalQtyIndex === -1 && !pdfColumns.includes('Received Qty')) {
-          pdfColumns.push('Received Qty', 'Difference');
-      }
-
       exportToPdf(dataToExport, pdfColumns, `${reportTitleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab}_report`, grandTotalToExport);
       toast({ title: "PDF Download Started", description: `Your ${reportTitleSuffix} PDF is being generated.` });
     } else if (hasAppliedFilters && dataToExport.length === 0) {
@@ -454,6 +478,8 @@ export default function Home() {
           columns={auditColumns}
           grandTotalRow={auditGrandTotal}
           allHeaders={allHeaders}
+          isAuditTab={true}
+          onAuditRowChange={handleAuditRowChange}
         />
       </div>
     );

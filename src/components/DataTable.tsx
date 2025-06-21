@@ -13,6 +13,7 @@ import {
   TableCell,
   TableCaption,
 } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import type { DietDataRow } from '@/types';
 import { PIVOT_BLANK_MARKER } from '@/types';
@@ -23,7 +24,9 @@ interface DataTableProps {
   grandTotalRow?: DietDataRow;
   isLoading?: boolean;
   allHeaders: string[];
-  isViewDataTab?: boolean; 
+  isViewDataTab?: boolean;
+  isAuditTab?: boolean;
+  onAuditRowChange?: (rowIndex: number, column: string, value: string) => void;
 }
 
 const getAbbreviatedUom = (uom: string): string => {
@@ -40,7 +43,9 @@ const DataTable: React.FC<DataTableProps> = ({
   grandTotalRow,
   isLoading,
   allHeaders,
-  isViewDataTab = false, 
+  isViewDataTab = false,
+  isAuditTab = false,
+  onAuditRowChange,
 }) => {
   if (isLoading) {
     return (
@@ -139,9 +144,39 @@ const DataTable: React.FC<DataTableProps> = ({
                 {effectiveDisplayColumns.map((column) => {
                   let cellContent: React.ReactNode;
                   const cellValue = row[column];
+                  
                   const isQtyColumn = [ingredientQtyFirstKey, totalQtyRequiredCalculatedColKey, 'total_qty_required_sum'].includes(column);
+                  
+                  const originalColumnName = column.replace(/_sum$|_average$|_count$|_first$|_max$/i, '');
+                  const isPotentiallyNumeric = allHeaders.includes(originalColumnName) && 
+                                               !['site_name', 'section_name', 'group_name', 'common_name', 'meal_time', 'ingredient_name', 'diet_name', 'type_name', 'base_uom_name', 'Received Qty', 'Difference'].includes(originalColumnName);
+                  
+                  const isNumericOutputCol = (typeof row[column] === 'number' && column !== uomRowDataKey) || 
+                                          (isQtyColumn && typeof row[column] === 'number') ||
+                                          (isPotentiallyNumeric && typeof row[column] === 'number') ||
+                                          column === 'Difference';
 
-                  if (isQtyColumn && uomRowDataKey && row[uomRowDataKey]) {
+
+                  if (isAuditTab && column === 'Received Qty') {
+                    cellContent = (
+                      <Input
+                        type="number"
+                        className="h-8 w-24 tabular-nums"
+                        value={String(cellValue ?? '')}
+                        onChange={(e) => onAuditRowChange?.(rowIndex, column, e.target.value)}
+                        disabled={row.ingredient_name === undefined || String(row.ingredient_name).trim() === '' || row.ingredient_name === PIVOT_BLANK_MARKER}
+                      />
+                    );
+                  } else if (isAuditTab && column === 'Difference') {
+                      const diffValue = cellValue as number;
+                      const uom = (uomRowDataKey && row[uomRowDataKey]) ? getAbbreviatedUom(String(row[uomRowDataKey])) : '';
+                      if (typeof diffValue === 'number' && !isNaN(diffValue)) {
+                          const diffClassName = diffValue > 0 ? 'text-green-600' : diffValue < 0 ? 'text-red-600' : '';
+                          cellContent = <span className={diffClassName}>{`${diffValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom}`}</span>;
+                      } else {
+                          cellContent = '';
+                      }
+                  } else if (isQtyColumn && uomRowDataKey && row[uomRowDataKey]) {
                       const qtyValue = cellValue;
                       const uom = row[uomRowDataKey]; 
                       const abbreviatedUom = getAbbreviatedUom(String(uom));
@@ -162,25 +197,16 @@ const DataTable: React.FC<DataTableProps> = ({
                     cellContent = (cellValue === undefined || cellValue === null ? '' : String(cellValue));
                   }
 
-                  const originalColumnName = column.replace(/_sum$|_average$|_count$|_first$|_max$/i, '');
-                  const isPotentiallyNumeric = allHeaders.includes(originalColumnName) && 
-                                               !['site_name', 'section_name', 'group_name', 'common_name', 'meal_time', 'ingredient_name', 'diet_name', 'type_name', 'base_uom_name'].includes(originalColumnName);
-                  
-                  const isNumericOutputCol = (typeof row[column] === 'number' && column !== uomRowDataKey) || 
-                                          (isQtyColumn && typeof row[column] === 'number') ||
-                                          (isPotentiallyNumeric && typeof row[column] === 'number');
-
-
                   if (column === dietNameColumnKey && typeof cellContent === 'string' && (cellContent.includes('\n') || (row.note === PIVOT_BLANK_MARKER && String(row[column]).includes('Species')))) {
                     return (
-                      <TableCell key={`${column}-cell`} className={`${isNumericOutputCol ? "text-right" : "text-left"}`}>
+                      <TableCell key={`${column}-cell`} className={`${isNumericOutputCol ? "text-right font-mono tabular-nums" : "text-left"}`}>
                         <div style={{ whiteSpace: 'pre-wrap' }}>{cellContent}</div>
                       </TableCell>
                     );
                   }
                   
                   return (
-                    <TableCell key={`${column}-cell`} className={`${isNumericOutputCol ? "text-right" : "text-left"}`}>
+                    <TableCell key={`${column}-cell`} className={`${isNumericOutputCol ? "text-right font-mono tabular-nums" : "text-left"}`}>
                       {cellContent}
                     </TableCell>
                   );
@@ -197,6 +223,13 @@ const DataTable: React.FC<DataTableProps> = ({
                 const rawCellValue = grandTotalRow[column];
                 const isQtyColumn = [ingredientQtyFirstKey, totalQtyRequiredCalculatedColKey, 'total_qty_required_sum'].includes(column);
 
+                const originalColumnNameGT = column.replace(/_sum$|_average$|_count$|_first$|_max$/i, '');
+                const isPotentiallyNumericGT = allHeaders.includes(originalColumnNameGT) &&
+                                            !['site_name', 'section_name', 'group_name', 'common_name', 'meal_time', 'ingredient_name', 'diet_name', 'type_name', 'base_uom_name'].includes(originalColumnNameGT);
+                
+                const isNumericGTOutputCol = (typeof grandTotalRow[column] === 'number' && column !== uomRowDataKey) ||
+                                         (isQtyColumn && typeof grandTotalRow[column] === 'number') ||
+                                         (isPotentiallyNumericGT && typeof grandTotalRow[column] === 'number');
 
                 if (colIndex === 0 && (rawCellValue === undefined || rawCellValue === null || String(rawCellValue).trim().toLowerCase() === "grand total" || grandTotalRow.note === "Grand Total")) {
                      displayCellValue = "Grand Total";
@@ -218,25 +251,17 @@ const DataTable: React.FC<DataTableProps> = ({
                 } else {
                   displayCellValue = String(rawCellValue);
                 }
-
-                 const originalColumnNameGT = column.replace(/_sum$|_average$|_count$|_first$|_max$/i, '');
-                 const isPotentiallyNumericGT = allHeaders.includes(originalColumnNameGT) &&
-                                             !['site_name', 'section_name', 'group_name', 'common_name', 'meal_time', 'ingredient_name', 'diet_name', 'type_name', 'base_uom_name'].includes(originalColumnNameGT);
-                 
-                 const isNumericGTOutputCol = (typeof grandTotalRow[column] === 'number' && column !== uomRowDataKey) ||
-                                          (isQtyColumn && typeof grandTotalRow[column] === 'number') ||
-                                          (isPotentiallyNumericGT && typeof grandTotalRow[column] === 'number');
                  
                  if (column === dietNameColumnKey && typeof displayCellValue === 'string' && displayCellValue.includes('\n')) {
                     return (
-                        <TableCell key={`${column}-gt`} className={`${isNumericGTOutputCol ? "text-right" : "text-left"}`}>
+                        <TableCell key={`${column}-gt`} className={`${isNumericGTOutputCol ? "text-right font-mono tabular-nums" : "text-left"}`}>
                         <div style={{ whiteSpace: 'pre-wrap' }}>{displayCellValue}</div>
                         </TableCell>
                     );
                  }
 
                  return (
-                    <TableCell key={`${column}-gt`} className={`${isNumericGTOutputCol ? "text-right" : "text-left"}`}>
+                    <TableCell key={`${column}-gt`} className={`${isNumericGTOutputCol ? "text-right font-mono tabular-nums" : "text-left"}`}>
                       {displayCellValue}
                     </TableCell>
                   );
