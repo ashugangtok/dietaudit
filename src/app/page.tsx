@@ -22,6 +22,13 @@ import DietWiseLogo from '@/components/DietWiseLogo';
 import { exportToPdf } from '@/lib/pdfUtils';
 import { parseExcelAction } from '@/lib/actions/parseExcelAction';
 
+const getAbbreviatedUom = (uom: string): string => {
+  if (!uom) return '';
+  const lowerUom = uom.toLowerCase().trim();
+  if (lowerUom === 'kilogram' || lowerUom === 'kilograms') return 'kg';
+  if (lowerUom === 'piece' || lowerUom === 'pieces') return 'pcs';
+  return uom.trim();
+};
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<string>("uploadExcel");
@@ -246,7 +253,7 @@ export default function Home() {
                 });
             }
 
-            // Step 3: Define groupings and SUM ingredient_qty (per animal)
+            // Step 3: Define groupings and SUM ingredient_qty
             const auditGroupings: GroupingOption[] = [
                 { column: 'group_name' },
                 { column: 'meal_start_time' },
@@ -275,9 +282,8 @@ export default function Home() {
                 const newRow = { ...row };
                 const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
                 
-                // The 'ingredient_qty_sum' is already the total required quantity, as it's the sum of per-animal quantities.
-                // The previous logic incorrectly multiplied this sum again by the animal count.
-                // We just need to ensure the column name is correct for display.
+                // The 'ingredient_qty_sum' from the processor is the correct total required quantity.
+                // It correctly sums the per-animal quantity from the filtered raw data.
                 newRow.total_qty_required_sum = parseFloat(String(row.ingredient_qty_sum)) || 0;
 
                 // Format diet name with species breakdown
@@ -373,14 +379,14 @@ export default function Home() {
                 const qtyPerAnimal = newRow[ingredientQtyFirstKey];
                 const uom = row[uomKey];
                 if (typeof qtyPerAnimal === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                    newRow[ingredientQtyFirstKey] = `${qtyPerAnimal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                    newRow[ingredientQtyFirstKey] = `${qtyPerAnimal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${getAbbreviatedUom(uom)}`;
                 }
             }
             if (totalQtyRequiredKey && newRow[totalQtyRequiredKey] !== undefined) {
                 const totalQty = newRow[totalQtyRequiredKey];
                 const uom = row[uomKey] || (grandTotalToExport ? grandTotalToExport[uomKey] : undefined);
                 if (typeof totalQty === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                    newRow[totalQtyRequiredKey] = `${totalQty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                    newRow[totalQtyRequiredKey] = `${totalQty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${getAbbreviatedUom(uom)}`;
                 }
             }
             return newRow;
@@ -391,14 +397,14 @@ export default function Home() {
                 const qty = grandTotalToExport[ingredientQtyFirstKey] as number;
                 const uom = grandTotalToExport[uomKey];
                 if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                    grandTotalToExport[ingredientQtyFirstKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                    grandTotalToExport[ingredientQtyFirstKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${getAbbreviatedUom(uom)}`;
                 }
             }
             if (totalQtyRequiredKey && grandTotalToExport[totalQtyRequiredKey] !== undefined && typeof grandTotalToExport[totalQtyRequiredKey] === 'number') {
                 const qty = grandTotalToExport[totalQtyRequiredKey] as number;
                 const uom = grandTotalToExport[uomKey];
                 if (typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                    grandTotalToExport[totalQtyRequiredKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                    grandTotalToExport[totalQtyRequiredKey] = `${qty.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${getAbbreviatedUom(uom)}`;
                 }
             }
         }

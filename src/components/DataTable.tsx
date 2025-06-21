@@ -26,6 +26,13 @@ interface DataTableProps {
   isViewDataTab?: boolean; 
 }
 
+const getAbbreviatedUom = (uom: string): string => {
+  if (!uom) return '';
+  const lowerUom = uom.toLowerCase().trim();
+  if (lowerUom === 'kilogram' || lowerUom === 'kilograms') return 'kg';
+  if (lowerUom === 'piece' || lowerUom === 'pieces') return 'pcs';
+  return uom.trim();
+};
 
 const DataTable: React.FC<DataTableProps> = ({
   data,
@@ -67,10 +74,10 @@ const DataTable: React.FC<DataTableProps> = ({
   const effectiveDisplayColumns = useMemo(() => {
     let displayCols = [...columns];
     
-    const hasQtyPerAnimalCol = ingredientQtyFirstKey && columns.includes(ingredientQtyFirstKey);
-    const hasTotalQtyRequiredCol = columns.includes(totalQtyRequiredCalculatedColKey);
-
-    if (uomRowDataKey && (hasQtyPerAnimalCol || hasTotalQtyRequiredCol)) {
+    const qtyColumns = [ingredientQtyFirstKey, totalQtyRequiredCalculatedColKey, 'total_qty_required_sum'];
+    const hasAnyQtyCol = qtyColumns.some(key => key && columns.includes(key));
+    
+    if (uomRowDataKey && hasAnyQtyCol) {
         displayCols = displayCols.filter(col => col !== uomRowDataKey);
     }
     
@@ -132,25 +139,17 @@ const DataTable: React.FC<DataTableProps> = ({
                 {effectiveDisplayColumns.map((column) => {
                   let cellContent: React.ReactNode;
                   const cellValue = row[column];
+                  const isQtyColumn = [ingredientQtyFirstKey, totalQtyRequiredCalculatedColKey, 'total_qty_required_sum'].includes(column);
 
-                  if (column === ingredientQtyFirstKey && uomRowDataKey && row[uomRowDataKey]) {
+                  if (isQtyColumn && uomRowDataKey && row[uomRowDataKey]) {
                       const qtyValue = cellValue;
                       const uom = row[uomRowDataKey]; 
-                      if (typeof qtyValue === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                          cellContent = `${qtyValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                      const abbreviatedUom = getAbbreviatedUom(String(uom));
+                      if (typeof qtyValue === 'number' && abbreviatedUom) {
+                          cellContent = `${qtyValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${abbreviatedUom}`;
                       } else if (typeof qtyValue === 'number') { 
                           cellContent = qtyValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
                       } else { 
-                          cellContent = (qtyValue === undefined || qtyValue === null || qtyValue === PIVOT_BLANK_MARKER ? '' : String(qtyValue));
-                      }
-                  } else if (column === totalQtyRequiredCalculatedColKey && uomRowDataKey && row[uomRowDataKey]) {
-                      const qtyValue = cellValue;
-                      const uom = row[uomRowDataKey];
-                      if (typeof qtyValue === 'number' && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                          cellContent = `${qtyValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
-                      } else if (typeof qtyValue === 'number') {
-                          cellContent = qtyValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
-                      } else {
                           cellContent = (qtyValue === undefined || qtyValue === null || qtyValue === PIVOT_BLANK_MARKER ? '' : String(qtyValue));
                       }
                   } else if (cellValue === PIVOT_BLANK_MARKER) {
@@ -168,9 +167,7 @@ const DataTable: React.FC<DataTableProps> = ({
                                                !['site_name', 'section_name', 'group_name', 'common_name', 'meal_time', 'ingredient_name', 'diet_name', 'type_name', 'base_uom_name'].includes(originalColumnName);
                   
                   const isNumericOutputCol = (typeof row[column] === 'number' && column !== uomRowDataKey) || 
-                                          (column === ingredientQtyFirstKey && typeof row[column] === 'number') ||
-                                          (column === totalQtyRequiredCalculatedColKey && typeof row[column] === 'number') ||
-                                          (column === 'total_qty_required_sum' && typeof row[column] === 'number') ||
+                                          (isQtyColumn && typeof row[column] === 'number') ||
                                           (isPotentiallyNumeric && typeof row[column] === 'number');
 
 
@@ -198,13 +195,16 @@ const DataTable: React.FC<DataTableProps> = ({
               {effectiveDisplayColumns.map((column, colIndex) => {
                 let displayCellValue: React.ReactNode = "";
                 const rawCellValue = grandTotalRow[column];
+                const isQtyColumn = [ingredientQtyFirstKey, totalQtyRequiredCalculatedColKey, 'total_qty_required_sum'].includes(column);
+
 
                 if (colIndex === 0 && (rawCellValue === undefined || rawCellValue === null || String(rawCellValue).trim().toLowerCase() === "grand total" || grandTotalRow.note === "Grand Total")) {
                      displayCellValue = "Grand Total";
-                } else if ((column === ingredientQtyFirstKey || column === totalQtyRequiredCalculatedColKey) && uomRowDataKey && grandTotalRow[uomRowDataKey] && typeof rawCellValue === 'number') {
+                } else if (isQtyColumn && uomRowDataKey && grandTotalRow[uomRowDataKey] && typeof rawCellValue === 'number') {
                     const uom = grandTotalRow[uomRowDataKey];
-                    if (uom && typeof uom === 'string' && uom.trim() !== '' && uom !== PIVOT_BLANK_MARKER) {
-                         displayCellValue = `${rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${uom.trim()}`;
+                    const abbreviatedUom = getAbbreviatedUom(String(uom));
+                    if (abbreviatedUom) {
+                         displayCellValue = `${rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})} ${abbreviatedUom}`;
                     } else { 
                          displayCellValue = rawCellValue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
                     }
@@ -224,8 +224,7 @@ const DataTable: React.FC<DataTableProps> = ({
                                              !['site_name', 'section_name', 'group_name', 'common_name', 'meal_time', 'ingredient_name', 'diet_name', 'type_name', 'base_uom_name'].includes(originalColumnNameGT);
                  
                  const isNumericGTOutputCol = (typeof grandTotalRow[column] === 'number' && column !== uomRowDataKey) ||
-                                          ((column === ingredientQtyFirstKey || column === totalQtyRequiredCalculatedColKey) && typeof grandTotalRow[column] === 'number') ||
-                                          (column === 'total_qty_required_sum' && typeof grandTotalRow[column] === 'number') ||
+                                          (isQtyColumn && typeof grandTotalRow[column] === 'number') ||
                                           (isPotentiallyNumericGT && typeof grandTotalRow[column] === 'number');
                  
                  if (column === dietNameColumnKey && typeof displayCellValue === 'string' && displayCellValue.includes('\n')) {
