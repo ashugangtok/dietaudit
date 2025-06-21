@@ -16,7 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import type { DietDataRow } from '@/types';
-import { PIVOT_BLANK_MARKER } from '@/types';
+import { PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER } from '@/types';
 
 interface DataTableProps {
   data: DietDataRow[];
@@ -138,7 +138,7 @@ const DataTable: React.FC<DataTableProps> = ({
             return (
               <TableRow
                   key={rowKey}
-                  className={row.note === PIVOT_BLANK_MARKER ? "bg-secondary/70 font-semibold" : ""}
+                  className={row.note === PIVOT_SUBTOTAL_MARKER ? "bg-muted font-semibold" : ""}
                   data-testid={`data-row-${rowIndex}`}
               >
                 {effectiveDisplayColumns.map((column) => {
@@ -164,7 +164,7 @@ const DataTable: React.FC<DataTableProps> = ({
                         className="h-8 w-24 tabular-nums"
                         value={String(cellValue ?? '')}
                         onChange={(e) => onAuditRowChange?.(rowIndex, column, e.target.value)}
-                        disabled={row.ingredient_name === undefined || String(row.ingredient_name).trim() === '' || row.ingredient_name === PIVOT_BLANK_MARKER}
+                        disabled={!row.ingredient_name || row.ingredient_name === PIVOT_BLANK_MARKER}
                       />
                     );
                   } else if (isAuditTab && column === 'Difference') {
@@ -197,7 +197,7 @@ const DataTable: React.FC<DataTableProps> = ({
                     cellContent = (cellValue === undefined || cellValue === null ? '' : String(cellValue));
                   }
 
-                  if (column === dietNameColumnKey && typeof cellContent === 'string' && (cellContent.includes('\n') || (row.note === PIVOT_BLANK_MARKER && String(row[column]).includes('Species')))) {
+                  if (column === dietNameColumnKey && typeof cellContent === 'string' && (cellContent.includes('\n') || (row.note === PIVOT_SUBTOTAL_MARKER && String(row[column]).includes('Species')))) {
                     return (
                       <TableCell key={`${column}-cell`} className={`${isNumericOutputCol ? "text-right font-mono tabular-nums" : "text-left"}`}>
                         <div style={{ whiteSpace: 'pre-wrap' }}>{cellContent}</div>

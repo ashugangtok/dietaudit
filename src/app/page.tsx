@@ -14,6 +14,7 @@ import {
     DEFAULT_IMAGE_PIVOT_ROW_GROUPINGS,
     DEFAULT_IMAGE_PIVOT_SUMMARIES,
     PIVOT_BLANK_MARKER,
+    PIVOT_SUBTOTAL_MARKER,
 } from '@/types';
 import FileUpload from '@/components/FileUpload';
 import DataTable from '@/components/DataTable';
@@ -300,9 +301,101 @@ export default function Home() {
                 return newRow;
             });
             
+            // Step 5.5: Insert subtotal rows for special types
+            const dataWithSubtotals: DietDataRow[] = [];
+            const specialTypes = ['combo', 'recipe', 'ingredients with choice'];
+            let currentSpecialGroup: {
+                key: string;
+                name: string;
+                total: number;
+                uom: string;
+                templateRow: DietDataRow;
+            } | null = null;
+
+            for (const row of dataWithFinalTotals) {
+                const typeName = String(row.type_name || '').toLowerCase().trim();
+                const isSpecialType = specialTypes.includes(typeName);
+                const groupKey = `${row.group_name}|${row.meal_start_time}|${row.diet_name}|${row.type_name}`;
+
+                // If we are leaving a special group, add its subtotal row before processing the current row
+                if (currentSpecialGroup && currentSpecialGroup.key !== groupKey) {
+                    const subtotalRow: DietDataRow = {
+                        ...currentSpecialGroup.templateRow, // Get layout from last row
+                        group_name: PIVOT_BLANK_MARKER,
+                        meal_start_time: PIVOT_BLANK_MARKER,
+                        diet_name: PIVOT_BLANK_MARKER,
+                        type_name: PIVOT_BLANK_MARKER,
+                        ingredient_name: `Subtotal for ${currentSpecialGroup.name}`,
+                        total_qty_required_sum: parseFloat(currentSpecialGroup.total.toFixed(4)),
+                        base_uom_name_first: currentSpecialGroup.uom,
+                        'Received Qty': '',
+                        'Difference': undefined,
+                        note: PIVOT_SUBTOTAL_MARKER,
+                    };
+                    // Clear other summary fields for the subtotal row
+                    Object.keys(subtotalRow).forEach(key => {
+                        if (key.endsWith('_sum') || key.endsWith('_first') || key.endsWith('_count')) {
+                            if (key !== 'total_qty_required_sum' && key !== 'base_uom_name_first') {
+                                delete subtotalRow[key];
+                            }
+                        }
+                    });
+
+                    dataWithSubtotals.push(subtotalRow);
+                    currentSpecialGroup = null;
+                }
+
+                dataWithSubtotals.push(row);
+
+                if (isSpecialType) {
+                    if (!currentSpecialGroup) {
+                        currentSpecialGroup = {
+                            key: groupKey,
+                            name: String(row.type_name),
+                            total: 0,
+                            uom: String(row.base_uom_name_first || ''),
+                            templateRow: row
+                        };
+                    }
+                    currentSpecialGroup.total += parseFloat(String(row.total_qty_required_sum)) || 0;
+                    currentSpecialGroup.uom = String(row.base_uom_name_first || currentSpecialGroup.uom);
+                    currentSpecialGroup.templateRow = row; // Always use the last row as the template for keys
+                }
+            }
+            
+            // After loop, check if the last item was in a special group
+            if (currentSpecialGroup) {
+                const subtotalRow: DietDataRow = {
+                    ...currentSpecialGroup.templateRow,
+                    group_name: PIVOT_BLANK_MARKER,
+                    meal_start_time: PIVOT_BLANK_MARKER,
+                    diet_name: PIVOT_BLANK_MARKER,
+                    type_name: PIVOT_BLANK_MARKER,
+                    ingredient_name: `Subtotal for ${currentSpecialGroup.name}`,
+                    total_qty_required_sum: parseFloat(currentSpecialGroup.total.toFixed(4)),
+                    base_uom_name_first: currentSpecialGroup.uom,
+                    'Received Qty': '',
+                    'Difference': undefined,
+                    note: PIVOT_SUBTOTAL_MARKER,
+                };
+                Object.keys(subtotalRow).forEach(key => {
+                    if (key.endsWith('_sum') || key.endsWith('_first') || key.endsWith('_count')) {
+                        if (key !== 'total_qty_required_sum' && key !== 'base_uom_name_first') {
+                            delete subtotalRow[key];
+                        }
+                    }
+                });
+
+                dataWithSubtotals.push(subtotalRow);
+            }
+
             // Step 6: Manually apply display blanking for the pivot table effect
             let lastKeyValues: (string | number | undefined)[] = new Array(auditGroupings.length).fill(null);
-            const finalPivotedData = dataWithFinalTotals.map(row => {
+            const finalPivotedData = dataWithSubtotals.map(row => {
+                // Subtotal rows are pre-formatted and should not affect blanking of subsequent rows
+                if (row.note === PIVOT_SUBTOTAL_MARKER) {
+                    return row;
+                }
                 const newRowWithBlanks = { ...row };
                 let isSameAsLast = true;
                 for (let i = 0; i < auditGroupings.length; i++) {
