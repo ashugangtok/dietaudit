@@ -208,10 +208,13 @@ export default function Home() {
                 rawData, [], [], filters, allHeaders, true
             );
 
-            // Step 2: Get species breakdown for each diet group for display
+            // Step 2: Get species breakdown and total animal count per diet group
             const dietToSpeciesBreakdown = new Map<string, string>();
+            const dietGroupAnimalCounts = new Map<string, number>();
+
             if (allHeaders.includes('common_name') && allHeaders.includes('animal_id')) {
                 const dietSpeciesAnimals = new Map<string, Map<string, Set<string>>>();
+                
                 filteredData.forEach(row => {
                     const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
                     if (!dietSpeciesAnimals.has(dietKey)) {
@@ -236,40 +239,14 @@ export default function Home() {
                     const header = `${dietName} (${totalSpeciesCount})`;
                     const finalBreakdownString = [header, ...breakdownLines].join('\n');
                     dietToSpeciesBreakdown.set(dietKey, finalBreakdownString);
+                    
+                    let totalAnimalsInGroup = 0;
+                    speciesMap.forEach(animalSet => totalAnimalsInGroup += animalSet.size);
+                    dietGroupAnimalCounts.set(dietKey, totalAnimalsInGroup);
                 });
             }
 
-            // Step 3: Get total animal count per diet group for calculation
-            const dietGroupAnimalCounts = new Map<string, number>();
-            if (allHeaders.includes('animal_id')) {
-                const animalsPerDietGroup = new Map<string, Set<string>>();
-                filteredData.forEach(row => {
-                    const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
-                    if (!animalsPerDietGroup.has(dietKey)) {
-                        animalsPerDietGroup.set(dietKey, new Set<string>());
-                    }
-                    if (row.animal_id) {
-                        animalsPerDietGroup.get(dietKey)!.add(String(row.animal_id));
-                    }
-                });
-                animalsPerDietGroup.forEach((animalSet, dietKey) => {
-                    dietGroupAnimalCounts.set(dietKey, animalSet.size);
-                });
-            }
-
-            // Step 4: Process the data
-            const dataWithTotals = filteredData.map(row => {
-                const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
-                const totalAnimals = dietGroupAnimalCounts.get(dietKey) || 0;
-                const qtyPerAnimal = parseFloat(String(row.ingredient_qty)) || 0;
-                return {
-                    ...row,
-                    total_animal_count: totalAnimals,
-                    total_qty_required_sum: qtyPerAnimal * totalAnimals,
-                };
-            });
-            
-            // Step 5: Define final groupings and summaries for the pivot table view
+            // Step 3: Define groupings and SUM ingredient_qty (per animal)
             const auditGroupings: GroupingOption[] = [
                 { column: 'group_name' },
                 { column: 'meal_start_time' },
@@ -278,37 +255,70 @@ export default function Home() {
                 { column: 'ingredient_name' },
             ];
             const auditSummaries: SummarizationOption[] = [
-                { column: 'total_qty_required_sum', type: 'sum' },
+                { column: 'ingredient_qty', type: 'sum' }, // Get total per-animal qty
                 { column: 'base_uom_name', type: 'first' },
             ];
 
-            const { processedData: finalPivotedDataWithSums, grandTotalRow: finalGrandTotal } = calculateProcessedTableData(
-                dataWithTotals,
+            // Step 4: Process data WITHOUT display blanking to keep context for calculations
+            const { processedData: pivotedDataUnblanked, grandTotalRow: initialGrandTotal } = calculateProcessedTableData(
+                filteredData,
                 auditGroupings,
                 auditSummaries,
                 [], // Filters already applied
                 allHeaders,
                 true,
-                false // Enable display blanking
+                true // IMPORTANT: Disable blanking for post-processing
             );
 
-            // Step 6: Apply the species breakdown to the diet name column
-            const finalPivotedData = finalPivotedDataWithSums.map(row => {
-                if (row.diet_name && row.diet_name !== PIVOT_BLANK_MARKER) {
-                    const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
-                    const breakdownString = dietToSpeciesBreakdown.get(dietKey);
-                    if (breakdownString) {
-                        return { ...row, diet_name: breakdownString };
-                    }
+            // Step 5: Post-process to calculate final total and format diet name
+            const dataWithFinalTotals = pivotedDataUnblanked.map(row => {
+                const newRow = { ...row };
+                const dietKey = `${row.group_name || ''}|${row.meal_start_time || ''}|${row.diet_name || ''}`;
+                
+                // Calculate final total
+                const totalAnimals = dietGroupAnimalCounts.get(dietKey) || 0;
+                const perAnimalQtySum = parseFloat(String(row.ingredient_qty_sum)) || 0;
+                newRow.total_qty_required_sum = perAnimalQtySum * totalAnimals;
+
+                // Format diet name with species breakdown
+                const breakdownString = dietToSpeciesBreakdown.get(dietKey);
+                if (breakdownString) {
+                    newRow.diet_name = breakdownString;
                 }
-                const newRow = {...row};
+                
+                // Cleanup
                 if (newRow.type_name === '(blank)') {
                     newRow.type_name = '';
                 }
+
                 return newRow;
             });
             
-            // Step 7: Final cleanup and state update
+            // Step 6: Manually apply display blanking for the pivot table effect
+            let lastKeyValues: (string | number | undefined)[] = new Array(auditGroupings.length).fill(null);
+            const finalPivotedData = dataWithFinalTotals.map(row => {
+                const newRowWithBlanks = { ...row };
+                let isSameAsLast = true;
+                for (let i = 0; i < auditGroupings.length; i++) {
+                    const col = auditGroupings[i].column;
+                    if (isSameAsLast && row[col] === lastKeyValues[i]) {
+                        newRowWithBlanks[col] = PIVOT_BLANK_MARKER;
+                    } else {
+                        isSameAsLast = false;
+                    }
+                    lastKeyValues[i] = row[col];
+                }
+                return newRowWithBlanks;
+            });
+
+            // Step 7: Calculate final grand total
+            const finalGrandTotal = initialGrandTotal ? { ...initialGrandTotal } : undefined;
+            if (finalGrandTotal) {
+                const totalOfTotals = dataWithFinalTotals.reduce((sum, r) => sum + (Number(r.total_qty_required_sum) || 0), 0);
+                finalGrandTotal.total_qty_required_sum = totalOfTotals;
+            }
+            
+            // Step 8: Final cleanup and state update
             const finalColumns = [
                 ...auditGroupings.map(g => g.column), 
                 'total_qty_required_sum',
@@ -319,6 +329,7 @@ export default function Home() {
             setAuditColumns(finalColumns);
             setAuditGrandTotal(finalGrandTotal);
             setIsLoading(false);
+
         } else if (activeTab === 'audit' && (!hasAppliedFilters || rawData.length === 0)) {
             setAuditDisplayData([]);
             setAuditColumns([]);
