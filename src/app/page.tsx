@@ -349,7 +349,6 @@ export default function Home() {
     let columnsToExport: string[] = [];
     let grandTotalToExport: DietDataRow | undefined = undefined;
     let reportTitleSuffix = "Report";
-    let isViewDataForPdf = false;
 
     if (activeTab === 'audit') {
       if (auditDisplayData.length === 0 || !hasAppliedFilters) {
@@ -365,7 +364,6 @@ export default function Home() {
         columnsToExport = [...currentTableColumns];
         grandTotalToExport = grandTotalRow ? {...grandTotalRow} : undefined; 
         reportTitleSuffix = "Full Diet Report";
-        isViewDataForPdf = true; 
     }
     
     const uomKey = columnsToExport.find(k => k.startsWith('base_uom_name_') && k.endsWith('_first'));
@@ -411,7 +409,20 @@ export default function Home() {
     }
     
     if (dataToExport.length > 0 && columnsToExport.length > 0 && hasAppliedFilters) {
-      exportToPdf(dataToExport, columnsToExport, `${reportTitleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab}_report`, grandTotalToExport, isViewDataForPdf, allHeaders);
+      let pdfColumns = [...columnsToExport];
+      if (uomKey) {
+          pdfColumns = pdfColumns.filter(c => c !== uomKey);
+      }
+      
+      const totalQtyKey = 'total_qty_required_sum';
+      const totalQtyIndex = pdfColumns.indexOf(totalQtyKey);
+      if (totalQtyIndex !== -1) {
+          pdfColumns.splice(totalQtyIndex + 1, 0, 'Received Qty', 'Difference');
+      } else {
+          pdfColumns.push('Received Qty', 'Difference');
+      }
+
+      exportToPdf(dataToExport, pdfColumns, `${reportTitleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab}_report`, grandTotalToExport);
       toast({ title: "PDF Download Started", description: `Your ${reportTitleSuffix} PDF is being generated.` });
     } else if (hasAppliedFilters && dataToExport.length === 0) {
       toast({ variant: "destructive", title: "No Data", description: "No data available to export for the current filters." });
