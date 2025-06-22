@@ -4,7 +4,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { DietDataRow } from '@/types';
-import { PIVOT_BLANK_MARKER } from '@/types';
+import { PIVOT_BLANK_MARKER, PIVOT_SUBTOTAL_MARKER } from '@/types';
 
 const getAbbreviatedUom = (uom: string): string => {
   if (!uom) return '';
@@ -68,17 +68,24 @@ export const exportToPdf = (
   let foot: (string|number)[][] = [];
   if (grandTotalRow) {
     const totalRowData = tableColumns.map((column) => {
+        let cellValue = grandTotalRow[column];
+        
+        // This logic handles the "Received Qty" and "Difference" in the grand total row if you ever decide to add totals for them. For now, it's blank.
         if (column === 'Received Qty' || column === 'Difference') {
-            return '';
+            if (cellValue === undefined || cellValue === null) return '';
         }
         
         if (column === tableColumns[0]) {
              return "Grand Total";
         }
 
-        let cellValue = grandTotalRow[column];
-        
         if (cellValue === PIVOT_BLANK_MARKER) return '';
+        
+        // The PDF library can receive the raw formatted string from the page component now
+        if (typeof cellValue === 'string') {
+          return cellValue;
+        }
+
         if (typeof cellValue === 'number') {
             const numVal = cellValue as number;
             return numVal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4});
@@ -130,6 +137,11 @@ export const exportToPdf = (
     didParseCell: function (data) {
       if (typeof data.cell.raw === 'string' && data.cell.raw.includes('\n')) {
           data.cell.styles.valign = 'middle';
+      }
+      
+      const originalRow = tableData[data.row.index];
+      if (originalRow && originalRow.note === PIVOT_SUBTOTAL_MARKER) {
+          data.cell.styles.fontStyle = 'bold';
       }
     },
     didDrawPage: (data) => {
