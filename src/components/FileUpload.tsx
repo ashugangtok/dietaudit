@@ -10,12 +10,10 @@ import { useToast } from '@/hooks/use-toast';
 import { UploadCloud, Loader2 } from 'lucide-react';
 
 interface FileUploadProps {
-  onFileSelected: (base64Content: string, fileName: string) => void; // Changed back from Promise<void>
+  onFileSelected: (base64Content: string, fileName: string) => void;
   onProcessing: (isProcessing: boolean) => void;
   disabled?: boolean;
 }
-
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, disabled }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -27,20 +25,6 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       const file = event.target.files[0];
-
-      if (file.size > MAX_FILE_SIZE) {
-        toast({
-            variant: "destructive",
-            title: "File Too Large",
-            description: `Please select a file smaller than ${MAX_FILE_SIZE / 1024 / 1024}MB.`,
-        });
-        setSelectedFile(null);
-        setFileNameDisplay("No file chosen");
-        if(fileInputRef.current) {
-            fileInputRef.current.value = '';
-        }
-        return;
-      }
       
       if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || file.type === 'application/vnd.ms-excel' || file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
         setSelectedFile(file);
@@ -67,7 +51,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
     fileInputRef.current?.click();
   };
 
-  const handleFileReadAndPassUp = async () => { // Still async due to FileReader, but onFileSelected is sync
+  const handleFileReadAndPassUp = async () => {
     if (!selectedFile) {
       toast({
         variant: "destructive",
@@ -78,17 +62,17 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
     }
 
     setIsReadingFileLocally(true);
-    onProcessing(true); // Parent's general processing starts
+    onProcessing(true);
 
     try {
       const reader = new FileReader();
       reader.readAsDataURL(selectedFile);
       
-      reader.onload = (e) => { // Removed async here as onFileSelected is sync
+      reader.onload = (e) => {
         try {
           const base64String = e.target?.result as string;
           const actualBase64 = base64String.substring(base64String.indexOf(',') + 1);
-          onFileSelected(actualBase64, selectedFile.name); // Call synchronous prop
+          onFileSelected(actualBase64, selectedFile.name);
         } catch (readError) {
           console.error("Error processing file after read or in onFileSelected:", readError);
           toast({
@@ -98,7 +82,6 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
           });
         } finally {
           setIsReadingFileLocally(false);
-          // Parent (page.tsx) will call onProcessing(false) after its own processing (including server parse) completes or fails.
         }
       };
       reader.onerror = (error) => {
@@ -109,7 +92,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
           description: "Could not read the selected file.",
         });
         setIsReadingFileLocally(false);
-        onProcessing(false); // FileReader error, so parent processing stops
+        onProcessing(false);
       };
     } catch (error) {
       console.error("Error setting up file read:", error);
@@ -119,7 +102,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelected, onProcessing, d
         description: "An unexpected error occurred before reading the file.",
       });
       setIsReadingFileLocally(false);
-      onProcessing(false); // Setup error, so parent processing stops
+      onProcessing(false);
     }
   };
 
