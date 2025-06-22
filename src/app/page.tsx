@@ -301,9 +301,8 @@ export default function Home() {
                 return newRow;
             });
             
-            // Step 5.5: Insert subtotal rows for special types
+            // Step 5.5: Insert subtotal rows for groups with a type_name
             const dataWithSubtotals: DietDataRow[] = [];
-            const specialTypes = ['combo', 'recipe', 'ingredients with choice'];
             let currentSpecialGroup: {
                 key: string;
                 name: string;
@@ -313,8 +312,8 @@ export default function Home() {
             } | null = null;
 
             for (const row of dataWithFinalTotals) {
-                const typeName = String(row.type_name || '').toLowerCase().trim();
-                const isSpecialType = specialTypes.includes(typeName);
+                const typeName = String(row.type_name || '').trim();
+                const isSubtotalGroupItem = typeName !== '';
                 const groupKey = `${row.group_name}|${row.meal_start_time}|${row.diet_name}|${row.type_name}`;
 
                 // If we are leaving a special group, add its subtotal row before processing the current row
@@ -347,7 +346,7 @@ export default function Home() {
 
                 dataWithSubtotals.push(row);
 
-                if (isSpecialType) {
+                if (isSubtotalGroupItem) {
                     if (!currentSpecialGroup) {
                         currentSpecialGroup = {
                             key: groupKey,
