@@ -2,5 +2,4 @@
 import { config } from 'dotenv';
 config();
 
-import '@/ai/flows/suggest-table-configuration.ts';
-
+// Unused AI flows have been removed to prevent deployment issues.
