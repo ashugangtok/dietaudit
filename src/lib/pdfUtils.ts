@@ -106,7 +106,7 @@ export const exportToPdf = (
     styles: { 
         fontSize: 7, 
         cellPadding: 2,
-        overflow: 'ellipsize', 
+        overflow: 'linebreak', 
     },
     columnStyles: tableColumns.reduce((acc, colName) => {
         acc[colName] = { cellWidth: 'auto' }; 
