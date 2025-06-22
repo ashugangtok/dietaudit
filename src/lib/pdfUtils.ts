@@ -55,7 +55,7 @@ export const exportToPdf = (
     return tableColumns.map(column => {
       let cellValue = row[column];
       
-      if (cellValue === PIVOT_BLANK_MARKER) {
+      if (cellValue === PIVOT_BLANK_MARKER || row.note === '__DIVIDER__') {
         return '';
       }
       if (typeof cellValue === 'number') {
@@ -118,6 +118,15 @@ export const exportToPdf = (
     rowPageBreak: 'avoid',
     showFoot: foot.length > 0 ? 'lastPage': 'never', 
     showHead: 'everyPage', 
+    willDrawRow: (data) => {
+      const originalRow = tableData[data.row.index];
+      if (originalRow && originalRow.note === '__DIVIDER__') {
+        doc.setDrawColor(200, 200, 200); // Light gray
+        doc.setLineWidth(1);
+        doc.line(data.cursor.x, data.row.y, data.cursor.x + data.table.width, data.row.y);
+        return false; // Skips drawing the content of the divider row
+      }
+    },
     didParseCell: function (data) {
       if (typeof data.cell.raw === 'string' && data.cell.raw.includes('\n')) {
           data.cell.styles.valign = 'middle';

@@ -539,13 +539,29 @@ export default function Home() {
         }
     }
     
-    if (dataToExport.length > 0 && columnsToExport.length > 0 && hasAppliedFilters) {
+    const dataWithDividers: DietDataRow[] = [];
+    if (activeTab === 'audit' && dataToExport.length > 0) {
+        dataWithDividers.push(dataToExport[0]);
+        for (let i = 1; i < dataToExport.length; i++) {
+            const row = dataToExport[i];
+            const dietNameKey = 'diet_name';
+            if (row[dietNameKey] && row[dietNameKey] !== PIVOT_BLANK_MARKER) {
+                dataWithDividers.push({ note: '__DIVIDER__' });
+            }
+            dataWithDividers.push(row);
+        }
+    } else {
+        dataToExport.forEach(row => dataWithDividers.push(row));
+    }
+
+
+    if (dataWithDividers.length > 0 && columnsToExport.length > 0 && hasAppliedFilters) {
       let pdfColumns = [...columnsToExport];
       if (uomKey) {
           pdfColumns = pdfColumns.filter(c => c !== uomKey);
       }
       
-      exportToPdf(dataToExport, pdfColumns, `${reportTitleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab}_report`, grandTotalToExport);
+      exportToPdf(dataWithDividers, pdfColumns, `${reportTitleSuffix} - ${rawFileName}`, `${rawFileName}_${activeTab}_report`, grandTotalToExport);
       toast({ title: "PDF Download Started", description: `Your ${reportTitleSuffix} PDF is being generated.` });
     } else if (hasAppliedFilters && dataToExport.length === 0) {
       toast({ variant: "destructive", title: "No Data", description: "No data available to export for the current filters." });
