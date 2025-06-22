@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { useState, useCallback, useMemo, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { FileSpreadsheet, FileSearch, TableIcon, Download, Loader2, UploadCloud } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,7 +22,7 @@ import DataTable from '@/components/DataTable';
 import SimpleFilterPanel from '@/components/SimpleFilterPanel';
 import DietWiseLogo from '@/components/DietWiseLogo';
 import { exportToPdf } from '@/lib/pdfUtils';
-import { parseExcelAction } from '@/lib/actions/parseExcelAction';
+
 
 const getAbbreviatedUom = (uom: string): string => {
   if (!uom) return '';
@@ -112,7 +113,85 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-        const result = await parseExcelAction({ excelFileBase64: rawFileBase64, originalFileName: rawFileName });
+        const parseExcelClientSide = (base64: string, fileName: string): { parsedData: DietDataRow[], headers: string[], error?: string } => {
+            try {
+                const workbook = XLSX.read(base64, { type: 'base64' });
+                if (!workbook || workbook.SheetNames.length === 0) {
+                    return { parsedData: [], headers: [], error: "Could not read the Excel workbook or it contains no sheets." };
+                }
+                const sheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[sheetName];
+                if (!worksheet) {
+                    return { parsedData: [], headers: [], error: `Could not read the first sheet named '${sheetName}'.` };
+                }
+                const jsonData = XLSX.utils.sheet_to_json<DietDataRow>(worksheet, { header: 1, defval: "", blankrows: false });
+
+                if (jsonData.length === 0) {
+                    return { parsedData: [], headers: [], error: "Excel file is empty or contains no readable data rows." };
+                }
+                
+                let headerRowIndex = -1;
+                let rawHeaders: any[] = [];
+                for (let i = 0; i < jsonData.length; i++) {
+                    const potentialHeaderRow = (jsonData[i] as any[]); 
+                    if (potentialHeaderRow.some(cell => String(cell).trim() !== "")) {
+                        headerRowIndex = i;
+                        rawHeaders = potentialHeaderRow;
+                        break;
+                    }
+                }
+
+                if (headerRowIndex === -1) {
+                    return { parsedData: [], headers: [], error: "No valid header row found in the Excel sheet."};
+                }
+
+                const actualHeaders: string[] = [];
+                rawHeaders.forEach((header) => {
+                    let baseName = String(header || '').trim();
+                    let currentCandidateName = baseName;
+
+                    if (baseName === "") {
+                        let i = 1;
+                        currentCandidateName = `column_${i}`;
+                        while (actualHeaders.includes(currentCandidateName)) {
+                            i++;
+                            currentCandidateName = `column_${i}`;
+                        }
+                    } else {
+                        let count = 0;
+                        if (actualHeaders.includes(currentCandidateName)) {
+                            count = 1; 
+                            currentCandidateName = `${baseName}_${count}`;
+                        }
+                        while (actualHeaders.includes(currentCandidateName)) {
+                            count++;
+                            currentCandidateName = `${baseName}_${count}`;
+                        }
+                    }
+                    actualHeaders.push(currentCandidateName);
+                });
+
+                const parsedData: DietDataRow[] = jsonData.slice(headerRowIndex + 1).map((rowArray: any) => { 
+                  const rowObject: DietDataRow = {};
+                  actualHeaders.forEach((header, index) => {
+                    rowObject[header] = rowArray[index] !== undefined ? rowArray[index] : "";
+                  });
+                  return rowObject;
+                }).filter(row => Object.values(row).some(val => val !== undefined && String(val).trim() !== "")); 
+
+                return { parsedData, headers: actualHeaders };
+
+            } catch (err: any) {
+                console.error(`Client-side Excel parsing error for ${fileName}:`, err);
+                let errorMessage = "An error occurred while parsing the file on your device.";
+                if (err.message && (err.message.includes("Corrupted zip") || err.code === 'Z_DATA_ERROR')) {
+                    errorMessage = "The Excel file appears to be corrupted or is not a valid format. Please re-save it and try again.";
+                }
+                return { parsedData: [], headers: [], error: errorMessage };
+            }
+        };
+        
+        const result = parseExcelClientSide(rawFileBase64, rawFileName);
 
         if (result.error) {
             toast({ variant: "destructive", title: "File Parsing Error", description: result.error });
@@ -733,6 +812,8 @@ export default function Home() {
   );
 }
     
+    
+
     
 
     
