@@ -62,13 +62,6 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
     return uVals;
   }, [rawData, allHeaders]);
 
-  const handlePendingDropdownChange = (column: string, value: string) => {
-    // If the user selects the currently active filter, treat it as a deselect (set to 'All')
-    const deselecting = pendingDropdownFilters[column] === value;
-    setPendingDropdownFilters(prev => ({ ...prev, [column]: deselecting ? '' : value }));
-    setOpenPopovers(prev => ({ ...prev, [column]: false }));
-  };
-
   const handleApplyFiltersInternal = useCallback(() => {
     if (disabled) return;
     const newCombinedFilters: FilterOption[] = [];
@@ -81,10 +74,6 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
     onApplyFilters(newCombinedFilters);
   }, [pendingDropdownFilters, onApplyFilters, disabled, uniqueValues]);
   
-  const togglePopover = (key: string) => {
-    setOpenPopovers(prev => ({...prev, [key]: !prev[key]}));
-  }
-
   return (
     <div className="p-4 bg-card rounded-lg shadow mb-6 space-y-6">
       <div className="flex justify-between items-center mb-4">
@@ -140,8 +129,11 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
                       <CommandEmpty>No results found.</CommandEmpty>
                       <CommandGroup>
                         <CommandItem
-                          value="all"
-                          onSelect={() => handlePendingDropdownChange(key, '')}
+                          value=""
+                          onSelect={() => {
+                            setPendingDropdownFilters(prev => ({ ...prev, [key]: '' }));
+                            setOpenPopovers(prev => ({ ...prev, [key]: false }));
+                          }}
                         >
                           <Check
                             className={cn(
@@ -155,7 +147,13 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
                           <CommandItem
                             key={val.value}
                             value={val.value}
-                            onSelect={(currentValue) => handlePendingDropdownChange(key, currentValue)}
+                            onSelect={(currentValue) => {
+                                setPendingDropdownFilters(prev => ({
+                                    ...prev,
+                                    [key]: prev[key] === currentValue ? '' : currentValue
+                                }));
+                                setOpenPopovers(prev => ({ ...prev, [key]: false }));
+                            }}
                           >
                             <Check
                               className={cn(
