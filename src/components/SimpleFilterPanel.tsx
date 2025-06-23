@@ -1,15 +1,12 @@
-
 "use client";
 
 import type React from 'react';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import { Command, CommandInput, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { DietDataRow, FilterOption } from '@/types';
-import { Filter, CheckSquare, Check, ChevronsUpDown } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Filter, CheckSquare } from 'lucide-react';
 
 const FILTERABLE_COLUMNS = [
   { key: 'site_name', label: 'Site Name', placeholder: 'Select Site...' },
@@ -38,13 +35,16 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
   disabled = false,
 }) => {
   const [pendingDropdownFilters, setPendingDropdownFilters] = useState<Record<string, string>>({});
-  const [openPopovers, setOpenPopovers] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const initialDropdowns: Record<string, string> = {};
     FILTERABLE_COLUMNS.forEach(({ key }) => {
       const applied = appliedFilters.find(f => f.column === key && f.type === 'equals');
-      initialDropdowns[key] = applied ? String(applied.value).toLowerCase() : '';
+      if (applied) {
+        initialDropdowns[key] = String(applied.value).toLowerCase();
+      } else {
+        initialDropdowns[key] = '';
+      }
     });
     setPendingDropdownFilters(initialDropdowns);
   }, [appliedFilters]);
@@ -90,85 +90,35 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {FILTERABLE_COLUMNS.map(({ key, label, placeholder }) => {
-          if (allHeaders.length === 0 && !Object.keys(uniqueValues).includes(key)) {
-              return (
-                  <div key={key} className="space-y-1">
-                    <Label htmlFor={`filter-${key}`} className="text-sm font-medium text-muted-foreground/70">{label}</Label>
-                    <Button variant="outline" role="combobox" aria-expanded="false" className="w-full justify-between h-10 text-sm" disabled>
-                      {placeholder}
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </div>
-              );
+          if (allHeaders.length > 0 && !uniqueValues[key]) {
+            return null;
           }
+          
           const currentUniqueValues = uniqueValues[key] || [];
           const hasOptions = currentUniqueValues.length > 0;
-          const selectedValue = currentUniqueValues.find(v => v.value === pendingDropdownFilters[key])?.label || "";
-
+          
           return (
             <div key={key} className="space-y-1">
               <Label htmlFor={`filter-${key}`} className="text-sm font-medium">{label}</Label>
-              <Popover open={openPopovers[key]} onOpenChange={(isOpen) => setOpenPopovers(p => ({...p, [key]: isOpen}))}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    className="w-full justify-between h-10 text-sm"
-                    disabled={disabled || (!hasOptions && allHeaders.length > 0)}
-                  >
-                    <span className="truncate">
-                      {selectedValue || (hasOptions ? placeholder : (allHeaders.length > 0 ? `No ${label} data` : 'Loading...'))}
-                    </span>
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                  <Command>
-                    <CommandInput placeholder={`Search ${label}...`} />
-                    <CommandList>
-                      <CommandEmpty>No results found.</CommandEmpty>
-                      <CommandGroup>
-                        <CommandItem
-                          value=""
-                          onSelect={() => {
-                            setPendingDropdownFilters(prev => ({ ...prev, [key]: '' }));
-                            setOpenPopovers(prev => ({ ...prev, [key]: false }));
-                          }}
-                        >
-                          <Check
-                            className={cn(
-                              "mr-2 h-4 w-4",
-                              !pendingDropdownFilters[key] ? "opacity-100" : "opacity-0"
-                            )}
-                          />
-                          All
-                        </CommandItem>
-                        {currentUniqueValues.map(val => (
-                          <CommandItem
-                            key={val.value}
-                            value={val.value}
-                            onSelect={(currentValue) => {
-                                setPendingDropdownFilters(prev => ({
-                                    ...prev,
-                                    [key]: prev[key] === currentValue ? '' : currentValue,
-                                }));
-                                setOpenPopovers(prev => ({ ...prev, [key]: false }));
-                            }}
-                          >
-                            <Check
-                              className={cn(
-                                "mr-2 h-4 w-4",
-                                pendingDropdownFilters[key] === val.value ? "opacity-100" : "opacity-0"
-                              )}
-                            />
+              <Select
+                value={pendingDropdownFilters[key] || ''}
+                onValueChange={(value) => {
+                  setPendingDropdownFilters(prev => ({...prev, [key]: value}));
+                }}
+                disabled={disabled || (!hasOptions && allHeaders.length > 0)}
+              >
+                <SelectTrigger id={`filter-${key}`} className="w-full h-10 text-sm">
+                   <SelectValue placeholder={hasOptions ? placeholder : (allHeaders.length > 0 ? `No ${label} data` : 'Loading...')} />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="">All</SelectItem>
+                    {currentUniqueValues.map(val => (
+                        <SelectItem key={val.value} value={val.value}>
                             {val.label}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
             </div>
           );
         })}
