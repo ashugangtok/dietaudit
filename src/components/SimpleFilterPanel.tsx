@@ -150,7 +150,7 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
                             onSelect={(currentValue) => {
                                 setPendingDropdownFilters(prev => ({
                                     ...prev,
-                                    [key]: prev[key] === currentValue ? '' : currentValue
+                                    [key]: prev[key] === currentValue ? '' : currentValue,
                                 }));
                                 setOpenPopovers(prev => ({ ...prev, [key]: false }));
                             }}
