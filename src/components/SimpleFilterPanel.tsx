@@ -5,7 +5,9 @@ import type React from 'react';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import type { DietDataRow, FilterOption } from '@/types';
 import { Filter, CheckSquare } from 'lucide-react';
 
@@ -19,8 +21,6 @@ const FILTERABLE_COLUMNS = [
   { key: 'class_name', label: 'Class Name', placeholder: 'Select Class...'},
   { key: 'meal_start_time', label: 'Meal Start Time', placeholder: 'Select Time...'},
 ];
-
-const ALL_ITEMS_VALUE = '--all--';
 
 interface SimpleFilterPanelProps {
   rawData: DietDataRow[];
@@ -37,16 +37,17 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
   onApplyFilters,
   disabled = false,
 }) => {
-  const [pendingDropdownFilters, setPendingDropdownFilters] = useState<Record<string, string>>({});
+  const [pendingDropdownFilters, setPendingDropdownFilters] = useState<Record<string, Set<string>>>({});
 
   useEffect(() => {
-    const initialDropdowns: Record<string, string> = {};
+    const initialDropdowns: Record<string, Set<string>> = {};
     FILTERABLE_COLUMNS.forEach(({ key }) => {
-      const applied = appliedFilters.find(f => f.column === key && f.type === 'equals');
-      if (applied) {
-        initialDropdowns[key] = String(applied.value).toLowerCase();
+      const applied = appliedFilters.find(f => f.column === key && f.type === 'in');
+      if (applied && Array.isArray(applied.value)) {
+        const valuesToSet = new Set(applied.value.map(v => String(v).toLowerCase()));
+        initialDropdowns[key] = valuesToSet;
       } else {
-        initialDropdowns[key] = ALL_ITEMS_VALUE;
+        initialDropdowns[key] = new Set();
       }
     });
     setPendingDropdownFilters(initialDropdowns);
@@ -68,15 +69,49 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
   const handleApplyFiltersInternal = useCallback(() => {
     if (disabled) return;
     const newCombinedFilters: FilterOption[] = [];
-    Object.entries(pendingDropdownFilters).forEach(([column, value]) => {
-      if (value && value !== ALL_ITEMS_VALUE && FILTERABLE_COLUMNS.some(fc => fc.key === column)) {
-        const originalLabel = uniqueValues[column]?.find(v => v.value === value)?.label || value;
-        newCombinedFilters.push({ column, value: originalLabel, type: 'equals' });
+    Object.entries(pendingDropdownFilters).forEach(([column, valueSet]) => {
+      if (valueSet.size > 0 && FILTERABLE_COLUMNS.some(fc => fc.key === column)) {
+        const originalLabels = Array.from(valueSet).map(selectedValue => {
+            return uniqueValues[column]?.find(v => v.value === selectedValue)?.label || selectedValue;
+        });
+        newCombinedFilters.push({ column, value: originalLabels, type: 'in' });
       }
     });
     onApplyFilters(newCombinedFilters);
   }, [pendingDropdownFilters, onApplyFilters, disabled, uniqueValues]);
-  
+
+  const handleSelectionChange = (columnKey: string, value: string, checked: boolean) => {
+    setPendingDropdownFilters(prev => {
+        const newSet = new Set(prev[columnKey] || []);
+        if (checked) {
+            newSet.add(value);
+        } else {
+            newSet.delete(value);
+        }
+        return {
+            ...prev,
+            [columnKey]: newSet,
+        };
+    });
+  };
+
+  const getButtonLabel = (key: string, placeholder: string) => {
+    const selectedCount = pendingDropdownFilters[key]?.size || 0;
+    if (selectedCount === 0) {
+      return placeholder;
+    }
+    const allOptionsCount = uniqueValues[key]?.length;
+    if (allOptionsCount && selectedCount === allOptionsCount) {
+      const label = FILTERABLE_COLUMNS.find(c => c.key === key)?.label.replace(' Name', '') || 'Items';
+      return `All ${label}s`;
+    }
+    if (selectedCount === 1) {
+      const selectedValue = pendingDropdownFilters[key].values().next().value;
+      return uniqueValues[key]?.find(v => v.value === selectedValue)?.label || '1 selected';
+    }
+    return `${selectedCount} selected`;
+  };
+
   return (
     <div className="p-4 bg-card rounded-lg shadow mb-6 space-y-6">
       <div className="flex justify-between items-center mb-4">
@@ -103,25 +138,34 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
           return (
             <div key={key} className="space-y-1">
               <Label htmlFor={`filter-${key}`} className="text-sm font-medium">{label}</Label>
-              <Select
-                value={pendingDropdownFilters[key] || ALL_ITEMS_VALUE}
-                onValueChange={(value) => {
-                  setPendingDropdownFilters(prev => ({...prev, [key]: value}));
-                }}
-                disabled={disabled || (!hasOptions && allHeaders.length > 0)}
-              >
-                <SelectTrigger id={`filter-${key}`} className="w-full h-10 text-sm">
-                   <SelectValue placeholder={hasOptions ? placeholder : (allHeaders.length > 0 ? `No ${label} data` : 'Loading...')} />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value={ALL_ITEMS_VALUE}>All</SelectItem>
-                    {currentUniqueValues.map(val => (
-                        <SelectItem key={val.value} value={val.value}>
-                            {val.label}
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    id={`filter-${key}`}
+                    variant="outline"
+                    className="w-full justify-start font-normal h-10 text-sm"
+                    disabled={disabled || (!hasOptions && allHeaders.length > 0)}
+                  >
+                    <span className="truncate">{getButtonLabel(key, hasOptions ? placeholder : (allHeaders.length > 0 ? `No ${label} data` : 'Loading...'))}</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 p-0" align="start">
+                   <ScrollArea className="h-72">
+                        <div className="p-4">
+                        {currentUniqueValues.map(val => (
+                            <div key={val.value} className="flex items-center space-x-2 mb-2">
+                                <Checkbox
+                                    id={`${key}-${val.value}`}
+                                    checked={pendingDropdownFilters[key]?.has(val.value) || false}
+                                    onCheckedChange={(checked) => handleSelectionChange(key, val.value, !!checked)}
+                                />
+                                <Label htmlFor={`${key}-${val.value}`} className="font-normal truncate cursor-pointer">{val.label}</Label>
+                            </div>
+                        ))}
+                        </div>
+                   </ScrollArea>
+                </PopoverContent>
+              </Popover>
             </div>
           );
         })}
