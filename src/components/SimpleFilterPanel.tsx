@@ -63,7 +63,9 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
   }, [rawData, allHeaders]);
 
   const handlePendingDropdownChange = (column: string, value: string) => {
-    setPendingDropdownFilters(prev => ({ ...prev, [column]: value }));
+    // If the user selects the currently active filter, treat it as a deselect (set to 'All')
+    const deselecting = pendingDropdownFilters[column] === value;
+    setPendingDropdownFilters(prev => ({ ...prev, [column]: deselecting ? '' : value }));
     setOpenPopovers(prev => ({ ...prev, [column]: false }));
   };
 
@@ -138,6 +140,7 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
                       <CommandEmpty>No results found.</CommandEmpty>
                       <CommandGroup>
                         <CommandItem
+                          value="all"
                           onSelect={() => handlePendingDropdownChange(key, '')}
                         >
                           <Check
@@ -151,8 +154,8 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
                         {currentUniqueValues.map(val => (
                           <CommandItem
                             key={val.value}
-                            value={val.label}
-                            onSelect={() => handlePendingDropdownChange(key, val.value)}
+                            value={val.value}
+                            onSelect={(currentValue) => handlePendingDropdownChange(key, currentValue)}
                           >
                             <Check
                               className={cn(
