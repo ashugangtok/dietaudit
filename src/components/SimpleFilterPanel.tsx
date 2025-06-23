@@ -1,3 +1,4 @@
+
 "use client";
 
 import type React from 'react';
@@ -18,6 +19,8 @@ const FILTERABLE_COLUMNS = [
   { key: 'class_name', label: 'Class Name', placeholder: 'Select Class...'},
   { key: 'meal_start_time', label: 'Meal Start Time', placeholder: 'Select Time...'},
 ];
+
+const ALL_ITEMS_VALUE = '--all--';
 
 interface SimpleFilterPanelProps {
   rawData: DietDataRow[];
@@ -43,7 +46,7 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
       if (applied) {
         initialDropdowns[key] = String(applied.value).toLowerCase();
       } else {
-        initialDropdowns[key] = '';
+        initialDropdowns[key] = ALL_ITEMS_VALUE;
       }
     });
     setPendingDropdownFilters(initialDropdowns);
@@ -66,7 +69,7 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
     if (disabled) return;
     const newCombinedFilters: FilterOption[] = [];
     Object.entries(pendingDropdownFilters).forEach(([column, value]) => {
-      if (value && FILTERABLE_COLUMNS.some(fc => fc.key === column)) {
+      if (value && value !== ALL_ITEMS_VALUE && FILTERABLE_COLUMNS.some(fc => fc.key === column)) {
         const originalLabel = uniqueValues[column]?.find(v => v.value === value)?.label || value;
         newCombinedFilters.push({ column, value: originalLabel, type: 'equals' });
       }
@@ -101,7 +104,7 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
             <div key={key} className="space-y-1">
               <Label htmlFor={`filter-${key}`} className="text-sm font-medium">{label}</Label>
               <Select
-                value={pendingDropdownFilters[key] || ''}
+                value={pendingDropdownFilters[key] || ALL_ITEMS_VALUE}
                 onValueChange={(value) => {
                   setPendingDropdownFilters(prev => ({...prev, [key]: value}));
                 }}
@@ -111,7 +114,7 @@ const SimpleFilterPanel: React.FC<SimpleFilterPanelProps> = ({
                    <SelectValue placeholder={hasOptions ? placeholder : (allHeaders.length > 0 ? `No ${label} data` : 'Loading...')} />
                 </SelectTrigger>
                 <SelectContent>
-                    <SelectItem value="">All</SelectItem>
+                    <SelectItem value={ALL_ITEMS_VALUE}>All</SelectItem>
                     {currentUniqueValues.map(val => (
                         <SelectItem key={val.value} value={val.value}>
                             {val.label}
